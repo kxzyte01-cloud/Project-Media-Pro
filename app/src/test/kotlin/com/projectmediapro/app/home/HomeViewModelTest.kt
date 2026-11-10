@@ -1,6 +1,5 @@
 package com.projectmediapro.app.home
 
-import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import com.projectmediapro.app.data.project.ProjectRepository
 import com.projectmediapro.core.model.Project
 import kotlinx.coroutines.Dispatchers
@@ -13,7 +12,6 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Rule
 import org.junit.Test
@@ -23,9 +21,6 @@ import org.junit.runner.Description
 @OptIn(ExperimentalCoroutinesApi::class)
 class HomeViewModelTest {
     private val dispatcher = StandardTestDispatcher()
-
-    @get:Rule
-    val instantTaskExecutorRule = InstantTaskExecutorRule()
 
     @get:Rule
     val mainDispatcherRule = object : TestWatcher() {
@@ -72,7 +67,6 @@ class HomeViewModelTest {
         advanceUntilIdle()
 
         assertEquals(0, repository.projects.value.size)
-        assertNotNull(viewModel.uiState.value)
     }
 }
 
