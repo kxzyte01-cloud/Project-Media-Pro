@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.projectmediapro.app.data.project.ProjectRepository
 import com.projectmediapro.core.model.Project
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -54,21 +55,30 @@ class HomeViewModel(
         if (_uiState.value.isCreating) return
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isCreating = true, error = null)
-            val result = runCatching { repository.createProject(cleanTitle) }
-            _uiState.value = _uiState.value.copy(
-                isCreating = false,
-                error = if (result.isFailure) HomeError.CREATE_FAILED else null,
-            )
-            result.getOrNull()?.let { onCreated(it.id) }
+            try {
+                val project = repository.createProject(cleanTitle)
+                _uiState.value = _uiState.value.copy(isCreating = false, error = null)
+                onCreated(project.id)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _uiState.value = _uiState.value.copy(
+                    isCreating = false,
+                    error = HomeError.CREATE_FAILED,
+                )
+            }
         }
     }
 
     fun deleteProject(id: String) {
         viewModelScope.launch {
-            runCatching { repository.deleteProject(id) }
-                .onFailure {
-                    _uiState.value = _uiState.value.copy(error = HomeError.DELETE_FAILED)
-                }
+            try {
+                repository.deleteProject(id)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _uiState.value = _uiState.value.copy(error = HomeError.DELETE_FAILED)
+            }
         }
     }
 
