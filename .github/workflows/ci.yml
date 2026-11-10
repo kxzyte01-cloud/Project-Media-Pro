@@ -11,8 +11,8 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -35,11 +35,11 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
         with:
-          gradle-version: "9.5.0"
+          gradle-version: "9.6.0"
           cache-provider: basic
 
-      - name: Run Lint, Unit Tests, and Assemble Debug + Release APKs
-        run: gradle lintDebug :core:model:test testDebugUnitTest assembleDebug assembleRelease
+      - name: Run lint, all module unit tests, and assemble Debug + Release APKs
+        run: gradle lintDebug :core:model:test :core:designsystem:testDebugUnitTest testDebugUnitTest assembleDebug assembleRelease
 
       - name: Guard against INTERNET permission in debug and release APKs
         run: |
@@ -60,3 +60,4 @@ jobs:
         with:
           name: project-media-pro-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
