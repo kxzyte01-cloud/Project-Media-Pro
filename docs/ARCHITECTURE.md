@@ -4,7 +4,7 @@ Project Media Pro uses a modular, additive architecture so future steps can be a
 
 ## Module Structure
 
-- **`:app`** — Android app module (`compileSdk = 37`, `targetSdk = 36`, `minSdk = 26`). Contains `MainActivity`, `MediaProApplication`, `AppContainer` (manual dependency container), `AppNavHost` (single-file route definitions), feature packages (`home`, `settings`), and Android resources.
+- **`:app`** — Android app module (`compileSdk = 37`, `targetSdk = 36`, `minSdk = 26`). Contains `MainActivity`, `MediaProApplication`, `AppContainer` (manual dependency container), `AppNavHost` (single-file route definitions), feature packages (`home`, `editor`, `settings`), and Android resources.
 - **`:core:model`** — Pure Kotlin/JVM module (`org.jetbrains.kotlin.jvm`) with zero Android imports. Defines versioned models (`Project`, `Track`, `Clip`, `Template`, `Slot`, `SlotType`) and `ProjectSerializer` (`kotlinx.serialization` JSON with `schemaVersion` checks and `ignoreUnknownKeys = true`).
 - **`:core:designsystem`** — Android library module (`com.android.library`, `compileSdk = 37`, `minSdk = 26`). Contains WCAG-compliant colors (`MediaProTokens`), spacing/shape tokens (`MediaProSpacing`, `MediaProShapes`), system-font typography (`MediaProTypography`), `ProjectMediaProTheme`, and reusable components (`MediaProTopBar`, `SectionHeader`).
 - **`:core:engine` (Planned for Step 3+)** — Future Android library module wrapping AndroidX Media3 (`ExoPlayer` for preview in Step 3 and `Transformer` for export in Step 4) behind Kotlin interfaces.
