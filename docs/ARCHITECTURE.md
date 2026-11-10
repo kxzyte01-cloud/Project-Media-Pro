@@ -7,7 +7,7 @@ Project Media Pro uses a modular, additive architecture so future steps can be a
 - **`:app`** — Android app module (`compileSdk = 37`, `targetSdk = 36`, `minSdk = 26`). Contains `MainActivity`, `MediaProApplication`, `AppContainer` (manual dependency container), `AppNavHost` (single-file route definitions), feature packages (`home`, `editor`, `settings`), and Android resources.
 - **`:core:model`** — Pure Kotlin/JVM module (`org.jetbrains.kotlin.jvm`) with zero Android imports. Defines versioned models (`Project`, `Track`, `Clip`, `Template`, `Slot`, `SlotType`) and `ProjectSerializer` (`kotlinx.serialization` JSON with `schemaVersion` checks and `ignoreUnknownKeys = true`).
 - **`:core:designsystem`** — Android library module (`com.android.library`, `compileSdk = 37`, `minSdk = 26`). Contains WCAG-compliant colors (`MediaProTokens`), spacing/shape tokens (`MediaProSpacing`, `MediaProShapes`), system-font typography (`MediaProTypography`), `ProjectMediaProTheme`, and reusable components (`MediaProTopBar`, `SectionHeader`).
-- **`:core:engine` (Planned for Step 3+)** — Future Android library module wrapping AndroidX Media3 (`ExoPlayer` for preview in Step 3 and `Transformer` for export in Step 4) behind Kotlin interfaces.
+- **Media playback (current app implementation)** — `app/editor` uses Android Photo Picker and AndroidX Media3 ExoPlayer for local video import and preview. A dedicated `:core:engine` module remains planned for shared playback and export abstractions.
 
 ## Unidirectional Data Flow (UDF) & Wiring
 
@@ -29,12 +29,18 @@ Project Media Pro uses a modular, additive architecture so future steps can be a
 1. **Add new files:** In Step 6, create the slot handler/validator file in the template feature package.
 2. **One registration entry:** Add one enum entry to `SlotType` in `core/model/src/main/kotlin/com/projectmediapro/core/model/Slot.kt`. `ProjectSerializer` and `Template` handle it automatically.
 
+## Current Working Flow
+
+- Home creates, lists, reopens, and deletes local project JSON files through `ProjectRepository`.
+- Editor imports videos through Android Photo Picker, retains a persistable URI grant when supported or copies the media into app-private storage, and previews it with Media3 ExoPlayer.
+- The current editor is an import-and-preview foundation. It does not yet provide timeline editing or export.
+
 ## Roadmap Alignment
 
-- **Step 0:** Foundations
+- **Step 0:** Foundations (done)
 - **Step 1:** App shell (done)
-- **Step 2:** Project data and local save
-- **Step 3:** Import (Photo Picker), preview and timeline view
+- **Step 2:** Project data and local save (create/list/open/delete implemented; rename/duplicate remain)
+- **Step 3:** Photo Picker import and preview implemented; timeline view remains
 - **Step 4:** Export with Media3 Transformer, tested on a real phone
 - **Step 5:** Basic edits, overlay tracks (PiP, GIF), and ordered audio tracks
 - **Step 6:** Templates
