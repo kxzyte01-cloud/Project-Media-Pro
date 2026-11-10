@@ -8,15 +8,17 @@ import com.projectmediapro.core.model.Project
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
 
 data class HomeUiState(
     val projects: List<Project> = emptyList(),
+    val isLoading: Boolean = true,
     val isCreating: Boolean = false,
     val error: HomeError? = null,
 )
 
-enum class HomeError { CREATE_FAILED, DELETE_FAILED, INVALID_TITLE }
+enum class HomeError { LOAD_FAILED, CREATE_FAILED, DELETE_FAILED, INVALID_TITLE }
 
 /** Owns the local project list and project creation/deletion operations. */
 class HomeViewModel(
@@ -27,30 +29,46 @@ class HomeViewModel(
 
     init {
         viewModelScope.launch {
-            repository.observeProjects().collect { projects ->
-                _uiState.value = _uiState.value.copy(projects = projects)
-            }
+            repository.observeProjects()
+                .catch {
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        error = HomeError.LOAD_FAILED,
+                    )
+                }
+                .collect { projects ->
+                    _uiState.value = _uiState.value.copy(
+                        projects = projects,
+                        isLoading = false,
+                    )
+                }
         }
     }
 
     fun createProject(title: String, onCreated: (String) -> Unit) {
-        if (title.isBlank() || title.trim().length > MAX_TITLE_LENGTH) {
+        val cleanTitle = title.trim()
+        if (cleanTitle.isEmpty() || cleanTitle.length > MAX_TITLE_LENGTH) {
             _uiState.value = _uiState.value.copy(error = HomeError.INVALID_TITLE)
             return
         }
+        if (_uiState.value.isCreating) return
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isCreating = true, error = null)
-            runCatching { repository.createProject(title) }
-                .onSuccess { project -> onCreated(project.id) }
-                .onFailure { _uiState.value = _uiState.value.copy(error = HomeError.CREATE_FAILED) }
-            _uiState.value = _uiState.value.copy(isCreating = false)
+            val result = runCatching { repository.createProject(cleanTitle) }
+            _uiState.value = _uiState.value.copy(
+                isCreating = false,
+                error = if (result.isFailure) HomeError.CREATE_FAILED else null,
+            )
+            result.getOrNull()?.let { onCreated(it.id) }
         }
     }
 
     fun deleteProject(id: String) {
         viewModelScope.launch {
             runCatching { repository.deleteProject(id) }
-                .onFailure { _uiState.value = _uiState.value.copy(error = HomeError.DELETE_FAILED) }
+                .onFailure {
+                    _uiState.value = _uiState.value.copy(error = HomeError.DELETE_FAILED)
+                }
         }
     }
 
