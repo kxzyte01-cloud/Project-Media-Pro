@@ -35,7 +35,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
         with:
-          gradle-version: "9.5.0"
+          gradle-version: "9.6.0"
           cache-provider: basic
 
       - name: Run lint, all module unit tests, and assemble Debug + Release APKs
