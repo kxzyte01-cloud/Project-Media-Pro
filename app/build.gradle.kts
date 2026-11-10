@@ -41,6 +41,7 @@ android {
 }
 
 dependencies {
+    implementation(platform(libs.androidx.compose.bom))
     implementation(project(":core:model"))
     implementation(project(":core:designsystem"))
 
