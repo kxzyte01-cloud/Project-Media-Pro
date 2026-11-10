@@ -28,6 +28,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.projectmediapro.app.R
+import com.projectmediapro.core.model.TrackKind
 import com.projectmediapro.core.designsystem.component.MediaProTopBar
 
 @Composable
@@ -42,7 +43,7 @@ fun EditorScreen(
         onResult = { uri -> uri?.let(onImportVideo) },
     )
     val latestVideo = uiState.project?.tracks
-        ?.firstOrNull { track -> track.kind.name == "VIDEO" }
+        ?.firstOrNull { track -> track.kind == TrackKind.VIDEO }
         ?.clips?.lastOrNull()?.sourceUri
 
     Scaffold(
