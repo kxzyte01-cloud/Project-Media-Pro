@@ -4,12 +4,13 @@ Project Media Pro is an open-source, offline-first native Android video editor w
 
 ## Project Status
 
-**Early Development (Steps 0 & 1 — Foundations & App Shell).**
-This repository currently contains the foundational multi-module architecture (`:app`, `:core:model`, `:core:designsystem`), the versioned project/template JSON serialization model, the design system, and the Home and Settings screens. Video import, timeline editing, templates, and media export are planned in upcoming steps (see `docs/ROADMAP.md`).
+**Early Development — first usable project and preview flow.**
+The app supports local project creation, listing, reopening and deletion; video selection through Android Photo Picker; and native Media3 video preview. Timeline editing, trimming, effects, templates and export are still in development (see `docs/ROADMAP.md`).
 
 ## Privacy & Offline Guarantee
 
-- **No network access:** The app does not request `android.permission.INTERNET` (enforced by CI).\n- **Gallery privacy:** Video selection uses Android Photo Picker; the app does not request broad gallery/storage permissions. Selected media is retained through a persistable grant or copied into app-private storage.
+- **No network access:** The app does not request `android.permission.INTERNET` (enforced by CI).
+- **Gallery privacy:** Video selection uses Android Photo Picker; the app does not request broad gallery/storage permissions. Selected media is retained through a persistable grant or copied into app-private storage.
 - **No telemetry:** Zero analytics, ads, crash reporters, remote fonts, or remote assets.
 - **No cloud backups:** `android:allowBackup="false"` is set in the manifest.
 
