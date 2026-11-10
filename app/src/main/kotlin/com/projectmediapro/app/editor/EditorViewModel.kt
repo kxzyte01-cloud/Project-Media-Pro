@@ -11,6 +11,7 @@ import com.projectmediapro.core.model.Project
 import com.projectmediapro.core.model.Track
 import com.projectmediapro.core.model.TrackKind
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -36,12 +37,21 @@ class EditorViewModel(
 
     init {
         viewModelScope.launch {
-            val project = runCatching { repository.getProject(projectId) }.getOrNull()
-            _uiState.value = EditorUiState(
-                project = project,
-                isLoading = false,
-                error = if (project == null) EditorError.PROJECT_NOT_FOUND else null,
-            )
+            try {
+                val project = repository.getProject(projectId)
+                _uiState.value = EditorUiState(
+                    project = project,
+                    isLoading = false,
+                    error = if (project == null) EditorError.PROJECT_NOT_FOUND else null,
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _uiState.value = EditorUiState(
+                    isLoading = false,
+                    error = EditorError.PROJECT_NOT_FOUND,
+                )
+            }
         }
     }
 
@@ -54,7 +64,7 @@ class EditorViewModel(
                 return@launch
             }
             _uiState.value = _uiState.value.copy(isImporting = true, error = null)
-            val result = runCatching {
+            try {
                 val imported = videoImportDataSource.importVideo(uri)
                 val videoTrack = current.tracks.firstOrNull { it.kind == TrackKind.VIDEO }
                 val existingClips = videoTrack?.clips.orEmpty()
@@ -76,16 +86,24 @@ class EditorViewModel(
                         if (track.id == videoTrack.id) track.copy(clips = track.clips + clip) else track
                     }
                 }
-                current.copy(
+                val updated = current.copy(
                     tracks = tracks,
                     updatedAtEpochMs = System.currentTimeMillis(),
-                ).also { repository.saveProject(it) }
+                )
+                repository.saveProject(updated)
+                _uiState.value = _uiState.value.copy(
+                    project = updated,
+                    isImporting = false,
+                    error = null,
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                _uiState.value = _uiState.value.copy(
+                    isImporting = false,
+                    error = EditorError.IMPORT_FAILED,
+                )
             }
-            _uiState.value = _uiState.value.copy(
-                project = result.getOrNull() ?: current,
-                isImporting = false,
-                error = if (result.isFailure) EditorError.IMPORT_FAILED else null,
-            )
         }
     }
 
