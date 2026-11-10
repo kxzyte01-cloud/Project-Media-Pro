@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Scales the foreground mark (368x150 inside 512x512) to fit comfortably within the 66dp safe zone -->
+    <group
+        android:scaleX="0.16"
+        android:scaleY="0.16"
+        android:translateX="13.04"
+        android:translateY="13.04">
+        <group>
+            <clip-path android:pathData="M100,181 L412,181 A28,28 0 0 1 440,209 L440,253 A28,28 0 0 1 412,281 L100,281 A28,28 0 0 1 72,253 L72,209 A28,28 0 0 1 100,181 Z" />
+            <path
+                android:fillColor="#2F80ED"
+                android:pathData="M72,181h84v100h-84z" />
+            <path
+                android:fillColor="#F5F7FA"
+                android:pathData="M164,181h184v100h-184z" />
+            <path
+                android:fillColor="#E5484D"
+                android:pathData="M356,181h84v100h-84z" />
+        </group>
+        <path
+            android:fillColor="#111418"
+            android:pathData="M238,207 L238,255 L282,231 Z" />
+        <path
+            android:fillColor="#3A4452"
+            android:pathData="M140,307 L372,307 A12,12 0 0 1 384,319 A12,12 0 0 1 372,331 L140,331 A12,12 0 0 1 128,319 A12,12 0 0 1 140,307 Z" />
+    </group>
+</vector>
+
