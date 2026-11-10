@@ -1,0 +1,27 @@
+# Gradle and build outputs
+.gradle/
+build/
+**/build/
+out/
+
+# Local configuration and IDE files
+local.properties
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Keystores, signing keys, and secrets (strictly forbidden in repo)
+*.jks
+*.keystore
+*.key
+*.pem
+*.p12
+google-services.json
+secrets.properties
+keystore.properties
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
