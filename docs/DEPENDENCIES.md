@@ -25,10 +25,14 @@ Every third-party plugin and library used in Project Media Pro is listed below. 
 | Jetpack Compose BOM | `androidx.compose:compose-bom` | `2026.09.00` | Apache-2.0 | Aligns all Jetpack Compose UI, Graphics, Tooling, and Material 3 versions. |
 | Jetpack Compose UI | `androidx.compose.ui:ui` | Managed by BOM | Apache-2.0 | Core Compose layout, drawing, and input primitives. |
 | Jetpack Compose UI Graphics | `androidx.compose.ui:ui-graphics` | Managed by BOM | Apache-2.0 | Color and vector graphics primitives for the design system. |
-| Jetpack Compose UI Tooling Preview | `androidx.compose.ui:ui-tooling-preview` | Managed by BOM | Apache-2.0 | Preview annotations for stateless design system components. |\n| Jetpack Compose UI Tooling | `androidx.compose.ui:ui-tooling` | Managed by BOM | Apache-2.0 | Debug-only tooling required for Android Studio Compose previews. |
+| Jetpack Compose UI Tooling Preview | `androidx.compose.ui:ui-tooling-preview` | Managed by BOM | Apache-2.0 | Preview annotations for stateless design system components. |
+| Jetpack Compose UI Tooling | `androidx.compose.ui:ui-tooling` | Managed by BOM | Apache-2.0 | Debug-only tooling required for Android Studio Compose previews. |
 | Jetpack Compose Material 3 | `androidx.compose.material3:material3` | Managed by BOM | Apache-2.0 | Material 3 components (`Scaffold`, `TopAppBar`, `RadioButton`, `Surface`, `Text`, `IconButton`). |
 | Kotlinx Serialization JSON | `org.jetbrains.kotlinx:kotlinx-serialization-json` | `1.12.0` | Apache-2.0 | Reflection-free JSON serialization for `Project` and `Template` models in `:core:model`. |
-| Kotlinx Coroutines Core | `org.jetbrains.kotlinx:kotlinx-coroutines-core` | `1.11.0` | Apache-2.0 | `StateFlow`, `Flow`, and structured concurrency for ViewModels and DataStore. |\n| Kotlinx Coroutines Android | `org.jetbrains.kotlinx:kotlinx-coroutines-android` | `1.11.0` | Apache-2.0 | Supplies the Android Main dispatcher used by lifecycle-scoped ViewModel coroutines. |\n| AndroidX Media3 ExoPlayer | `androidx.media3:media3-exoplayer` | `1.11.1` | Apache-2.0 | Local video playback for the editor preview. |\n| AndroidX Media3 UI | `androidx.media3:media3-ui` | `1.11.1` | Apache-2.0 | Provides the native PlayerView used to display the video preview. |
+| Kotlinx Coroutines Core | `org.jetbrains.kotlinx:kotlinx-coroutines-core` | `1.11.0` | Apache-2.0 | `StateFlow`, `Flow`, and structured concurrency for ViewModels and DataStore. |
+| Kotlinx Coroutines Android | `org.jetbrains.kotlinx:kotlinx-coroutines-android` | `1.11.0` | Apache-2.0 | Supplies the Android Main dispatcher used by lifecycle-scoped ViewModel coroutines. |
+| AndroidX Media3 ExoPlayer | `androidx.media3:media3-exoplayer` | `1.11.1` | Apache-2.0 | Local video playback for the editor preview. |
+| AndroidX Media3 UI | `androidx.media3:media3-ui` | `1.11.1` | Apache-2.0 | Provides the native PlayerView used to display the video preview. |
 
 ## Test-Only Libraries
 
