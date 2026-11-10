@@ -6,8 +6,8 @@ Every third-party plugin and library used in Project Media Pro is listed below. 
 
 | Name | Artifact / Plugin ID | Version | License | Reason |
 | :--- | :--- | :--- | :--- | :--- |
-| Android Gradle Plugin (Application) | `com.android.application` | `9.3.3` | Apache-2.0 | Builds and packages the `:app` Android application module (includes built-in Kotlin support). |
-| Android Gradle Plugin (Library) | `com.android.library` | `9.3.3` | Apache-2.0 | Builds the `:core:designsystem` Android library module (includes built-in Kotlin support). |
+| Android Gradle Plugin (Application) | `com.android.application` | `9.3.1` | Apache-2.0 | Builds and packages the `:app` Android application module (includes built-in Kotlin support). |
+| Android Gradle Plugin (Library) | `com.android.library` | `9.3.1` | Apache-2.0 | Builds the `:core:designsystem` Android library module (includes built-in Kotlin support). |
 | Kotlin JVM Gradle Plugin | `org.jetbrains.kotlin.jvm` | `2.4.20` | Apache-2.0 | Compiles the pure Kotlin/JVM `:core:model` module without Android dependencies. |
 | Kotlin Compose Compiler Plugin | `org.jetbrains.kotlin.plugin.compose` | `2.4.20` | Apache-2.0 | Official Kotlin compiler plugin for Jetpack Compose UI generation. |
 | Kotlin Serialization Compiler Plugin | `org.jetbrains.kotlin.plugin.serialization` | `2.4.20` | Apache-2.0 | Generates compile-time serializers for `@Serializable` classes in `:core:model`. |
