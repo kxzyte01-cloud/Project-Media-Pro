@@ -2,25 +2,32 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, kxzyte01-pr-mode-7]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: project-media-pro-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    name: Verify and build APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Guard against forbidden secret files
+        shell: bash
         run: |
           set -euo pipefail
-          FOUND=$(find . -type f \( -name "*.jks" -o -name "*.keystore" -o -name "*.p12" -o -name "*.pfx" -o -name "*.pem" -o -name "google-services.json" -o -name "local.properties" \) -print -quit)
+          FOUND=$(find . -type f \\( -name "*.jks" -o -name "*.keystore" -o -name "*.p12" -o -name "*.pfx" -o -name "*.pem" -o -name "google-services.json" -o -name "local.properties" \\) -print -quit)
           if [ -n "$FOUND" ]; then
             echo "Error: Forbidden secret or keystore file found in repository: $FOUND"
             exit 1
@@ -32,31 +39,42 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Gradle
+      - name: Set up Gradle 8.7
         uses: gradle/actions/setup-gradle@v6
         with:
-          gradle-version: "9.5.0"
+          gradle-version: "8.7"
           cache-provider: basic
 
-      - name: Run Lint, Unit Tests, and Assemble Debug + Release APKs
-        run: gradle lintDebug :core:model:test testDebugUnitTest assembleDebug assembleRelease
+      - name: Run lint, all module unit tests, and build APKs
+        run: |
+          gradle \\
+            :app:lintDebug \\
+            :core:model:lintDebug \\
+            :core:designsystem:lintDebug \\
+            :core:model:testDebugUnitTest \\
+            :core:designsystem:testDebugUnitTest \\
+            :app:testDebugUnitTest \\
+            :app:assembleDebug \\
+            :app:assembleRelease
 
-      - name: Guard against INTERNET permission in debug and release APKs
+      - name: Verify offline permission policy in APKs
+        shell: bash
         run: |
           set -euo pipefail
-          AAPT2=$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools" -name aapt2 2>/dev/null | sort -V | tail -n 1)
-          test -x "$AAPT2"
-          for APK_PATH in app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/release/app-release-unsigned.apk; do
-            test -f "$APK_PATH"
-            PERMS=$("$AAPT2" dump permissions "$APK_PATH")
-            if grep -q "android.permission.INTERNET" <<< "$PERMS"; then
-              echo "Error: $APK_PATH requests android.permission.INTERNET, violating the offline privacy rule."
+          aapt2=$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools" -name aapt2 -type f | sort -V | tail -n 1)
+          test -x "$aapt2"
+          for apk in app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/release/app-release-unsigned.apk; do
+            test -f "$apk"
+            if "$aapt2" dump permissions "$apk" | grep -q "android.permission.INTERNET"; then
+              echo "Unexpected INTERNET permission in $apk"
               exit 1
             fi
           done
 
-      - name: Upload Debug APK
+      - name: Upload installable debug APK
         uses: actions/upload-artifact@v4
         with:
           name: project-media-pro-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
