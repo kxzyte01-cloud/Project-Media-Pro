@@ -27,7 +27,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          FOUND=$(find . -type f \\( -name "*.jks" -o -name "*.keystore" -o -name "*.p12" -o -name "*.pfx" -o -name "*.pem" -o -name "google-services.json" -o -name "local.properties" \\) -print -quit)
+          FOUND=$(find . -type f \( -name "*.jks" -o -name "*.keystore" -o -name "*.p12" -o -name "*.pfx" -o -name "*.pem" -o -name "google-services.json" -o -name "local.properties" \) -print -quit)
           if [ -n "$FOUND" ]; then
             echo "Error: Forbidden secret or keystore file found in repository: $FOUND"
             exit 1
@@ -47,14 +47,14 @@ jobs:
 
       - name: Run lint, all module unit tests, and build APKs
         run: |
-          gradle \\
-            :app:lintDebug \\
-            :core:model:lintDebug \\
-            :core:designsystem:lintDebug \\
-            :core:model:testDebugUnitTest \\
-            :core:designsystem:testDebugUnitTest \\
-            :app:testDebugUnitTest \\
-            :app:assembleDebug \\
+          gradle \
+            :app:lintDebug \
+            :core:model:lintDebug \
+            :core:designsystem:lintDebug \
+            :core:model:testDebugUnitTest \
+            :core:designsystem:testDebugUnitTest \
+            :app:testDebugUnitTest \
+            :app:assembleDebug \
             :app:assembleRelease
 
       - name: Verify offline permission policy in APKs
