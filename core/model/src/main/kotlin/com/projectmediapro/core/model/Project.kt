@@ -9,5 +9,10 @@ data class Project(
     val durationMs: Long = 0L,
     val tracks: List<Track> = emptyList(),
     val createdAt: Long = System.currentTimeMillis(),
-    val updatedAt: Long = System.currentTimeMillis()
-)
+    val updatedAt: Long = System.currentTimeMillis(),
+    val schemaVersion: Int = CURRENT_SCHEMA_VERSION,
+) {
+    companion object {
+        const val CURRENT_SCHEMA_VERSION = 1
+    }
+}
