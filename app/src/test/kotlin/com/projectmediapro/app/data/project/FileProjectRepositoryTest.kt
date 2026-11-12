@@ -255,6 +255,8 @@ class FileProjectRepositoryTest {
         assertEquals(listOf(original.id), repo.listProjects().map { it.id })
     }
 
+    // Proves that a permission failure while listing projects is reported as IOException, with the SecurityException kept in the cause chain.
+    // The chain is walked because coroutine stack-trace recovery (active in unit tests) wraps the exception in a copy.
     @Test
     fun listProjects_wrapsSecurityExceptionAsIOException() = runTest(testDispatcher) {
         val realDirectory = tempFolder.newFolder("projects")
@@ -274,6 +276,27 @@ class FileProjectRepositoryTest {
         }
 
         assertNotNull(thrown)
-        assertTrue(thrown?.cause is SecurityException)
+        val causeChain = generateSequence<Throwable>(thrown) { it.cause }
+        assertTrue(causeChain.any { it is SecurityException })
+    }
+
+    // Proves that a storage problem (the projects path is a plain file, not a folder) is reported as IOException, never as another crash type.
+    @Test
+    fun listProjects_reportsStorageProblemAsIOException() = runTest(testDispatcher) {
+        val notADirectory = tempFolder.newFile("projects")
+        val repo = FileProjectRepository(
+            directory = notADirectory,
+            ioDispatcher = testDispatcher,
+        )
+
+        var thrown: IOException? = null
+        try {
+            repo.listProjects()
+        } catch (failure: IOException) {
+            thrown = failure
+        }
+
+        assertNotNull(thrown)
+        assertTrue(notADirectory.isFile)
     }
 }
