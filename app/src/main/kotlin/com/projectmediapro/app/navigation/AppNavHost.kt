@@ -22,7 +22,8 @@ import com.projectmediapro.app.settings.SettingsScreen
 import com.projectmediapro.app.settings.SettingsViewModel
 
 /**
- * Single source of truth for all navigation routes in the application. */
+ * Single source of truth for all navigation routes in the application.
+ */
 object AppRoutes {
     const val HOME = "home"
     const val SETTINGS = "settings"
@@ -91,12 +92,15 @@ fun AppNavHost(
             val viewModel: EditorViewModel = viewModel(
                 factory = EditorViewModel.provideFactory(
                     projectId = projectId,
-                    projectRepository = container.projectRepository,
+                    repository = container.projectRepository,
+                    videoImporter = container.videoImporter,
+                    mediaStorage = container.mediaStorage,
                 ),
             )
             val uiState by viewModel.uiState.collectAsStateWithLifecycle()
             EditorScreen(
                 uiState = uiState,
+                onEvent = viewModel::onEvent,
                 onNavigateBack = { navController.popBackStack() },
             )
         }

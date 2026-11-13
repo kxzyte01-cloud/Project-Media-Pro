@@ -1,5 +1,6 @@
 package com.projectmediapro.app.data.project
 
+import com.projectmediapro.app.data.media.ProjectMediaStorage
 import com.projectmediapro.core.model.Project
 import com.projectmediapro.core.model.ProjectSerializer
 import com.projectmediapro.core.model.Track
@@ -26,6 +27,7 @@ class FileProjectRepository(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val idProvider: () -> String = { UUID.randomUUID().toString() },
     private val clock: () -> Long = System::currentTimeMillis,
+    private val mediaStorage: ProjectMediaStorage? = null,
 ) : ProjectRepository {
 
     private val mutex = Mutex()
@@ -141,6 +143,13 @@ class FileProjectRepository(
                     throw IOException("Could not delete project file: ${target.name}")
                 }
             }
+            try {
+                mediaStorage?.deleteProjectMedia(id)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Best-effort cleanup: media deletion failure must not make deleteProject fail.
+            }
         }
     }
 
@@ -181,7 +190,6 @@ class FileProjectRepository(
 
     private fun writeProjectAtomically(project: Project) {
         val targetFile = projectFile(project.id)
-        // A unique, same-directory staging file avoids temporary-path collisions between instances.
         val tempFile = File(directory, "$FILE_SUFFIX.${project.id}.${UUID.randomUUID()}.tmp")
 
         try {
@@ -191,7 +199,6 @@ class FileProjectRepository(
                 output.flush()
                 output.fd.sync()
             }
-            // Never fall back to a non-atomic overwrite: failure leaves the previous target intact.
             Files.move(
                 tempFile.toPath(),
                 targetFile.toPath(),
@@ -201,10 +208,8 @@ class FileProjectRepository(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
-            // Do not catch Throwable: fatal VM errors must not be disguised as ordinary I/O errors.
             throw IOException("Failed to write project atomically", failure)
         } finally {
-            // Best-effort cleanup; listProjects() ignores these unique staging files.
             try {
                 tempFile.delete()
             } catch (_: SecurityException) {

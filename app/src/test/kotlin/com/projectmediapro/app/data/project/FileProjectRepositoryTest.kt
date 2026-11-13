@@ -1,5 +1,6 @@
 package com.projectmediapro.app.data.project
 
+import com.projectmediapro.app.data.media.ProjectMediaStorage
 import com.projectmediapro.core.model.Project
 import com.projectmediapro.core.model.TrackType
 import java.io.File
@@ -127,24 +128,53 @@ class FileProjectRepositoryTest {
     }
 
     @Test
-    fun deleteProject_removesFile() = runTest(testDispatcher) {
-        val dir = tempFolder.newFolder("projects")
+    fun deleteProject_removesFileAndProjectMediaFolderWhileKeepingOtherProjectsMedia() = runTest(testDispatcher) {
+        val projectsDir = tempFolder.newFolder("projects")
+        val mediaDir = tempFolder.newFolder("media")
+        val mediaStorage = ProjectMediaStorage(mediaDir)
         var nextId = 1
         val repo = FileProjectRepository(
-            directory = dir,
+            directory = projectsDir,
             ioDispatcher = testDispatcher,
             idProvider = { "del-${nextId++}" },
+            mediaStorage = mediaStorage,
         )
 
-        val created = repo.createProject("To Delete")
-        val targetFile = File(dir, "${created.id}.pmp.json")
-        assertTrue(targetFile.exists())
+        val first = repo.createProject("First")
+        val second = repo.createProject("Second")
 
+        val firstClip = mediaStorage.resolve(mediaStorage.clipRelativePath(first.id, "c1", "mp4"))
+        val secondClip = mediaStorage.resolve(mediaStorage.clipRelativePath(second.id, "c1", "mp4"))
+        firstClip?.parentFile?.mkdirs()
+        firstClip?.writeText("video-1")
+        secondClip?.parentFile?.mkdirs()
+        secondClip?.writeText("video-2")
+
+        repo.deleteProject(first.id)
+
+        assertFalse(File(projectsDir, "${first.id}.pmp.json").exists())
+        assertFalse(File(mediaDir, first.id).exists())
+        assertTrue(File(mediaDir, second.id).exists())
+        assertTrue(secondClip?.isFile == true)
+    }
+
+    @Test
+    fun deleteProject_succeedsWhenProjectMediaFolderDoesNotExist() = runTest(testDispatcher) {
+        val projectsDir = tempFolder.newFolder("projects")
+        val mediaDir = File(tempFolder.root, "non-existent-media")
+        val mediaStorage = ProjectMediaStorage(mediaDir)
+        var nextId = 1
+        val repo = FileProjectRepository(
+            directory = projectsDir,
+            ioDispatcher = testDispatcher,
+            idProvider = { "nomedia-${nextId++}" },
+            mediaStorage = mediaStorage,
+        )
+
+        val created = repo.createProject("No Media Folder")
         repo.deleteProject(created.id)
 
-        assertFalse(targetFile.exists())
         assertNull(repo.getProject(created.id))
-        assertTrue(repo.listProjects().isEmpty())
     }
 
     @Test
@@ -255,8 +285,6 @@ class FileProjectRepositoryTest {
         assertEquals(listOf(original.id), repo.listProjects().map { it.id })
     }
 
-    // Proves that a permission failure while listing projects is reported as IOException, with the SecurityException kept in the cause chain.
-    // The chain is walked because coroutine stack-trace recovery (active in unit tests) wraps the exception in a copy.
     @Test
     fun listProjects_wrapsSecurityExceptionAsIOException() = runTest(testDispatcher) {
         val realDirectory = tempFolder.newFolder("projects")
@@ -280,7 +308,6 @@ class FileProjectRepositoryTest {
         assertTrue(causeChain.any { it is SecurityException })
     }
 
-    // Proves that a storage problem (the projects path is a plain file, not a folder) is reported as IOException, never as another crash type.
     @Test
     fun listProjects_reportsStorageProblemAsIOException() = runTest(testDispatcher) {
         val notADirectory = tempFolder.newFile("projects")
