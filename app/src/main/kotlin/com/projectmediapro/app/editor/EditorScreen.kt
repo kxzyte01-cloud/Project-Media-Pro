@@ -50,7 +50,6 @@ fun EditorScreen(
     ) { uri ->
         onEvent(EditorEvent.VideoPicked(uri?.toString()))
     }
-
     val topBarTitle = when (uiState) {
         is EditorUiState.Loaded -> uiState.project.title
         EditorUiState.Loading -> stringResource(R.string.editor_loading_title)
@@ -74,49 +73,39 @@ fun EditorScreen(
         },
     ) { innerPadding ->
         when (uiState) {
-            EditorUiState.Loading -> {
-                CenteredEditorStatus(
-                    modifier = Modifier.padding(innerPadding),
-                ) {
-                    CircularProgressIndicator()
-                    Text(
-                        text = stringResource(R.string.editor_loading),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = MediaProSpacing.Small),
-                    )
-                }
-            }
-            EditorUiState.NotFound -> {
-                CenteredEditorStatus(modifier = Modifier.padding(innerPadding)) {
-                    Text(
-                        text = stringResource(R.string.editor_not_found),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            EditorUiState.Error -> {
-                CenteredEditorStatus(modifier = Modifier.padding(innerPadding)) {
-                    Text(
-                        text = stringResource(R.string.editor_load_failed),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-            }
-            is EditorUiState.Loaded -> {
-                LoadedEditorContent(
-                    state = uiState,
-                    onPickVideo = {
-                        videoPickerLauncher.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly),
-                        )
-                    },
-                    onEvent = onEvent,
-                    modifier = Modifier.padding(innerPadding),
+            EditorUiState.Loading -> CenteredStatus(Modifier.padding(innerPadding)) {
+                CircularProgressIndicator()
+                Text(
+                    text = stringResource(R.string.editor_loading),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = MediaProSpacing.Small),
                 )
             }
+            EditorUiState.NotFound -> CenteredStatus(Modifier.padding(innerPadding)) {
+                Text(
+                    text = stringResource(R.string.editor_not_found),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            EditorUiState.Error -> CenteredStatus(Modifier.padding(innerPadding)) {
+                Text(
+                    text = stringResource(R.string.editor_load_failed),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            is EditorUiState.Loaded -> LoadedEditorContent(
+                state = uiState,
+                onPickVideo = {
+                    videoPickerLauncher.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly),
+                    )
+                },
+                onEvent = onEvent,
+                modifier = Modifier.padding(innerPadding),
+            )
         }
     }
 }
@@ -128,11 +117,7 @@ private fun LoadedEditorContent(
     onEvent: (EditorEvent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val clips = state.project.tracks
-        .firstOrNull { it.type == TrackType.VIDEO }
-        ?.clips
-        .orEmpty()
-
+    val clips = state.project.tracks.firstOrNull { it.type == TrackType.VIDEO }?.clips.orEmpty()
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -152,37 +137,27 @@ private fun LoadedEditorContent(
                 Text(
                     text = stringResource(R.string.editor_empty),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Color.White.copy(alpha = 0.7f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
-                PreviewPlayer(
-                    previewPaths = state.previewPaths,
-                    modifier = Modifier.fillMaxSize(),
-                )
+                PreviewPlayer(previewPaths = state.previewPaths, modifier = Modifier.fillMaxSize())
             }
         }
-
         Spacer(modifier = Modifier.height(MediaProSpacing.Medium))
         Button(
             onClick = onPickVideo,
             enabled = !state.isImporting,
             shape = MediaProShapes.Small,
-            modifier = Modifier
-                .fillMaxWidth()
-                .defaultMinSize(minHeight = MediaProSpacing.MinTouchTarget),
+            modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = MediaProSpacing.MinTouchTarget),
         ) {
             if (state.isImporting) {
-                CircularProgressIndicator(
-                    strokeWidth = 2.dp,
-                    modifier = Modifier.size(18.dp),
-                )
+                CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(MediaProSpacing.Small))
                 Text(text = stringResource(R.string.editor_adding_video))
             } else {
                 Text(text = stringResource(R.string.editor_add_video))
             }
         }
-
         if (state.error != null) {
             Spacer(modifier = Modifier.height(MediaProSpacing.ExtraSmall))
             Text(
@@ -191,18 +166,11 @@ private fun LoadedEditorContent(
                 color = MaterialTheme.colorScheme.error,
             )
         }
-
         if (clips.isNotEmpty()) {
-            ClipList(
-                clips = clips,
-                onRequestRemoveClip = { clipId ->
-                    onEvent(EditorEvent.RequestRemoveClip(clipId))
-                },
-            )
+            ClipList(clips = clips, onRequestRemoveClip = { onEvent(EditorEvent.RequestRemoveClip(it)) })
         }
         Spacer(modifier = Modifier.height(MediaProSpacing.ExtraLarge))
     }
-
     val pendingIndex = clips.indexOfFirst { it.id == state.pendingRemoveClipId }
     if (pendingIndex >= 0) {
         RemoveClipDialog(
@@ -214,17 +182,10 @@ private fun LoadedEditorContent(
 }
 
 @Composable
-private fun CenteredEditorStatus(
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit,
-) {
+private fun CenteredStatus(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = MediaProSpacing.Medium),
-    ) {
-        content()
-    }
+        modifier = modifier.fillMaxSize().padding(horizontal = MediaProSpacing.Medium),
+    ) { content() }
 }

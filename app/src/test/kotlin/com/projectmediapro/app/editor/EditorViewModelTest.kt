@@ -61,12 +61,8 @@ class EditorViewModelTest {
         val missingVm = EditorViewModel("missing-id", repo, importer, mediaStorage)
         assertEquals(EditorUiState.NotFound, missingVm.uiState.value)
 
-        val failingVm = EditorViewModel(
-            projectId = "valid-id-1",
-            repository = FakeEditorProjectRepository(emptyList(), shouldFailLoad = true),
-            videoImporter = importer,
-            mediaStorage = mediaStorage,
-        )
+        val failingRepo = FakeEditorProjectRepository(emptyList(), shouldFailLoad = true)
+        val failingVm = EditorViewModel("valid-id-1", failingRepo, importer, mediaStorage)
         assertEquals(EditorUiState.Error, failingVm.uiState.value)
     }
 
@@ -80,13 +76,7 @@ class EditorViewModelTest {
         val repo = FakeEditorProjectRepository(listOf(initial))
         val importer = FakeVideoImporter(mediaStorage, nextDurationMs = 4_500L)
         var nextId = 1
-        val vm = EditorViewModel(
-            projectId = "proj-1",
-            repository = repo,
-            videoImporter = importer,
-            mediaStorage = mediaStorage,
-            idProvider = { "gen-${nextId++}" },
-        )
+        val vm = EditorViewModel("proj-1", repo, importer, mediaStorage) { "gen-${nextId++}" }
 
         vm.onEvent(EditorEvent.VideoPicked(null))
         assertEquals(0, importer.callCount)
@@ -119,7 +109,6 @@ class EditorViewModelTest {
             Reason.NOT_A_VIDEO to EditorError.IMPORT_NOT_A_VIDEO,
             Reason.NO_SPACE to EditorError.IMPORT_NO_SPACE,
         )
-
         for ((reason, expectedError) in cases) {
             importer.failureReason = reason
             vm.onEvent(EditorEvent.VideoPicked("content://media/picker/video"))
@@ -146,8 +135,7 @@ class EditorViewModelTest {
         assertEquals(initial, state.project)
         assertEquals(EditorError.SAVE_FAILED, state.error)
         assertFalse(state.isImporting)
-        val lastCopiedFile = mediaStorage.resolve(importer.lastRelativePath)
-        assertFalse(lastCopiedFile?.exists() == true)
+        assertFalse(mediaStorage.resolve(importer.lastRelativePath)?.exists() == true)
     }
 
     @Test
@@ -181,11 +169,8 @@ class EditorViewModelTest {
         runTest(testDispatcher) {
             val sharedRel = mediaStorage.clipRelativePath("proj-1", "shared", "mp4")
             val uniqueRel = mediaStorage.clipRelativePath("proj-1", "unique", "mp4")
-            val sharedFile = mediaStorage.resolve(sharedRel)
-            val uniqueFile = mediaStorage.resolve(uniqueRel)
-            sharedFile?.parentFile?.mkdirs()
-            sharedFile?.writeText("shared-bytes")
-            uniqueFile?.writeText("unique-bytes")
+            val sharedFile = mediaStorage.resolve(sharedRel)?.apply { parentFile?.mkdirs(); writeText("s") }
+            val uniqueFile = mediaStorage.resolve(uniqueRel)?.apply { parentFile?.mkdirs(); writeText("u") }
 
             val c1 = Clip(id = "c1", mediaUri = sharedRel, startTimeMs = 0L, durationMs = 2_000L)
             val c2 = Clip(id = "c2", mediaUri = sharedRel, startTimeMs = 2_000L, durationMs = 2_000L)
@@ -239,14 +224,10 @@ private class FakeVideoImporter(
     override suspend fun importVideo(projectId: String, sourceUri: String): ImportedVideo {
         callCount++
         failureReason?.let { throw VideoImportException(it) }
-        if (deferredResult != null) {
-            return deferredResult.await()
-        }
+        deferredResult?.let { return it.await() }
         val rel = storage.clipRelativePath(projectId, "imported-$callCount", "mp4")
         lastRelativePath = rel
-        val file = storage.resolve(rel)
-        file?.parentFile?.mkdirs()
-        file?.writeText("fake-video-content")
+        storage.resolve(rel)?.apply { parentFile?.mkdirs(); writeText("fake-video") }
         return ImportedVideo(relativePath = rel, durationMs = nextDurationMs)
     }
 }
@@ -257,51 +238,16 @@ private class FakeEditorProjectRepository(
     var shouldFailSave: Boolean = false,
 ) : ProjectRepository {
     private val map = initialProjects.associateBy { it.id }.toMutableMap()
-
     override suspend fun listProjects(): List<Project> = map.values.toList()
-
-    override suspend fun getProject(id: String): Project? {
-        if (shouldFailLoad) throw IOException("Storage read failed")
-        return map[id]
-    }
-
-    override suspend fun createProject(title: String): Project {
-        val project = Project(id = "new-id", title = title)
-        map[project.id] = project
-        return project
-    }
-
+    override suspend fun getProject(id: String): Project? =
+        if (shouldFailLoad) throw IOException("Read failed") else map[id]
+    override suspend fun createProject(title: String): Project =
+        Project(id = "new-id", title = title).also { map[it.id] = it }
     override suspend fun saveProject(project: Project) {
-        if (shouldFailSave) throw IOException("Storage write failed")
+        if (shouldFailSave) throw IOException("Write failed")
         map[project.id] = project
     }
-
     override suspend fun deleteProject(id: String) {
         map.remove(id)
     }
 }
-
-======================================================================
-SELF-AUDIT
-======================================================================
-(a) APIs not 100% certain in the fixed toolchain versions:
-- androidx.lifecycle.compose.LocalLifecycleOwner was introduced in Lifecycle 2.8.0 and is present in lifecycle-runtime-compose:2.8.4.
-- ActivityResultContracts.PickVisualMedia and PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly) are included in androidx.activity:activity-compose:1.9.1 (transitively via activity-ktx:1.9.1).
-- ExoPlayer.Builder(context).build(), MediaItem.fromUri(Uri), and PlayerView are stable APIs in Media3 1.4.1 and do not require @OptIn(UnstableApi::class).
-
-(b) Anything that may not compile or may fail lint:
-- Not executed locally; verified imports, resource names, and @OptIn usage by inspection. No @UnstableApi symbols from Media3 are referenced, so Media3 UnsafeOptInUsageError lint checks will not trigger.
-
-(c) The 3 places a reviewer is most likely to find a bug:
-1. Cancellation between importVideo completion and saveProject in EditorViewModel.handleVideoPicked: If viewModelScope is cancelled right after videoImporter.importVideo returns imported (for example while waiting on changeMutex), a naive implementation would leak the newly copied file. This is guarded by catching CancellationException around the changeMutex.withLock block and calling mediaStorage.deleteClipFile(imported.relativePath) whenever !saved.
-2. Filesystem support for StandardCopyOption.ATOMIC_MOVE in copyStreamAtomically: partFile is created in the exact same parent directory as finalFile (File(finalFile.parentFile, "${finalFile.name}.part")), ensuring both paths stay on the same mount point so ATOMIC_MOVE does not fail with AtomicMoveNotSupportedException.
-3. Missing clip file vs. clip index in EditorScreen / PreviewPlayer: ClipList displays all clips from the project's video track (Clip 1, Clip 2, ...), whereas previewPaths skips any clip whose underlying file is missing on disk so ExoPlayer never errors on a missing file.
-
-(d) Exact manual test steps for the owner on a phone:
-1. Install and launch the app, tap "New project", create a project, and verify the Editor screen shows a 16:9 black box with "This project is empty." and an "Add video" button.
-2. Tap "Add video", cancel the system photo picker without choosing a video, and verify no error is shown and the project stays empty.
-3. Tap "Add video", select a valid video, and verify the button briefly shows "Adding video…", "Clip 1" appears under "Clips" with its formatted duration, and tapping Play on the 16:9 player plays the video.
-4. Add a second video and verify "Clip 2" appears below "Clip 1" and the preview player plays "Clip 1" followed by "Clip 2".
-5. Navigate back to Home, reopen the project, and verify both clips and the preview player persist.
-6. Tap the delete icon on "Clip 1", test "Cancel" first, then tap delete again and confirm "Remove"; verify "Clip 2" becomes "Clip 1" and plays in the preview.
-7. Navigate back to Home, delete the project, and confirm it is removed cleanly.
