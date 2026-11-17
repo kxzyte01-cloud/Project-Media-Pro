@@ -35,10 +35,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.projectmediapro.app.R
 import com.projectmediapro.app.data.export.sanitizeExportName
-import com.projectmediapro.app.data.export.videoClips
 import com.projectmediapro.core.designsystem.component.MediaProTopBar
 import com.projectmediapro.core.designsystem.theme.MediaProShapes
 import com.projectmediapro.core.designsystem.theme.MediaProSpacing
+import com.projectmediapro.core.model.ProjectTimeline
+import com.projectmediapro.core.model.videoClips
 
 @Composable
 fun EditorScreen(
@@ -146,6 +147,9 @@ private fun LoadedEditorContent(
 ) {
     val clips = state.project.videoClips()
     val isExporting = state.export is ExportUiState.Running
+    val editsEnabled = !state.isImporting && !isExporting
+    val selectedIndex = clips.indexOfFirst { it.id == state.selectedClipId }
+    val selectedClip = clips.getOrNull(selectedIndex)
 
     Column(
         modifier = modifier
@@ -170,8 +174,36 @@ private fun LoadedEditorContent(
                 )
             } else {
                 PreviewPlayer(
-                    previewPaths = state.previewPaths,
+                    previewClips = state.previewClips,
                     modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
+
+        if (clips.isNotEmpty() || state.canUndo || state.canRedo) {
+            TimelineStrip(
+                clips = clips,
+                selectedClipId = state.selectedClipId,
+                canUndo = state.canUndo,
+                canRedo = state.canRedo,
+                isEnabled = editsEnabled,
+                onSelectClip = { clipId -> onEvent(EditorEvent.SelectClip(clipId)) },
+                onUndo = { onEvent(EditorEvent.Undo) },
+                onRedo = { onEvent(EditorEvent.Redo) },
+            )
+            if (selectedClip != null) {
+                Spacer(modifier = Modifier.height(MediaProSpacing.Small))
+                ClipTools(
+                    isEnabled = editsEnabled,
+                    canTrim = ProjectTimeline.canTrimClip(selectedClip),
+                    canSplit = ProjectTimeline.canSplitClip(selectedClip),
+                    canMoveEarlier = selectedIndex > 0,
+                    canMoveLater = selectedIndex < clips.lastIndex,
+                    onTrimClick = { onEvent(EditorEvent.OpenTrim) },
+                    onSplitClick = { onEvent(EditorEvent.OpenSplit) },
+                    onMoveEarlierClick = { onEvent(EditorEvent.MoveSelected(-1)) },
+                    onMoveLaterClick = { onEvent(EditorEvent.MoveSelected(1)) },
+                    onRemoveClick = { onEvent(EditorEvent.RequestRemoveClip(selectedClip.id)) },
                 )
             }
         }
@@ -179,7 +211,7 @@ private fun LoadedEditorContent(
         Spacer(modifier = Modifier.height(MediaProSpacing.Medium))
         Button(
             onClick = onPickVideo,
-            enabled = !state.isImporting && !isExporting,
+            enabled = editsEnabled,
             shape = MediaProShapes.Small,
             modifier = Modifier
                 .fillMaxWidth()
@@ -200,7 +232,7 @@ private fun LoadedEditorContent(
         Spacer(modifier = Modifier.height(MediaProSpacing.Small))
         ExportSection(
             exportState = state.export,
-            isExportEnabled = clips.isNotEmpty() && !state.isImporting && !isExporting,
+            isExportEnabled = clips.isNotEmpty() && editsEnabled,
             onExportClick = onRequestExport,
             onCancelExport = { onEvent(EditorEvent.CancelExport) },
             onDismissDone = { onEvent(EditorEvent.DismissExportDone) },
@@ -218,13 +250,40 @@ private fun LoadedEditorContent(
         if (clips.isNotEmpty()) {
             ClipList(
                 clips = clips,
-                isRemoveEnabled = !isExporting,
+                isRemoveEnabled = editsEnabled,
                 onRequestRemoveClip = { clipId ->
                     onEvent(EditorEvent.RequestRemoveClip(clipId))
                 },
             )
         }
         Spacer(modifier = Modifier.height(MediaProSpacing.ExtraLarge))
+    }
+
+    when (val dialog = state.activeDialog) {
+        is EditorDialog.Trim -> {
+            val clip = clips.firstOrNull { it.id == dialog.clipId }
+            if (clip != null) {
+                TrimDialog(
+                    clip = clip,
+                    onConfirm = { startMs, endMs ->
+                        onEvent(EditorEvent.ApplyTrim(startMs = startMs, endMs = endMs))
+                    },
+                    onDismiss = { onEvent(EditorEvent.DismissDialog) },
+                )
+            }
+        }
+        is EditorDialog.Split -> {
+            val clip = clips.firstOrNull { it.id == dialog.clipId }
+            if (clip != null) {
+                SplitDialog(
+                    clip = clip,
+                    onConfirm = { offsetMs ->                        onEvent(EditorEvent.ApplySplit(offsetMs = offsetMs))
+                    },
+                    onDismiss = { onEvent(EditorEvent.DismissDialog) },
+                )
+            }
+        }
+        null -> Unit
     }
 
     val pendingIndex = clips.indexOfFirst { it.id == state.pendingRemoveClipId }

@@ -2,15 +2,15 @@ package com.projectmediapro.app.data.export
 
 import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.Project
-import com.projectmediapro.core.model.TrackType
+import com.projectmediapro.core.model.ProjectTimeline
+import com.projectmediapro.core.model.videoClips as modelVideoClips
 import java.io.File
 import kotlin.math.roundToInt
 
 /**
- * Returns the clips of the first [TrackType.VIDEO] track in timeline order, or an empty list.
+ * Returns the clips of the first video track in timeline order, or an empty list.
  */
-fun Project.videoClips(): List<Clip> =
-    tracks.firstOrNull { it.type == TrackType.VIDEO }?.clips.orEmpty()
+fun Project.videoClips(): List<Clip> = modelVideoClips()
 
 /**
  * One clip to export. A [trimEndMs] of 0 means "export the whole file".
@@ -42,7 +42,7 @@ object ExportPlanner {
      * skipped. Throws [IllegalStateException] when no usable clip remains.
      */
     fun plan(project: Project, resolve: (String) -> File?): ExportPlan {
-        val clips = project.videoClips()
+        val clips = project.modelVideoClips()
         if (clips.isEmpty()) {
             throw IllegalStateException("No video clips to export")
         }
@@ -54,8 +54,7 @@ object ExportPlanner {
             if (file == null || !file.isFile) continue
 
             val hasValidTrimRange = clip.trimStartMs >= 0L && clip.trimEndMs > clip.trimStartMs
-            val isTrimmed = hasValidTrimRange &&
-                (clip.trimStartMs > 0L || clip.trimEndMs < clip.durationMs)
+            val isTrimmed = ProjectTimeline.isClipTrimmed(clip)
             val clipDurationMs = if (hasValidTrimRange) {
                 clip.trimEndMs - clip.trimStartMs
             } else {

@@ -3,9 +3,70 @@ package com.projectmediapro.core.model
 import java.util.Locale
 
 /**
- * Pure timeline operations for appending and removing clips and formatting durations.
+ * Returns the clips of the first [TrackType.VIDEO] track in timeline order, or an empty list.
+ */
+fun Project.videoClips(): List<Clip> =
+    tracks.firstOrNull { it.type == TrackType.VIDEO }?.clips.orEmpty()
+
+/**
+ * Pure timeline operations for querying, appending, removing, trimming, splitting, and moving clips,
+ * plus formatting durations.
  */
 object ProjectTimeline {
+
+    const val MIN_CLIP_DURATION_MS: Long = 500L
+
+    /**
+     * Returns the full source duration of [clip] in milliseconds. When [Clip.sourceDurationMs] is `0L`
+     * (unknown), falls back to `max(trimEndMs, durationMs)`.
+     */
+    fun effectiveSourceDurationMs(clip: Clip): Long {
+        return if (clip.sourceDurationMs > 0L) {
+            clip.sourceDurationMs
+        } else {
+            maxOf(clip.trimEndMs, clip.durationMs).coerceAtLeast(0L)
+        }
+    }
+
+    /**
+     * Returns the effective trim start of [clip] in milliseconds (`>= 0L`).
+     */
+    fun effectiveTrimStartMs(clip: Clip): Long = clip.trimStartMs.coerceAtLeast(0L)
+
+    /**
+     * Returns the effective trim end of [clip] in milliseconds, falling back to
+     * `(effectiveTrimStartMs(clip) + durationMs).coerceAtMost(effectiveSourceDurationMs(clip))`
+     * when [Clip.trimEndMs] is not set.
+     */
+    fun effectiveTrimEndMs(clip: Clip): Long {
+        val sourceDurationMs = effectiveSourceDurationMs(clip)
+        val startMs = effectiveTrimStartMs(clip)
+        return if (clip.trimEndMs > startMs) {
+            clip.trimEndMs.coerceAtMost(sourceDurationMs)
+        } else {
+            (startMs + clip.durationMs.coerceAtLeast(0L)).coerceAtMost(sourceDurationMs)
+        }
+    }
+
+    /**
+     * Returns true when [clip] has a valid trim range that trims either the start or the end of
+     * its [effectiveSourceDurationMs].
+     */
+    fun isClipTrimmed(clip: Clip): Boolean {
+        val sourceDurationMs = effectiveSourceDurationMs(clip)
+        val hasValidTrimRange = clip.trimStartMs >= 0L && clip.trimEndMs > clip.trimStartMs
+        return hasValidTrimRange &&
+            (clip.trimStartMs > 0L || clip.trimEndMs < sourceDurationMs)
+    }
+
+    fun canTrimClip(clip: Clip): Boolean =
+        effectiveSourceDurationMs(clip) >= MIN_CLIP_DURATION_MS
+
+    fun canSplitClip(clip: Clip): Boolean =
+        clip.durationMs >= MIN_CLIP_DURATION_MS * 2L
+
+    fun isMediaReferenced(project: Project, mediaUri: String): Boolean =
+        project.tracks.asSequence().flatMap { it.clips.asSequence() }.any { it.mediaUri == mediaUri }
 
     /**
      * Appends [clip] to the first [TrackType.VIDEO] track in [project], creating one with [newTrackId]
@@ -18,26 +79,16 @@ object ProjectTimeline {
         newTrackId: String,
     ): Project {
         val videoTrackIndex = project.tracks.indexOfFirst { it.type == TrackType.VIDEO }
-        val updatedTracks = if (videoTrackIndex >= 0) {
+        if (videoTrackIndex >= 0) {
             val track = project.tracks[videoTrackIndex]
-            val startTimeMs = track.clips.lastOrNull()?.let { last ->
-                last.startTimeMs + last.durationMs
-            } ?: 0L
-            val positionedClip = clip.copy(startTimeMs = startTimeMs)
-            val updatedTrack = track.copy(clips = track.clips + positionedClip)
-            project.tracks.toMutableList().apply {
-                set(videoTrackIndex, updatedTrack)
-            }
-        } else {
-            val positionedClip = clip.copy(startTimeMs = 0L)
-            val newTrack = Track(
-                id = newTrackId,
-                type = TrackType.VIDEO,
-                clips = listOf(positionedClip),
-            )
-            project.tracks + newTrack
+            return updateTrack(project, videoTrackIndex, repositionClips(track.clips + clip))
         }
-
+        val newTrack = Track(
+            id = newTrackId,
+            type = TrackType.VIDEO,
+            clips = repositionClips(listOf(clip)),
+        )
+        val updatedTracks = project.tracks + newTrack
         return project.copy(
             tracks = updatedTracks,
             durationMs = latestClipEndMs(updatedTracks),
@@ -52,30 +103,114 @@ object ProjectTimeline {
     fun removeClip(
         project: Project,
         clipId: String,
-    ): Project {
-        val trackIndex = project.tracks.indexOfFirst { track ->
-            track.clips.any { it.id == clipId }
-        }
-        if (trackIndex < 0) return project
+    ): Project = modifyClipTrack(project, clipId) { clips, clipIndex ->
+        clips.toMutableList().apply { removeAt(clipIndex) }
+    }
 
-        val track = project.tracks[trackIndex]
-        var nextStartMs = 0L
-        val shiftedClips = track.clips
-            .filterNot { it.id == clipId }
-            .map { remaining ->
-                val updated = remaining.copy(startTimeMs = nextStartMs)
-                nextStartMs += remaining.durationMs
-                updated
+    /**
+     * Trims the clip with [clipId] to `[newStartMs, newEndMs]` within its source duration.
+     * Requires `0 <= newStartMs < newEndMs <= effectiveSourceDurationMs(clip)` and
+     * `newEndMs - newStartMs >= 500`, otherwise returns [project] unchanged.
+     */
+    fun trimClip(
+        project: Project,
+        clipId: String,
+        newStartMs: Long,
+        newEndMs: Long,
+    ): Project = modifyClipTrack(project, clipId) { clips, clipIndex ->
+        val clip = clips[clipIndex]
+        val sourceDurationMs = effectiveSourceDurationMs(clip)
+        val trimmedDurationMs = newEndMs - newStartMs
+        if (newStartMs < 0L ||
+            newEndMs <= newStartMs ||
+            newEndMs > sourceDurationMs ||
+            trimmedDurationMs < MIN_CLIP_DURATION_MS
+        ) {
+            return@modifyClipTrack null
+        }
+
+        val updatedClip = clip.copy(
+            durationMs = trimmedDurationMs,
+            trimStartMs = newStartMs,
+            trimEndMs = newEndMs,
+            sourceDurationMs = sourceDurationMs,
+        )
+        clips.toMutableList().apply { set(clipIndex, updatedClip) }
+    }
+
+    /**
+     * Splits the clip with [clipId] at [offsetMs] measured from the start of the clip's current
+     * trimmed range. Both resulting parts must be at least 500 ms, and [newClipId] must be non-blank
+     * and unique in [project], otherwise returns [project] unchanged. The first part keeps [clipId];
+     * the second gets [newClipId] and sits right after the first, sharing [Clip.mediaUri].
+     */
+    fun splitClip(
+        project: Project,
+        clipId: String,
+        offsetMs: Long,
+        newClipId: String,
+    ): Project {
+        if (newClipId.isBlank() || newClipId == clipId) return project
+        if (project.tracks.any { track -> track.clips.any { it.id == newClipId } }) return project
+        return modifyClipTrack(project, clipId) { clips, clipIndex ->
+            val clip = clips[clipIndex]
+            val sourceDurationMs = effectiveSourceDurationMs(clip)
+            val currentStartMs = effectiveTrimStartMs(clip)
+            val currentEndMs = effectiveTrimEndMs(clip)
+            val currentDurationMs = currentEndMs - currentStartMs
+            val secondDurationMs = currentDurationMs - offsetMs
+
+            if (offsetMs < MIN_CLIP_DURATION_MS || secondDurationMs < MIN_CLIP_DURATION_MS) {
+                return@modifyClipTrack null
             }
 
-        val updatedTracks = project.tracks.toMutableList().apply {
-            set(trackIndex, track.copy(clips = shiftedClips))
-        }
+            val splitPointMs = currentStartMs + offsetMs
+            val firstPart = clip.copy(
+                durationMs = offsetMs,
+                trimStartMs = currentStartMs,
+                trimEndMs = splitPointMs,
+                sourceDurationMs = sourceDurationMs,
+            )
+            val secondPart = clip.copy(
+                id = newClipId,
+                durationMs = secondDurationMs,
+                trimStartMs = splitPointMs,
+                trimEndMs = currentEndMs,
+                sourceDurationMs = sourceDurationMs,
+            )
 
-        return project.copy(
-            tracks = updatedTracks,
-            durationMs = latestClipEndMs(updatedTracks),
-        )
+            buildList(clips.size + 1) {
+                clips.forEachIndexed { index, existing ->
+                    if (index == clipIndex) {
+                        add(firstPart)
+                        add(secondPart)
+                    } else {
+                        add(existing)
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Moves the clip with [clipId] by [delta] (`-1` for earlier, `+1` for later) within its track.
+     * Returns [project] unchanged when [delta] is not `-1` or `+1`, when [clipId] is not found,
+     * or when the clip is already at the boundary of its track.
+     */
+    fun moveClip(
+        project: Project,
+        clipId: String,
+        delta: Int,
+    ): Project {
+        if (delta != -1 && delta != 1) return project
+        return modifyClipTrack(project, clipId) { clips, clipIndex ->
+            val targetIndex = clipIndex + delta
+            if (targetIndex !in clips.indices) return@modifyClipTrack null
+            clips.toMutableList().apply {
+                val moved = removeAt(clipIndex)
+                add(targetIndex, moved)
+            }
+        }
     }
 
     /**
@@ -93,6 +228,46 @@ object ProjectTimeline {
         } else {
             String.format(Locale.US, "%d:%02d", minutes, seconds)
         }
+    }
+
+    private inline fun modifyClipTrack(
+        project: Project,
+        clipId: String,
+        transform: (clips: List<Clip>, clipIndex: Int) -> List<Clip>?,
+    ): Project {
+        for (trackIndex in project.tracks.indices) {
+            val clips = project.tracks[trackIndex].clips
+            val clipIndex = clips.indexOfFirst { it.id == clipId }
+            if (clipIndex >= 0) {
+                val updatedClips = transform(clips, clipIndex) ?: return project
+                return updateTrack(project, trackIndex, repositionClips(updatedClips))
+            }
+        }
+        return project
+    }
+
+    private fun repositionClips(clips: List<Clip>): List<Clip> {
+        var nextStartMs = 0L
+        return clips.map { clip ->
+            val positioned = clip.copy(startTimeMs = nextStartMs)
+            nextStartMs += clip.durationMs
+            positioned
+        }
+    }
+
+    private fun updateTrack(
+        project: Project,
+        trackIndex: Int,
+        clips: List<Clip>,
+    ): Project {
+        val track = project.tracks[trackIndex]
+        val updatedTracks = project.tracks.toMutableList().apply {
+            set(trackIndex, track.copy(clips = clips))
+        }
+        return project.copy(
+            tracks = updatedTracks,
+            durationMs = latestClipEndMs(updatedTracks),
+        )
     }
 
     private fun latestClipEndMs(tracks: List<Track>): Long {

@@ -17,11 +17,21 @@ import androidx.media3.ui.PlayerView
 import java.io.File
 
 /**
- * Plays the project's resolved video files in sequence using a single [ExoPlayer] instance.
+ * One resolved clip for preview playback. A [trimEndMs] of 0 means play the whole file.
+ */
+data class PreviewClip(
+    val path: String,
+    val trimStartMs: Long = 0L,
+    val trimEndMs: Long = 0L,
+)
+
+/**
+ * Plays the project's resolved video clips in sequence using a single [ExoPlayer] instance,
+ * honoring per-clip [MediaItem.ClippingConfiguration] bounds.
  */
 @Composable
 fun PreviewPlayer(
-    previewPaths: List<String>,
+    previewClips: List<PreviewClip>,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -33,12 +43,24 @@ fun PreviewPlayer(
         }
     }
 
-    LaunchedEffect(previewPaths) {
-        val existingFiles = previewPaths
-            .map { File(it) }
-            .filter { it.isFile }
-        val mediaItems = existingFiles.map { file ->
-            MediaItem.fromUri(Uri.fromFile(file))
+    LaunchedEffect(previewClips) {
+        val mediaItems = previewClips.mapNotNull { clip ->
+            val file = File(clip.path)
+            if (!file.isFile) return@mapNotNull null
+            val uri = Uri.fromFile(file)
+            if (clip.trimEndMs > 0L && clip.trimEndMs > clip.trimStartMs) {
+                MediaItem.Builder()
+                    .setUri(uri)
+                    .setClippingConfiguration(
+                        MediaItem.ClippingConfiguration.Builder()
+                            .setStartPositionMs(clip.trimStartMs.coerceAtLeast(0L))
+                            .setEndPositionMs(clip.trimEndMs)
+                            .build(),
+                    )
+                    .build()
+            } else {
+                MediaItem.fromUri(uri)
+            }
         }
         player.playWhenReady = false
         if (mediaItems.isEmpty()) {

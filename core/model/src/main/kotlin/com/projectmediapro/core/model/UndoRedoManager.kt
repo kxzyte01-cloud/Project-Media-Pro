@@ -2,7 +2,7 @@ package com.projectmediapro.core.model
 
 class UndoRedoManager<T>(
     initialState: T,
-    private val maxHistorySize: Int = 50
+    private val maxHistorySize: Int = 50,
 ) {
     init {
         require(maxHistorySize > 0) { "maxHistorySize must be positive" }
@@ -35,6 +35,12 @@ class UndoRedoManager<T>(
         undoStack.addLast(currentState)
         currentState = redoStack.removeLast()
         return currentState
+    }
+
+    fun reset(newInitialState: T) {
+        undoStack.clear()
+        redoStack.clear()
+        currentState = newInitialState
     }
 
     val canUndo: Boolean get() = undoStack.isNotEmpty()

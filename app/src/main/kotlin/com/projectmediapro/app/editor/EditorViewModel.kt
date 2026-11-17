@@ -7,7 +7,6 @@ import com.projectmediapro.app.data.export.ExportPlanner
 import com.projectmediapro.app.data.export.ExportSaver
 import com.projectmediapro.app.data.export.VideoExportException
 import com.projectmediapro.app.data.export.VideoExporter
-import com.projectmediapro.app.data.export.videoClips
 import com.projectmediapro.app.data.media.ProjectMediaStorage
 import com.projectmediapro.app.data.media.VideoImportException
 import com.projectmediapro.app.data.media.VideoImportException.Reason
@@ -16,6 +15,8 @@ import com.projectmediapro.app.data.project.ProjectRepository
 import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.Project
 import com.projectmediapro.core.model.ProjectTimeline
+import com.projectmediapro.core.model.UndoRedoManager
+import com.projectmediapro.core.model.videoClips
 import java.io.File
 import java.io.IOException
 import java.util.UUID
@@ -29,61 +30,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /**
- * Non-text error categories for the Editor screen, mapped to string resources in the UI layer.
- */
-enum class EditorError {
-    IMPORT_FAILED,
-    IMPORT_NOT_A_VIDEO,
-    IMPORT_NO_SPACE,
-    SAVE_FAILED,
-    EXPORT_FAILED,
-    EXPORT_UNSUPPORTED,
-    EXPORT_NO_SPACE,
-    EXPORT_SAVE_FAILED,
-    EXPORT_NOTHING,
-}
-
-/**
- * Progress of exporting the project to a video file.
- */
-sealed interface ExportUiState {
-    data object Idle : ExportUiState
-    data class Running(val percent: Int) : ExportUiState
-    data class Done(val savedToGallery: Boolean) : ExportUiState
-}
-
-/**
- * UI state for the Editor screen.
- */
-sealed interface EditorUiState {
-    data object Loading : EditorUiState
-    data object NotFound : EditorUiState
-    data object Error : EditorUiState
-    data class Loaded(
-        val project: Project,
-        val previewPaths: List<String> = emptyList(),
-        val isImporting: Boolean = false,
-        val pendingRemoveClipId: String? = null,
-        val export: ExportUiState = ExportUiState.Idle,
-        val error: EditorError? = null,
-    ) : EditorUiState
-}
-
-/**
- * User events emitted from the Editor screen.
- */
-sealed interface EditorEvent {
-    data class VideoPicked(val sourceUri: String?) : EditorEvent
-    data class RequestRemoveClip(val clipId: String) : EditorEvent
-    data object ConfirmRemoveClip : EditorEvent
-    data object CancelRemoveClip : EditorEvent
-    data class StartExport(val destinationUri: String? = null) : EditorEvent
-    data object CancelExport : EditorEvent
-    data object DismissExportDone : EditorEvent
-}
-
-/**
- * Unidirectional ViewModel for loading a [Project], importing and removing clips, and exporting the result.
+ * Unidirectional ViewModel for loading a [Project], importing, editing, and removing clips,
+ * managing 50-step undo/redo history, and exporting the result.
  */
 class EditorViewModel(
     private val projectId: String,
@@ -103,21 +51,26 @@ class EditorViewModel(
     private val changeMutex = Mutex()
     private val exportMutex = Mutex()
     private var exportJob: Job? = null
+    private val history = UndoRedoManager(Project(id = projectId, title = ""))
 
     init {
         viewModelScope.launch {
-            _uiState.value = try {
-                val project = repository.getProject(projectId)
-                if (project != null) {
-                    EditorUiState.Loaded(
-                        project = project,
-                        previewPaths = resolvePreviewPaths(project),
-                    )
-                } else {
-                    EditorUiState.NotFound
+            changeMutex.withLock {
+                _uiState.value = try {
+                    val project = repository.getProject(projectId)
+                    if (project != null) {
+                        history.reset(project)
+                        EditorUiState.Loaded(
+                            project = project,
+                            previewClips = resolvePreviewClips(project),
+                            selectedClipId = project.videoClips().firstOrNull()?.id,
+                        )
+                    } else {
+                        EditorUiState.NotFound
+                    }
+                } catch (_: IOException) {
+                    EditorUiState.Error
                 }
-            } catch (_: IOException) {
-                EditorUiState.Error
             }
         }
     }
@@ -125,10 +78,60 @@ class EditorViewModel(
     fun onEvent(event: EditorEvent) {
         when (event) {
             is EditorEvent.VideoPicked -> handleVideoPicked(event.sourceUri)
+            is EditorEvent.SelectClip -> handleSelectClip(event.clipId)
+            EditorEvent.OpenTrim -> openSelectedClipDialog(
+                predicate = ProjectTimeline::canTrimClip,
+                dialogFactory = EditorDialog::Trim,
+            )
+            EditorEvent.OpenSplit -> openSelectedClipDialog(
+                predicate = ProjectTimeline::canSplitClip,
+                dialogFactory = EditorDialog::Split,
+            )
+            EditorEvent.DismissDialog -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                _uiState.value = current.copy(activeDialog = null)
+            }
+            is EditorEvent.ApplyTrim -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                val targetId = (current.activeDialog as? EditorDialog.Trim)?.clipId
+                    ?: current.selectedClipId
+                    ?: return
+                commitUndoableEdit(targetId) { project ->
+                    ProjectTimeline.trimClip(project, targetId, event.startMs, event.endMs)
+                }
+            }
+            is EditorEvent.ApplySplit -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                val targetId = (current.activeDialog as? EditorDialog.Split)?.clipId
+                    ?: current.selectedClipId
+                    ?: return
+                commitUndoableEdit(targetId) { project ->
+                    ProjectTimeline.splitClip(project, targetId, event.offsetMs, idProvider())
+                }
+            }
+            is EditorEvent.MoveSelected -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                val targetId = current.selectedClipId ?: return
+                commitUndoableEdit(targetId) { project ->
+                    ProjectTimeline.moveClip(project, targetId, event.delta)
+                }
+            }
+            EditorEvent.Undo -> stepHistory(
+                step = UndoRedoManager<Project>::undo,
+                rollback = UndoRedoManager<Project>::redo,
+            )
+            EditorEvent.Redo -> stepHistory(
+                step = UndoRedoManager<Project>::redo,
+                rollback = UndoRedoManager<Project>::undo,
+            )
             is EditorEvent.RequestRemoveClip -> {
                 val current = _uiState.value as? EditorUiState.Loaded ?: return
-                if (current.export is ExportUiState.Running) return
-                _uiState.value = current.copy(pendingRemoveClipId = event.clipId)
+                if (isBusy(current)) return
+                if (current.project.videoClips().none { it.id == event.clipId }) return
+                _uiState.value = current.copy(
+                    pendingRemoveClipId = event.clipId,
+                    activeDialog = null,
+                )
             }
             EditorEvent.CancelRemoveClip -> {
                 val current = _uiState.value as? EditorUiState.Loaded ?: return
@@ -146,12 +149,130 @@ class EditorViewModel(
         }
     }
 
+    private fun handleSelectClip(clipId: String) {
+        val current = _uiState.value as? EditorUiState.Loaded ?: return
+        if (isBusy(current)) return
+        if (current.project.videoClips().none { it.id == clipId }) return
+        _uiState.value = current.copy(selectedClipId = clipId, activeDialog = null)
+    }
+
+    private fun openSelectedClipDialog(
+        predicate: (Clip) -> Boolean,
+        dialogFactory: (String) -> EditorDialog,
+    ) {
+        val current = _uiState.value as? EditorUiState.Loaded ?: return
+        if (isBusy(current)) return
+        val selectedId = current.selectedClipId ?: return
+        val clip = current.project.videoClips().firstOrNull { it.id == selectedId } ?: return
+        if (!predicate(clip)) return
+        _uiState.value = current.copy(activeDialog = dialogFactory(selectedId))
+    }
+
+    private fun commitUndoableEdit(
+        preferredSelectedClipId: String,
+        transform: (Project) -> Project,
+    ) {
+        val initial = _uiState.value as? EditorUiState.Loaded ?: return
+        if (isBusy(initial)) return
+
+        viewModelScope.launch {
+            changeMutex.withLock {
+                val latest = _uiState.value as? EditorUiState.Loaded ?: return@withLock
+                if (isBusy(latest)) return@withLock
+                val previousProject = latest.project
+                val updatedProject = transform(previousProject)
+                if (updatedProject == previousProject) {
+                    if (latest.activeDialog != null) {
+                        _uiState.value = latest.copy(activeDialog = null)
+                    }
+                    return@withLock
+                }
+
+                try {
+                    repository.saveProject(updatedProject)
+                    history.pushState(updatedProject)
+                    _uiState.value = latest.copy(
+                        project = updatedProject,
+                        previewClips = resolvePreviewClips(updatedProject),
+                        selectedClipId = resolveSelection(
+                            previousClips = previousProject.videoClips(),
+                            previousSelectedId = preferredSelectedClipId,
+                            newClips = updatedProject.videoClips(),
+                        ),
+                        canUndo = history.canUndo,
+                        canRedo = history.canRedo,
+                        activeDialog = null,
+                        error = null,
+                    )
+                } catch (_: IOException) {
+                    _uiState.value = latest.copy(
+                        project = previousProject,
+                        previewClips = resolvePreviewClips(previousProject),
+                        canUndo = history.canUndo,
+                        canRedo = history.canRedo,
+                        activeDialog = null,
+                        error = EditorError.SAVE_FAILED,
+                    )
+                }
+            }
+        }
+    }
+
+    private fun stepHistory(
+        step: (UndoRedoManager<Project>) -> Project?,
+        rollback: (UndoRedoManager<Project>) -> Project?,
+    ) {
+        val initial = _uiState.value as? EditorUiState.Loaded ?: return
+        if (isBusy(initial)) return
+
+        viewModelScope.launch {
+            changeMutex.withLock {
+                val latest = _uiState.value as? EditorUiState.Loaded ?: return@withLock
+                if (isBusy(latest)) return@withLock
+                val previousProject = latest.project
+                val targetProject = step(history) ?: return@withLock
+
+                try {
+                    repository.saveProject(targetProject)
+                    _uiState.value = latest.copy(
+                        project = targetProject,
+                        previewClips = resolvePreviewClips(targetProject),
+                        selectedClipId = resolveSelection(
+                            previousClips = previousProject.videoClips(),
+                            previousSelectedId = latest.selectedClipId,
+                            newClips = targetProject.videoClips(),
+                        ),
+                        canUndo = history.canUndo,
+                        canRedo = history.canRedo,
+                        activeDialog = null,
+                        error = null,
+                    )
+                } catch (_: IOException) {
+                    rollback(history)
+                    _uiState.value = latest.copy(
+                        project = previousProject,
+                        previewClips = resolvePreviewClips(previousProject),
+                        canUndo = history.canUndo,
+                        canRedo = history.canRedo,
+                        activeDialog = null,
+                        error = EditorError.SAVE_FAILED,
+                    )
+                }
+            }
+        }
+    }
+
     private fun handleVideoPicked(sourceUri: String?) {
         if (sourceUri == null) return
         val initial = _uiState.value as? EditorUiState.Loaded ?: return
-        if (initial.isImporting || initial.export is ExportUiState.Running) return
+        if (isBusy(initial)) return
 
-        _uiState.value = initial.copy(isImporting = true, error = null)
+        _uiState.value = initial.copy(
+            isImporting = true,
+            activeDialog = null,
+            pendingRemoveClipId = null,
+            error = null,
+        )
 
         viewModelScope.launch {
             val imported = try {
@@ -178,6 +299,7 @@ class EditorViewModel(
                         durationMs = imported.durationMs,
                         trimStartMs = 0L,
                         trimEndMs = imported.durationMs,
+                        sourceDurationMs = imported.durationMs,
                     )
                     val updatedProject = ProjectTimeline.appendClip(
                         project = previousProject,
@@ -187,17 +309,25 @@ class EditorViewModel(
                     try {
                         repository.saveProject(updatedProject)
                         saved = true
+                        history.reset(updatedProject)
                         _uiState.value = beforeSave.copy(
                             project = updatedProject,
-                            previewPaths = resolvePreviewPaths(updatedProject),
+                            previewClips = resolvePreviewClips(updatedProject),
+                            selectedClipId = resolveSelection(
+                                previousClips = previousProject.videoClips(),
+                                previousSelectedId = beforeSave.selectedClipId,
+                                newClips = updatedProject.videoClips(),
+                            ),
+                            canUndo = false,
+                            canRedo = false,
+                            activeDialog = null,
                             isImporting = false,
                             error = null,
                         )
                     } catch (_: IOException) {
-                        mediaStorage.deleteClipFile(imported.relativePath)
-                        _uiState.value = beforeSave.copy(
+                        mediaStorage.deleteClipFile(imported.relativePath)                        _uiState.value = beforeSave.copy(
                             project = previousProject,
-                            previewPaths = resolvePreviewPaths(previousProject),
+                            previewClips = resolvePreviewClips(previousProject),
                             isImporting = false,
                             error = EditorError.SAVE_FAILED,
                         )
@@ -214,13 +344,14 @@ class EditorViewModel(
 
     private fun handleConfirmRemoveClip() {
         val current = _uiState.value as? EditorUiState.Loaded ?: return
-        if (current.export is ExportUiState.Running) return
+        if (isBusy(current)) return
         val targetClipId = current.pendingRemoveClipId ?: return
         _uiState.value = current.copy(pendingRemoveClipId = null, error = null)
 
         viewModelScope.launch {
             changeMutex.withLock {
                 val latest = _uiState.value as? EditorUiState.Loaded ?: return@withLock
+                if (isBusy(latest)) return@withLock
                 val previousProject = latest.project
                 val removedClip = previousProject.tracks
                     .asSequence()
@@ -234,23 +365,28 @@ class EditorViewModel(
                 } catch (_: IOException) {
                     _uiState.value = latest.copy(
                         project = previousProject,
-                        previewPaths = resolvePreviewPaths(previousProject),
+                        previewClips = resolvePreviewClips(previousProject),
                         error = EditorError.SAVE_FAILED,
                     )
                     return@withLock
                 }
 
-                val stillReferenced = updatedProject.tracks
-                    .asSequence()
-                    .flatMap { it.clips.asSequence() }
-                    .any { it.mediaUri == removedClip.mediaUri }
-                if (!stillReferenced) {
+                if (!ProjectTimeline.isMediaReferenced(updatedProject, removedClip.mediaUri)) {
                     mediaStorage.deleteClipFile(removedClip.mediaUri)
                 }
 
+                history.reset(updatedProject)
                 _uiState.value = latest.copy(
                     project = updatedProject,
-                    previewPaths = resolvePreviewPaths(updatedProject),
+                    previewClips = resolvePreviewClips(updatedProject),
+                    selectedClipId = resolveSelection(
+                        previousClips = previousProject.videoClips(),
+                        previousSelectedId = latest.selectedClipId ?: targetClipId,
+                        newClips = updatedProject.videoClips(),
+                    ),
+                    canUndo = false,
+                    canRedo = false,
+                    activeDialog = null,
                     error = null,
                 )
             }
@@ -262,7 +398,7 @@ class EditorViewModel(
         val saver = exportSaver
         val initial = _uiState.value as? EditorUiState.Loaded ?: return
         val hasClips = initial.project.videoClips().isNotEmpty()
-        if (!hasClips || initial.isImporting || initial.export is ExportUiState.Running) return
+        if (!hasClips || isBusy(initial)) return
         if (exportJob?.isActive == true) return
         if (exporter == null || saver == null) {
             _uiState.value = initial.copy(error = EditorError.EXPORT_FAILED)
@@ -282,6 +418,7 @@ class EditorViewModel(
 
         _uiState.value = initial.copy(
             export = ExportUiState.Running(0),
+            activeDialog = null,
             pendingRemoveClipId = null,
             error = null,
         )
@@ -353,11 +490,38 @@ class EditorViewModel(
         super.onCleared()
     }
 
-    private fun resolvePreviewPaths(project: Project): List<String> =
+    private fun isBusy(state: EditorUiState.Loaded): Boolean =
+        state.isImporting || state.export is ExportUiState.Running
+
+    private fun resolvePreviewClips(project: Project): List<PreviewClip> =
         project.videoClips().mapNotNull { clip ->
             val file = mediaStorage.resolve(clip.mediaUri)
-            if (file != null && file.isFile) file.absolutePath else null
+            if (file == null || !file.isFile) return@mapNotNull null
+            val isTrimmed = ProjectTimeline.isClipTrimmed(clip)
+            PreviewClip(
+                path = file.absolutePath,
+                trimStartMs = if (isTrimmed) clip.trimStartMs else 0L,
+                trimEndMs = if (isTrimmed) clip.trimEndMs else 0L,
+            )
         }
+
+    private fun resolveSelection(
+        previousClips: List<Clip>,
+        previousSelectedId: String?,
+        newClips: List<Clip>,
+    ): String? {
+        if (newClips.isEmpty()) return null
+        if (previousSelectedId != null) {
+            if (newClips.any { it.id == previousSelectedId }) {
+                return previousSelectedId
+            }
+            val oldIndex = previousClips.indexOfFirst { it.id == previousSelectedId }
+            if (oldIndex >= 0) {
+                return newClips[oldIndex.coerceAtMost(newClips.lastIndex)].id
+            }
+        }
+        return newClips.first().id
+    }
 
     private fun mapImportError(reason: Reason): EditorError = when (reason) {
         Reason.NOT_A_VIDEO -> EditorError.IMPORT_NOT_A_VIDEO

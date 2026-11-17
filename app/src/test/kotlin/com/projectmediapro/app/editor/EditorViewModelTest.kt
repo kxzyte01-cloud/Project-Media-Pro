@@ -76,40 +76,45 @@ class EditorViewModelTest {
     }
 
     @Test
-    fun videoPicked_nullIsIgnored_andValidImportAppendsClipAndSaves() = runTest(testDispatcher) {
-        val initial = Project(
-            id = "proj-1",
-            title = "Demo",
-            tracks = listOf(Track(id = "track-1", type = TrackType.VIDEO)),
-        )
-        val repo = FakeEditorProjectRepository(listOf(initial))
-        val importer = FakeVideoImporter(mediaStorage, nextDurationMs = 4_500L)
-        var nextId = 1
-        val vm = EditorViewModel(
-            projectId = "proj-1",
-            repository = repo,
-            videoImporter = importer,
-            mediaStorage = mediaStorage,
-            idProvider = { "gen-${nextId++}" },
-        )
+    fun videoPicked_nullIsIgnored_andValidImportAppendsClipSetsSourceDurationAndSelects() =
+        runTest(testDispatcher) {
+            val initial = Project(
+                id = "proj-1",
+                title = "Demo",
+                tracks = listOf(Track(id = "track-1", type = TrackType.VIDEO)),
+            )
+            val repo = FakeEditorProjectRepository(listOf(initial))
+            val importer = FakeVideoImporter(mediaStorage, nextDurationMs = 4_500L)
+            var nextId = 1
+            val vm = EditorViewModel(
+                projectId = "proj-1",
+                repository = repo,
+                videoImporter = importer,
+                mediaStorage = mediaStorage,
+                idProvider = { "gen-${nextId++}" },
+            )
 
-        vm.onEvent(EditorEvent.VideoPicked(null))
-        assertEquals(0, importer.callCount)
+            vm.onEvent(EditorEvent.VideoPicked(null))
+            assertEquals(0, importer.callCount)
 
-        vm.onEvent(EditorEvent.VideoPicked("content://media/picker/1"))
-        val state = vm.uiState.value as EditorUiState.Loaded
-        assertFalse(state.isImporting)
-        assertNull(state.error)
-        assertEquals(4_500L, state.project.durationMs)
-        val clip = state.project.tracks[0].clips.single()
-        assertEquals("gen-1", clip.id)
-        assertEquals(0L, clip.startTimeMs)
-        assertEquals(4_500L, clip.durationMs)
-        assertEquals(0L, clip.trimStartMs)
-        assertEquals(4_500L, clip.trimEndMs)
-        assertEquals(1, state.previewPaths.size)
-        assertEquals(state.project, repo.getProject("proj-1"))
-    }
+            vm.onEvent(EditorEvent.VideoPicked("content://media/picker/1"))
+            val state = vm.uiState.value as EditorUiState.Loaded
+            assertFalse(state.isImporting)
+            assertNull(state.error)
+            assertEquals(4_500L, state.project.durationMs)
+            val clip = state.project.tracks[0].clips.single()
+            assertEquals("gen-1", clip.id)
+            assertEquals(0L, clip.startTimeMs)
+            assertEquals(4_500L, clip.durationMs)
+            assertEquals(0L, clip.trimStartMs)
+            assertEquals(4_500L, clip.trimEndMs)
+            assertEquals(4_500L, clip.sourceDurationMs)
+            assertEquals("gen-1", state.selectedClipId)
+            assertEquals(1, state.previewClips.size)
+            assertEquals(0L, state.previewClips[0].trimStartMs)
+            assertEquals(0L, state.previewClips[0].trimEndMs)
+            assertEquals(state.project, repo.getProject("proj-1"))
+        }
 
     @Test
     fun videoPicked_mapsEachImportFailureReasonToMatchingEditorError() = runTest(testDispatcher) {
@@ -156,8 +161,9 @@ class EditorViewModelTest {
     }
 
     @Test
-    fun videoPicked_whileImportInFlight_ignoresSecondPick() = runTest(testDispatcher) {
-        val initial = Project(id = "proj-1", title = "Demo")
+    fun videoPicked_whileImportInFlight_ignoresSecondPickAndBlocksEdits() = runTest(testDispatcher) {
+        val rel = writeExportClip("proj-1", "c1")
+        val initial = projectWithOneClip(rel)
         val repo = FakeEditorProjectRepository(listOf(initial))
         val gate = CompletableDeferred<ImportedVideo>()
         val importer = FakeVideoImporter(mediaStorage, deferredResult = gate)
@@ -167,9 +173,14 @@ class EditorViewModelTest {
         assertTrue((vm.uiState.value as EditorUiState.Loaded).isImporting)
 
         vm.onEvent(EditorEvent.VideoPicked("content://media/picker/second"))
+        vm.onEvent(EditorEvent.OpenTrim)
+        vm.onEvent(EditorEvent.ApplyTrim(500L, 2_000L))
+        vm.onEvent(EditorEvent.ApplySplit(1_000L))
         assertEquals(1, importer.callCount)
+        assertNull((vm.uiState.value as EditorUiState.Loaded).activeDialog)
+        assertEquals(4_000L, (vm.uiState.value as EditorUiState.Loaded).project.durationMs)
 
-        val relPath = mediaStorage.clipRelativePath("proj-1", "clip-1", "mp4")
+        val relPath = mediaStorage.clipRelativePath("proj-1", "clip-2", "mp4")
         mediaStorage.resolve(relPath)?.apply {
             parentFile?.mkdirs()
             writeText("data")
@@ -178,7 +189,142 @@ class EditorViewModelTest {
 
         val state = vm.uiState.value as EditorUiState.Loaded
         assertFalse(state.isImporting)
-        assertEquals(1, state.project.tracks[0].clips.size)
+        assertEquals(2, state.project.tracks[0].clips.size)
+    }
+
+    @Test
+    fun trimSplitMove_supportUndoRedo_reflectInPreviewClips_andClearHistoryOnImportOrRemove() =
+        runTest(testDispatcher) {
+            val rel1 = writeExportClip("proj-1", "c1")
+            val rel2 = writeExportClip("proj-1", "c2")
+            val c1 = Clip(
+                id = "c1",
+                mediaUri = rel1,
+                startTimeMs = 0L,
+                durationMs = 5_000L,
+                trimStartMs = 0L,
+                trimEndMs = 5_000L,
+                sourceDurationMs = 5_000L,
+            )
+            val c2 = Clip(
+                id = "c2",
+                mediaUri = rel2,
+                startTimeMs = 5_000L,
+                durationMs = 3_000L,
+                trimStartMs = 0L,
+                trimEndMs = 3_000L,
+                sourceDurationMs = 3_000L,
+            )
+            val initial = Project(
+                id = "proj-1",
+                title = "Edit Demo",
+                durationMs = 8_000L,
+                tracks = listOf(Track(id = "t-1", type = TrackType.VIDEO, clips = listOf(c1, c2))),
+            )
+            val repo = FakeEditorProjectRepository(listOf(initial))
+            var nextId = 1
+            val vm = EditorViewModel(
+                projectId = "proj-1",
+                repository = repo,
+                videoImporter = FakeVideoImporter(mediaStorage, nextDurationMs = 2_000L),
+                mediaStorage = mediaStorage,
+                idProvider = { "split-${nextId++}" },
+            )
+
+            assertEquals("c1", (vm.uiState.value as EditorUiState.Loaded).selectedClipId)
+
+            vm.onEvent(EditorEvent.OpenTrim)
+            assertEquals(EditorDialog.Trim("c1"), (vm.uiState.value as EditorUiState.Loaded).activeDialog)
+            vm.onEvent(EditorEvent.ApplyTrim(startMs = 0L, endMs = 4_000L))
+            val afterTrim = vm.uiState.value as EditorUiState.Loaded
+            assertNull(afterTrim.activeDialog)
+            assertTrue(afterTrim.canUndo)
+            assertFalse(afterTrim.canRedo)
+            assertEquals(7_000L, afterTrim.project.durationMs)
+            assertEquals(0L, afterTrim.previewClips[0].trimStartMs)
+            assertEquals(4_000L, afterTrim.previewClips[0].trimEndMs)
+
+            vm.onEvent(EditorEvent.OpenSplit)
+            assertEquals(EditorDialog.Split("c1"), (vm.uiState.value as EditorUiState.Loaded).activeDialog)
+            vm.onEvent(EditorEvent.ApplySplit(offsetMs = 1_500L))
+            val afterSplit = vm.uiState.value as EditorUiState.Loaded
+            assertEquals(listOf("c1", "split-1", "c2"), afterSplit.project.tracks[0].clips.map { it.id })
+            assertEquals("c1", afterSplit.selectedClipId)
+            assertEquals(0L, afterSplit.previewClips[0].trimStartMs)
+            assertEquals(1_500L, afterSplit.previewClips[0].trimEndMs)
+            assertEquals(1_500L, afterSplit.previewClips[1].trimStartMs)
+            assertEquals(4_000L, afterSplit.previewClips[1].trimEndMs)
+
+            vm.onEvent(EditorEvent.SelectClip("split-1"))
+            vm.onEvent(EditorEvent.MoveSelected(1))
+            val afterMove = vm.uiState.value as EditorUiState.Loaded
+            assertEquals(listOf("c1", "c2", "split-1"), afterMove.project.tracks[0].clips.map { it.id })
+            assertEquals("split-1", afterMove.selectedClipId)
+
+            vm.onEvent(EditorEvent.Undo)
+            assertEquals(listOf("c1", "split-1", "c2"), (vm.uiState.value as EditorUiState.Loaded).project.tracks[0].clips.map { it.id })
+            vm.onEvent(EditorEvent.Undo)
+            val undoneSplit = vm.uiState.value as EditorUiState.Loaded
+            assertEquals(listOf("c1", "c2"), undoneSplit.project.tracks[0].clips.map { it.id })
+            assertEquals("c2", undoneSplit.selectedClipId)
+            assertTrue(undoneSplit.canUndo)
+            assertTrue(undoneSplit.canRedo)
+
+            vm.onEvent(EditorEvent.Redo)
+            val redoneSplit = vm.uiState.value as EditorUiState.Loaded
+            assertEquals(listOf("c1", "split-1", "c2"), redoneSplit.project.tracks[0].clips.map { it.id })
+
+            val sharedFile = mediaStorage.resolve(rel1)
+            vm.onEvent(EditorEvent.RequestRemoveClip("c1"))
+            vm.onEvent(EditorEvent.ConfirmRemoveClip)
+            val afterRemove = vm.uiState.value as EditorUiState.Loaded
+            assertTrue(sharedFile?.exists() == true)
+            assertFalse(afterRemove.canUndo)
+            assertFalse(afterRemove.canRedo)
+            assertEquals(listOf("split-1", "c2"), afterRemove.project.tracks[0].clips.map { it.id })
+
+            vm.onEvent(EditorEvent.SelectClip("split-1"))
+            vm.onEvent(EditorEvent.MoveSelected(1))
+            assertTrue((vm.uiState.value as EditorUiState.Loaded).canUndo)
+            vm.onEvent(EditorEvent.VideoPicked("content://media/picker/new"))
+            val afterImport = vm.uiState.value as EditorUiState.Loaded
+            assertFalse(afterImport.canUndo)
+            assertFalse(afterImport.canRedo)
+        }
+
+    @Test
+    fun editAndUndoRedo_whenSaveFails_rollsBackProjectAndShowsSaveFailed() = runTest(testDispatcher) {
+        val rel1 = writeExportClip("proj-1", "c1")
+        val initial = projectWithOneClip(rel1)
+        val repo = FakeEditorProjectRepository(listOf(initial))
+        val vm = EditorViewModel("proj-1", repo, FakeVideoImporter(mediaStorage), mediaStorage)
+
+        vm.onEvent(EditorEvent.ApplyTrim(0L, 2_500L))
+        val trimmedProject = (vm.uiState.value as EditorUiState.Loaded).project
+        assertEquals(2_500L, trimmedProject.durationMs)
+
+        repo.shouldFailSave = true
+        vm.onEvent(EditorEvent.ApplySplit(1_000L))
+        val failedSplit = vm.uiState.value as EditorUiState.Loaded
+        assertEquals(EditorError.SAVE_FAILED, failedSplit.error)
+        assertEquals(trimmedProject, failedSplit.project)
+        assertTrue(failedSplit.canUndo)
+        assertFalse(failedSplit.canRedo)
+
+        vm.onEvent(EditorEvent.Undo)
+        val failedUndo = vm.uiState.value as EditorUiState.Loaded
+        assertEquals(EditorError.SAVE_FAILED, failedUndo.error)
+        assertEquals(trimmedProject, failedUndo.project)
+        assertTrue(failedUndo.canUndo)
+        assertFalse(failedUndo.canRedo)
+
+        repo.shouldFailSave = false
+        vm.onEvent(EditorEvent.Undo)
+        val succeededUndo = vm.uiState.value as EditorUiState.Loaded
+        assertNull(succeededUndo.error)
+        assertEquals(initial, succeededUndo.project)
+        assertFalse(succeededUndo.canUndo)
+        assertTrue(succeededUndo.canRedo)
     }
 
     @Test
@@ -212,8 +358,9 @@ class EditorViewModelTest {
             vm.onEvent(EditorEvent.RequestRemoveClip("c1"))
             vm.onEvent(EditorEvent.ConfirmRemoveClip)
             assertTrue(sharedFile?.exists() == true)
-            assertEquals(listOf("c2", "c3"), (vm.uiState.value as EditorUiState.Loaded).project.tracks[0].clips.map { it.id })
-
+            val stateAfterC1 = vm.uiState.value as EditorUiState.Loaded
+            assertEquals(listOf("c2", "c3"), stateAfterC1.project.tracks[0].clips.map { it.id })
+            assertEquals("c2", stateAfterC1.selectedClipId)
             repo.shouldFailSave = true
             vm.onEvent(EditorEvent.RequestRemoveClip("c3"))
             vm.onEvent(EditorEvent.ConfirmRemoveClip)
@@ -229,7 +376,6 @@ class EditorViewModelTest {
             assertEquals(listOf("c2"), (vm.uiState.value as EditorUiState.Loaded).project.tracks[0].clips.map { it.id })
         }
 
-    // Proves that an export runs to completion, saves to the gallery or a chosen file, and removes the temp file.
     @Test
     fun export_success_savesToGalleryAndUri_andDeletesTempFile() = runTest(testDispatcher) {
         val project = projectWithOneClip(writeExportClip("proj-1", "c1"))
@@ -259,7 +405,6 @@ class EditorViewModelTest {
         assertEquals("content://saf/video.mp4", saver.lastSavedUri)
     }
 
-    // Proves that while an export runs, imports, removals and a second export are ignored, and Cancel cleans up.
     @Test
     fun export_whileRunning_blocksOtherActions_andCancelReturnsToIdleWithoutTempFile() = runTest(testDispatcher) {
         val project = projectWithOneClip(writeExportClip("proj-1", "c1"))
@@ -281,9 +426,14 @@ class EditorViewModelTest {
 
         vm.onEvent(EditorEvent.VideoPicked("content://media/picker/2"))
         vm.onEvent(EditorEvent.RequestRemoveClip("c1"))
+        vm.onEvent(EditorEvent.OpenTrim)
+        vm.onEvent(EditorEvent.ApplyTrim(0L, 1_500L))
+        vm.onEvent(EditorEvent.ApplySplit(1_000L))
         vm.onEvent(EditorEvent.StartExport())
         assertEquals(0, importer.callCount)
         assertNull((vm.uiState.value as EditorUiState.Loaded).pendingRemoveClipId)
+        assertNull((vm.uiState.value as EditorUiState.Loaded).activeDialog)
+        assertEquals(4_000L, (vm.uiState.value as EditorUiState.Loaded).project.durationMs)
         assertEquals(1, exporter.callCount)
 
         vm.onEvent(EditorEvent.CancelExport)
@@ -293,7 +443,6 @@ class EditorViewModelTest {
         assertFalse(File(exportDir, "proj-1.mp4").exists())
     }
 
-    // Proves that every export failure (space, format, other, save, nothing to export) shows the right error.
     @Test
     fun export_mapsEveryFailureToItsError() = runTest(testDispatcher) {
         val rel = writeExportClip("proj-1", "c1")
@@ -337,7 +486,6 @@ class EditorViewModelTest {
         assertEquals(EditorError.EXPORT_NOTHING, (vm.uiState.value as EditorUiState.Loaded).error)
     }
 
-    // Proves that exporting a project without clips does nothing.
     @Test
     fun export_withoutClips_isIgnored() = runTest(testDispatcher) {
         val empty = Project(id = "proj-1", title = "Empty")
@@ -373,6 +521,7 @@ class EditorViewModelTest {
             startTimeMs = 0L,
             durationMs = 4_000L,
             trimEndMs = 4_000L,
+            sourceDurationMs = 4_000L,
         )
         return Project(
             id = "proj-1",

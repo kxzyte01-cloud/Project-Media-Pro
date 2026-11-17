@@ -3,6 +3,7 @@ package com.projectmediapro.app.data.export
 import com.projectmediapro.app.data.media.ProjectMediaStorage
 import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.Project
+import com.projectmediapro.core.model.ProjectTimeline
 import com.projectmediapro.core.model.Track
 import com.projectmediapro.core.model.TrackType
 import java.io.File
@@ -25,13 +26,26 @@ class ExportPlannerTest {
         storage = ProjectMediaStorage(File(tempFolder.root, "media"))
     }
 
-    // Proves that clips are exported in timeline order with a summed duration and no trim when untrimmed.
     @Test
     fun plan_withValidClips_returnsOrderedExportClipsAndSummedDuration() {
         val rel1 = createClipFile("proj-1", "clip-1")
         val rel2 = createClipFile("proj-1", "clip-2")
-        val c1 = Clip(id = "clip-1", mediaUri = rel1, startTimeMs = 0L, durationMs = 3_000L, trimEndMs = 3_000L)
-        val c2 = Clip(id = "clip-2", mediaUri = rel2, startTimeMs = 3_000L, durationMs = 4_500L, trimEndMs = 4_500L)
+        val c1 = Clip(
+            id = "clip-1",
+            mediaUri = rel1,
+            startTimeMs = 0L,
+            durationMs = 3_000L,
+            trimEndMs = 3_000L,
+            sourceDurationMs = 3_000L,
+        )
+        val c2 = Clip(
+            id = "clip-2",
+            mediaUri = rel2,
+            startTimeMs = 3_000L,
+            durationMs = 4_500L,
+            trimEndMs = 4_500L,
+            sourceDurationMs = 4_500L,
+        )
         val project = Project(
             id = "proj-1",
             title = "Demo",
@@ -49,7 +63,6 @@ class ExportPlannerTest {
         assertEquals(0L, plan.clips[1].trimEndMs)
     }
 
-    // Proves that a clip whose file is missing is skipped while the other clips are still exported.
     @Test
     fun plan_skipsMissingFiles_andUsesRemainingValidClips() {
         val existingRel = createClipFile("proj-1", "clip-2")
@@ -67,7 +80,6 @@ class ExportPlannerTest {
         assertEquals(5_000L, plan.totalDurationMs)
     }
 
-    // Proves that exporting a project whose clip files are all missing is reported as an error.
     @Test(expected = IllegalStateException::class)
     fun plan_whenAllClipsMissing_throwsIllegalStateException() {
         val missing = Clip(id = "clip-1", mediaUri = "proj-1/missing.mp4", startTimeMs = 0L, durationMs = 2_000L)
@@ -80,43 +92,62 @@ class ExportPlannerTest {
         ExportPlanner.plan(project) { storage.resolve(it) }
     }
 
-    // Proves that trim bounds are passed only for trimmed clips and an invalid trim range is ignored.
     @Test
-    fun plan_passesTrimBoundsOnlyWhenTrimmed_andIgnoresInvalidTrimRange() {
-        val relTrimmed = createClipFile("proj-1", "c-trim")
+    fun plan_passesTrimBoundsForEndOnlyTrimAndStartTrim_andIgnoresInvalidTrimRange() {
+        val relEndTrimmed = createClipFile("proj-1", "c-end-trim")
+        val relStartAndEnd = createClipFile("proj-1", "c-both-trim")
         val relInvalid = createClipFile("proj-1", "c-invalid")
-        val trimmed = Clip(
-            id = "c-trim",
-            mediaUri = relTrimmed,
+        val initialEndTrimClip = Clip(
+            id = "c-end-trim",
+            mediaUri = relEndTrimmed,
             startTimeMs = 0L,
             durationMs = 6_000L,
+            trimStartMs = 0L,
+            trimEndMs = 6_000L,
+            sourceDurationMs = 6_000L,
+        )
+        val bothTrimmed = Clip(
+            id = "c-both-trim",
+            mediaUri = relStartAndEnd,
+            startTimeMs = 6_000L,
+            durationMs = 3_000L,
             trimStartMs = 1_000L,
             trimEndMs = 4_000L,
+            sourceDurationMs = 6_000L,
         )
         val invalidTrim = Clip(
             id = "c-invalid",
             mediaUri = relInvalid,
-            startTimeMs = 3_000L,
+            startTimeMs = 9_000L,
             durationMs = 5_000L,
             trimStartMs = 3_000L,
             trimEndMs = 3_000L,
+            sourceDurationMs = 5_000L,
         )
-        val project = Project(
+        val initialProject = Project(
             id = "proj-1",
             title = "Demo",
-            tracks = listOf(Track(id = "t-1", type = TrackType.VIDEO, clips = listOf(trimmed, invalidTrim))),
+            tracks = listOf(
+                Track(
+                    id = "t-1",
+                    type = TrackType.VIDEO,
+                    clips = listOf(initialEndTrimClip, bothTrimmed, invalidTrim),
+                ),
+            ),
         )
+        val endTrimmedProject = ProjectTimeline.trimClip(initialProject, "c-end-trim", 0L, 4_000L)
 
-        val plan = ExportPlanner.plan(project) { storage.resolve(it) }
+        val plan = ExportPlanner.plan(endTrimmedProject) { storage.resolve(it) }
 
-        assertEquals(8_000L, plan.totalDurationMs)
-        assertEquals(1_000L, plan.clips[0].trimStartMs)
+        assertEquals(12_000L, plan.totalDurationMs)
+        assertEquals(0L, plan.clips[0].trimStartMs)
         assertEquals(4_000L, plan.clips[0].trimEndMs)
-        assertEquals(0L, plan.clips[1].trimStartMs)
-        assertEquals(0L, plan.clips[1].trimEndMs)
+        assertEquals(1_000L, plan.clips[1].trimStartMs)
+        assertEquals(4_000L, plan.clips[1].trimEndMs)
+        assertEquals(0L, plan.clips[2].trimStartMs)
+        assertEquals(0L, plan.clips[2].trimEndMs)
     }
 
-    // Proves that the space estimate has a 50 MB floor and grows with duration (about 20 Mbps plus margin).
     @Test
     fun estimateExportBytes_hasFloorAndScalesWithDuration() {
         val floor = 50L * 1024L * 1024L
@@ -126,7 +157,6 @@ class ExportPlannerTest {
         assertEquals(225_000_000L, ExportPlanner.estimateExportBytes(60_000L))
     }
 
-    // Proves that big videos are scaled down to a 1920 long side, small ones are kept, and sizes are even.
     @Test
     fun fitExportSize_capsLongSideKeepsAspectAndMakesSizesEven() {
         assertEquals(Pair(1920, 1080), ExportPlanner.fitExportSize(1920, 1080))

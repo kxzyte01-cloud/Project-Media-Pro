@@ -1,7 +1,9 @@
 package com.projectmediapro.core.model
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProjectTimelineTest {
@@ -16,6 +18,7 @@ class ProjectTimelineTest {
             durationMs = 4_000L,
             trimStartMs = 0L,
             trimEndMs = 4_000L,
+            sourceDurationMs = 4_000L,
         )
 
         val updated = ProjectTimeline.appendClip(empty, clip, "new-video-track")
@@ -109,6 +112,171 @@ class ProjectTimelineTest {
 
         val removedAudio = ProjectTimeline.removeClip(removedV2, "a1")
         assertEquals(6_000L, removedAudio.durationMs)
+    }
+
+    @Test
+    fun effectiveSourceDurationMs_andTrimPredicates_resolveKnownAndFallbackBounds() {
+        val explicit = Clip(
+            id = "c1",
+            mediaUri = "p/1.mp4",
+            startTimeMs = 0L,
+            durationMs = 2_000L,
+            trimStartMs = 500L,
+            trimEndMs = 2_500L,
+            sourceDurationMs = 8_000L,
+        )
+        val unknownWithTrimEnd = Clip(
+            id = "c2",
+            mediaUri = "p/2.mp4",
+            startTimeMs = 0L,
+            durationMs = 3_000L,
+            trimStartMs = 1_000L,
+            trimEndMs = 4_000L,
+            sourceDurationMs = 0L,
+        )
+        val untrimmed = Clip(
+            id = "c3",
+            mediaUri = "p/3.mp4",
+            startTimeMs = 0L,
+            durationMs = 5_000L,
+            trimStartMs = 0L,
+            trimEndMs = 5_000L,
+            sourceDurationMs = 5_000L,
+        )
+
+        assertEquals(8_000L, ProjectTimeline.effectiveSourceDurationMs(explicit))
+        assertEquals(4_000L, ProjectTimeline.effectiveSourceDurationMs(unknownWithTrimEnd))
+        assertEquals(5_000L, ProjectTimeline.effectiveSourceDurationMs(untrimmed))
+        assertTrue(ProjectTimeline.isClipTrimmed(explicit))
+        assertFalse(ProjectTimeline.isClipTrimmed(untrimmed))
+    }
+
+    @Test
+    fun trimClip_updatesClipDurationRipplesSubsequentClipsAndValidatesBounds() {
+        val c1 = Clip(
+            id = "c1",
+            mediaUri = "p/1.mp4",
+            startTimeMs = 0L,
+            durationMs = 5_000L,
+            trimStartMs = 0L,
+            trimEndMs = 5_000L,
+            sourceDurationMs = 5_000L,
+        )
+        val c2 = Clip(
+            id = "c2",
+            mediaUri = "p/2.mp4",
+            startTimeMs = 5_000L,
+            durationMs = 3_000L,
+            trimStartMs = 0L,
+            trimEndMs = 3_000L,
+            sourceDurationMs = 3_000L,
+        )
+        val project = Project(
+            id = "p",
+            title = "Trim",
+            durationMs = 8_000L,
+            tracks = listOf(Track(id = "v", type = TrackType.VIDEO, clips = listOf(c1, c2))),
+        )
+
+        val trimmed = ProjectTimeline.trimClip(project, "c1", newStartMs = 1_000L, newEndMs = 3_500L)
+        val clips = trimmed.tracks[0].clips
+        assertEquals(1_000L, clips[0].trimStartMs)
+        assertEquals(3_500L, clips[0].trimEndMs)
+        assertEquals(2_500L, clips[0].durationMs)
+        assertEquals(5_000L, clips[0].sourceDurationMs)
+        assertEquals(0L, clips[0].startTimeMs)
+        assertEquals(2_500L, clips[1].startTimeMs)
+        assertEquals(5_500L, trimmed.durationMs)
+
+        val minTrimmed = ProjectTimeline.trimClip(trimmed, "c1", newStartMs = 2_000L, newEndMs = 2_500L)
+        assertEquals(500L, minTrimmed.tracks[0].clips[0].durationMs)
+        assertEquals(3_500L, minTrimmed.durationMs)
+
+        assertSame(project, ProjectTimeline.trimClip(project, "missing", 0L, 1_000L))
+        assertSame(project, ProjectTimeline.trimClip(project, "c1", -1L, 2_000L))
+        assertSame(project, ProjectTimeline.trimClip(project, "c1", 2_000L, 2_000L))
+        assertSame(project, ProjectTimeline.trimClip(project, "c1", 2_000L, 2_499L))
+        assertSame(project, ProjectTimeline.trimClip(project, "c1", 0L, 5_001L))
+    }
+
+    @Test
+    fun splitClip_createsTwoAdjacentPartsSharingFile_ripplesLaterClips_andRejectsInvalidOffsets() {
+        val c1 = Clip(
+            id = "c1",
+            mediaUri = "p/shared.mp4",
+            startTimeMs = 0L,
+            durationMs = 4_000L,
+            trimStartMs = 1_000L,
+            trimEndMs = 5_000L,
+            sourceDurationMs = 6_000L,
+        )
+        val c2 = Clip(
+            id = "c2",
+            mediaUri = "p/other.mp4",
+            startTimeMs = 4_000L,
+            durationMs = 2_000L,
+            trimStartMs = 0L,
+            trimEndMs = 2_000L,
+            sourceDurationMs = 2_000L,
+        )
+        val project = Project(
+            id = "p",
+            title = "Split",
+            durationMs = 6_000L,
+            tracks = listOf(Track(id = "v", type = TrackType.VIDEO, clips = listOf(c1, c2))),
+        )
+
+        val split = ProjectTimeline.splitClip(project, "c1", offsetMs = 1_500L, newClipId = "c1-part2")
+        val clips = split.tracks[0].clips
+        assertEquals(listOf("c1", "c1-part2", "c2"), clips.map { it.id })
+        assertEquals("p/shared.mp4", clips[0].mediaUri)
+        assertEquals("p/shared.mp4", clips[1].mediaUri)
+        assertEquals(1_000L, clips[0].trimStartMs)
+        assertEquals(2_500L, clips[0].trimEndMs)
+        assertEquals(1_500L, clips[0].durationMs)
+        assertEquals(6_000L, clips[0].sourceDurationMs)
+        assertEquals(2_500L, clips[1].trimStartMs)
+        assertEquals(5_000L, clips[1].trimEndMs)
+        assertEquals(2_500L, clips[1].durationMs)
+        assertEquals(6_000L, clips[1].sourceDurationMs)
+        assertEquals(listOf(0L, 1_500L, 4_000L), clips.map { it.startTimeMs })
+        assertEquals(6_000L, split.durationMs)
+
+        assertSame(project, ProjectTimeline.splitClip(project, "missing", 1_000L, "new-id"))
+        assertSame(project, ProjectTimeline.splitClip(project, "c1", 499L, "new-id"))
+        assertSame(project, ProjectTimeline.splitClip(project, "c1", 3_501L, "new-id"))
+        assertSame(project, ProjectTimeline.splitClip(project, "c1", 1_500L, ""))
+        assertSame(project, ProjectTimeline.splitClip(project, "c1", 1_500L, "c1"))
+        assertSame(project, ProjectTimeline.splitClip(project, "c1", 1_500L, "c2"))
+    }
+
+    @Test
+    fun moveClip_swapsWithinTrackRecalculatesStartTimes_andLeavesEndsUnchanged() {
+        val c1 = Clip(id = "c1", mediaUri = "p/1.mp4", startTimeMs = 0L, durationMs = 1_000L)
+        val c2 = Clip(id = "c2", mediaUri = "p/2.mp4", startTimeMs = 1_000L, durationMs = 3_000L)
+        val c3 = Clip(id = "c3", mediaUri = "p/3.mp4", startTimeMs = 4_000L, durationMs = 2_000L)
+        val project = Project(
+            id = "p",
+            title = "Move",
+            durationMs = 6_000L,
+            tracks = listOf(Track(id = "v", type = TrackType.VIDEO, clips = listOf(c1, c2, c3))),
+        )
+
+        assertSame(project, ProjectTimeline.moveClip(project, "c1", -1))
+        assertSame(project, ProjectTimeline.moveClip(project, "c3", 1))
+        assertSame(project, ProjectTimeline.moveClip(project, "c2", 0))
+        assertSame(project, ProjectTimeline.moveClip(project, "c2", 2))
+        assertSame(project, ProjectTimeline.moveClip(project, "missing", 1))
+
+        val movedLater = ProjectTimeline.moveClip(project, "c1", 1)
+        assertEquals(listOf("c2", "c1", "c3"), movedLater.tracks[0].clips.map { it.id })
+        assertEquals(listOf(0L, 3_000L, 4_000L), movedLater.tracks[0].clips.map { it.startTimeMs })
+        assertEquals(6_000L, movedLater.durationMs)
+
+        val movedEarlier = ProjectTimeline.moveClip(movedLater, "c3", -1)
+        assertEquals(listOf("c2", "c3", "c1"), movedEarlier.tracks[0].clips.map { it.id })
+        assertEquals(listOf(0L, 3_000L, 5_000L), movedEarlier.tracks[0].clips.map { it.startTimeMs })
+        assertEquals(6_000L, movedEarlier.durationMs)
     }
 
     @Test
