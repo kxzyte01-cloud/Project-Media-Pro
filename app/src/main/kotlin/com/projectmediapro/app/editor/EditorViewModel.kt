@@ -325,7 +325,8 @@ class EditorViewModel(
                             error = null,
                         )
                     } catch (_: IOException) {
-                        mediaStorage.deleteClipFile(imported.relativePath)                        _uiState.value = beforeSave.copy(
+                        mediaStorage.deleteClipFile(imported.relativePath)
+                        _uiState.value = beforeSave.copy(
                             project = previousProject,
                             previewClips = resolvePreviewClips(previousProject),
                             isImporting = false,
