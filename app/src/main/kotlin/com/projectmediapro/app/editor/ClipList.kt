@@ -33,6 +33,7 @@ fun ClipList(
     clips: List<Clip>,
     onRequestRemoveClip: (String) -> Unit,
     modifier: Modifier = Modifier,
+    isRemoveEnabled: Boolean = true,
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -46,6 +47,7 @@ fun ClipList(
                 ClipRowCard(
                     clipNumber = index + 1,
                     durationText = ProjectTimeline.formatDuration(clip.durationMs),
+                    isRemoveEnabled = isRemoveEnabled,
                     onRemoveClick = { onRequestRemoveClip(clip.id) },
                 )
             }
@@ -57,6 +59,7 @@ fun ClipList(
 private fun ClipRowCard(
     clipNumber: Int,
     durationText: String,
+    isRemoveEnabled: Boolean,
     onRemoveClick: () -> Unit,
 ) {
     Surface(
@@ -90,6 +93,7 @@ private fun ClipRowCard(
             }
             IconButton(
                 onClick = onRemoveClick,
+                enabled = isRemoveEnabled,
                 modifier = Modifier.defaultMinSize(
                     minWidth = MediaProSpacing.MinTouchTarget,
                     minHeight = MediaProSpacing.MinTouchTarget,
@@ -98,7 +102,11 @@ private fun ClipRowCard(
                 Icon(
                     painter = painterResource(R.drawable.ic_delete),
                     contentDescription = stringResource(R.string.cd_remove_clip),
-                    tint = MaterialTheme.colorScheme.error,
+                    tint = if (isRemoveEnabled) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                 )
             }
         }

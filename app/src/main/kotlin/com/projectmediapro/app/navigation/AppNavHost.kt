@@ -95,6 +95,10 @@ fun AppNavHost(
                     repository = container.projectRepository,
                     videoImporter = container.videoImporter,
                     mediaStorage = container.mediaStorage,
+                    videoExporter = container.videoExporter,
+                    exportSaver = container.exportSaver,
+                    cacheSpaceProvider = container.cacheSpaceProvider,
+                    tempDirectory = container.exportTempDirectory,
                 ),
             )
             val uiState by viewModel.uiState.collectAsStateWithLifecycle()

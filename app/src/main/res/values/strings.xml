@@ -31,6 +31,12 @@
     <string name="editor_load_failed">Could not load this project. Please try again.</string>
     <string name="editor_add_video">Add video</string>
     <string name="editor_adding_video">Adding video…</string>
+    <string name="editor_export_video">Export video</string>
+    <string name="editor_exporting">Exporting… %1$d%%</string>
+    <string name="editor_export_keep_open">Keep this screen open while exporting.</string>
+    <string name="editor_export_done_gallery">Saved to your gallery (Movies/ProjectMediaPro).</string>
+    <string name="editor_export_done_file">Video saved.</string>
+    <string name="editor_export_dismiss">OK</string>
     <string name="editor_clips_heading">Clips</string>
     <string name="editor_clip_title">Clip %1$d</string>
     <string name="editor_remove_title">Remove clip?</string>
@@ -44,6 +50,11 @@
     <string name="error_import_failed">Could not add this video.</string>
     <string name="error_import_not_video">This file is not a playable video.</string>
     <string name="error_import_no_space">Not enough free storage to add this video.</string>
+    <string name="error_export_failed">Could not export the video.</string>
+    <string name="error_export_unsupported">One of the clips uses a format this device cannot export.</string>
+    <string name="error_export_no_space">Not enough free storage to export this video.</string>
+    <string name="error_export_save_failed">Export finished, but saving the file failed.</string>
+    <string name="error_export_nothing">Add at least one video before exporting.</string>
 
     <!-- Settings screen -->
     <string name="settings_title">Settings</string>

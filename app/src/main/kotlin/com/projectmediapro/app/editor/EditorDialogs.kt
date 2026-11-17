@@ -46,4 +46,9 @@ internal fun editorErrorStringRes(error: EditorError): Int = when (error) {
     EditorError.IMPORT_NOT_A_VIDEO -> R.string.error_import_not_video
     EditorError.IMPORT_NO_SPACE -> R.string.error_import_no_space
     EditorError.SAVE_FAILED -> R.string.error_save_failed
+    EditorError.EXPORT_FAILED -> R.string.error_export_failed
+    EditorError.EXPORT_UNSUPPORTED -> R.string.error_export_unsupported
+    EditorError.EXPORT_NO_SPACE -> R.string.error_export_no_space
+    EditorError.EXPORT_SAVE_FAILED -> R.string.error_export_save_failed
+    EditorError.EXPORT_NOTHING -> R.string.error_export_nothing
 }

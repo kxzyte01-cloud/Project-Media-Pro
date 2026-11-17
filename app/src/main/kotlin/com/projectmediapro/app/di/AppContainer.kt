@@ -2,6 +2,11 @@ package com.projectmediapro.app.di
 
 import android.content.Context
 import com.projectmediapro.app.BuildConfig
+import com.projectmediapro.app.data.export.AndroidExportSaver
+import com.projectmediapro.app.data.export.ExportSaver
+import com.projectmediapro.app.data.export.Media3VideoExporter
+import com.projectmediapro.app.data.export.VideoExporter
+import com.projectmediapro.app.data.export.usableBytesNear
 import com.projectmediapro.app.data.media.AndroidVideoImporter
 import com.projectmediapro.app.data.media.ProjectMediaStorage
 import com.projectmediapro.app.data.media.VideoImporter
@@ -31,5 +36,9 @@ class AppContainer(appContext: Context) {
         directory = File(appContext.filesDir, "projects"),
         mediaStorage = mediaStorage,
     )
+    val videoExporter: VideoExporter = Media3VideoExporter(context = appContext)
+    val exportSaver: ExportSaver = AndroidExportSaver(context = appContext)
+    val exportTempDirectory: File = File(appContext.cacheDir, "exports")
+    val cacheSpaceProvider: () -> Long = { usableBytesNear(exportTempDirectory) }
     val appVersionName: String = BuildConfig.VERSION_NAME
 }

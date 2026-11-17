@@ -1,5 +1,6 @@
 package com.projectmediapro.app.editor
 
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -33,10 +34,11 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.projectmediapro.app.R
+import com.projectmediapro.app.data.export.sanitizeExportName
+import com.projectmediapro.app.data.export.videoClips
 import com.projectmediapro.core.designsystem.component.MediaProTopBar
 import com.projectmediapro.core.designsystem.theme.MediaProShapes
 import com.projectmediapro.core.designsystem.theme.MediaProSpacing
-import com.projectmediapro.core.model.TrackType
 
 @Composable
 fun EditorScreen(
@@ -50,6 +52,15 @@ fun EditorScreen(
     ) { uri ->
         onEvent(EditorEvent.VideoPicked(uri?.toString()))
     }
+
+    val createDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("video/mp4"),
+    ) { uri ->
+        if (uri != null) {
+            onEvent(EditorEvent.StartExport(uri.toString()))
+        }
+    }
+
     val topBarTitle = when (uiState) {
         is EditorUiState.Loaded -> uiState.project.title
         EditorUiState.Loading -> stringResource(R.string.editor_loading_title)
@@ -73,39 +84,54 @@ fun EditorScreen(
         },
     ) { innerPadding ->
         when (uiState) {
-            EditorUiState.Loading -> CenteredStatus(Modifier.padding(innerPadding)) {
-                CircularProgressIndicator()
-                Text(
-                    text = stringResource(R.string.editor_loading),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = MediaProSpacing.Small),
-                )
-            }
-            EditorUiState.NotFound -> CenteredStatus(Modifier.padding(innerPadding)) {
-                Text(
-                    text = stringResource(R.string.editor_not_found),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            EditorUiState.Error -> CenteredStatus(Modifier.padding(innerPadding)) {
-                Text(
-                    text = stringResource(R.string.editor_load_failed),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-            is EditorUiState.Loaded -> LoadedEditorContent(
-                state = uiState,
-                onPickVideo = {
-                    videoPickerLauncher.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly),
+            EditorUiState.Loading -> {
+                CenteredEditorStatus(modifier = Modifier.padding(innerPadding)) {
+                    CircularProgressIndicator()
+                    Text(
+                        text = stringResource(R.string.editor_loading),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = MediaProSpacing.Small),
                     )
-                },
-                onEvent = onEvent,
-                modifier = Modifier.padding(innerPadding),
-            )
+                }
+            }
+            EditorUiState.NotFound -> {
+                CenteredEditorStatus(modifier = Modifier.padding(innerPadding)) {
+                    Text(
+                        text = stringResource(R.string.editor_not_found),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            EditorUiState.Error -> {
+                CenteredEditorStatus(modifier = Modifier.padding(innerPadding)) {
+                    Text(
+                        text = stringResource(R.string.editor_load_failed),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+            is EditorUiState.Loaded -> {
+                LoadedEditorContent(
+                    state = uiState,
+                    onPickVideo = {
+                        videoPickerLauncher.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly),
+                        )
+                    },
+                    onRequestExport = {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            onEvent(EditorEvent.StartExport())
+                        } else {
+                            createDocumentLauncher.launch("${sanitizeExportName(uiState.project.title)}.mp4")
+                        }
+                    },
+                    onEvent = onEvent,
+                    modifier = Modifier.padding(innerPadding),
+                )
+            }
         }
     }
 }
@@ -114,10 +140,13 @@ fun EditorScreen(
 private fun LoadedEditorContent(
     state: EditorUiState.Loaded,
     onPickVideo: () -> Unit,
+    onRequestExport: () -> Unit,
     onEvent: (EditorEvent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val clips = state.project.tracks.firstOrNull { it.type == TrackType.VIDEO }?.clips.orEmpty()
+    val clips = state.project.videoClips()
+    val isExporting = state.export is ExportUiState.Running
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -137,27 +166,46 @@ private fun LoadedEditorContent(
                 Text(
                     text = stringResource(R.string.editor_empty),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = Color.White.copy(alpha = 0.7f),
                 )
             } else {
-                PreviewPlayer(previewPaths = state.previewPaths, modifier = Modifier.fillMaxSize())
+                PreviewPlayer(
+                    previewPaths = state.previewPaths,
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
         }
+
         Spacer(modifier = Modifier.height(MediaProSpacing.Medium))
         Button(
             onClick = onPickVideo,
-            enabled = !state.isImporting,
+            enabled = !state.isImporting && !isExporting,
             shape = MediaProShapes.Small,
-            modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = MediaProSpacing.MinTouchTarget),
+            modifier = Modifier
+                .fillMaxWidth()
+                .defaultMinSize(minHeight = MediaProSpacing.MinTouchTarget),
         ) {
             if (state.isImporting) {
-                CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                CircularProgressIndicator(
+                    strokeWidth = 2.dp,
+                    modifier = Modifier.size(18.dp),
+                )
                 Spacer(modifier = Modifier.width(MediaProSpacing.Small))
                 Text(text = stringResource(R.string.editor_adding_video))
             } else {
                 Text(text = stringResource(R.string.editor_add_video))
             }
         }
+
+        Spacer(modifier = Modifier.height(MediaProSpacing.Small))
+        ExportSection(
+            exportState = state.export,
+            isExportEnabled = clips.isNotEmpty() && !state.isImporting && !isExporting,
+            onExportClick = onRequestExport,
+            onCancelExport = { onEvent(EditorEvent.CancelExport) },
+            onDismissDone = { onEvent(EditorEvent.DismissExportDone) },
+        )
+
         if (state.error != null) {
             Spacer(modifier = Modifier.height(MediaProSpacing.ExtraSmall))
             Text(
@@ -166,11 +214,19 @@ private fun LoadedEditorContent(
                 color = MaterialTheme.colorScheme.error,
             )
         }
+
         if (clips.isNotEmpty()) {
-            ClipList(clips = clips, onRequestRemoveClip = { onEvent(EditorEvent.RequestRemoveClip(it)) })
+            ClipList(
+                clips = clips,
+                isRemoveEnabled = !isExporting,
+                onRequestRemoveClip = { clipId ->
+                    onEvent(EditorEvent.RequestRemoveClip(clipId))
+                },
+            )
         }
         Spacer(modifier = Modifier.height(MediaProSpacing.ExtraLarge))
     }
+
     val pendingIndex = clips.indexOfFirst { it.id == state.pendingRemoveClipId }
     if (pendingIndex >= 0) {
         RemoveClipDialog(
@@ -182,10 +238,17 @@ private fun LoadedEditorContent(
 }
 
 @Composable
-private fun CenteredStatus(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+private fun CenteredEditorStatus(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
-        modifier = modifier.fillMaxSize().padding(horizontal = MediaProSpacing.Medium),
-    ) { content() }
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = MediaProSpacing.Medium),
+    ) {
+        content()
+    }
 }

@@ -1,5 +1,10 @@
 package com.projectmediapro.app.editor
 
+import com.projectmediapro.app.data.export.ExportPlan
+import com.projectmediapro.app.data.export.ExportSaver
+import com.projectmediapro.app.data.export.SavedExport
+import com.projectmediapro.app.data.export.VideoExportException
+import com.projectmediapro.app.data.export.VideoExporter
 import com.projectmediapro.app.data.media.ImportedVideo
 import com.projectmediapro.app.data.media.ProjectMediaStorage
 import com.projectmediapro.app.data.media.VideoImportException
@@ -61,8 +66,12 @@ class EditorViewModelTest {
         val missingVm = EditorViewModel("missing-id", repo, importer, mediaStorage)
         assertEquals(EditorUiState.NotFound, missingVm.uiState.value)
 
-        val failingRepo = FakeEditorProjectRepository(emptyList(), shouldFailLoad = true)
-        val failingVm = EditorViewModel("valid-id-1", failingRepo, importer, mediaStorage)
+        val failingVm = EditorViewModel(
+            projectId = "valid-id-1",
+            repository = FakeEditorProjectRepository(emptyList(), shouldFailLoad = true),
+            videoImporter = importer,
+            mediaStorage = mediaStorage,
+        )
         assertEquals(EditorUiState.Error, failingVm.uiState.value)
     }
 
@@ -76,7 +85,13 @@ class EditorViewModelTest {
         val repo = FakeEditorProjectRepository(listOf(initial))
         val importer = FakeVideoImporter(mediaStorage, nextDurationMs = 4_500L)
         var nextId = 1
-        val vm = EditorViewModel("proj-1", repo, importer, mediaStorage) { "gen-${nextId++}" }
+        val vm = EditorViewModel(
+            projectId = "proj-1",
+            repository = repo,
+            videoImporter = importer,
+            mediaStorage = mediaStorage,
+            idProvider = { "gen-${nextId++}" },
+        )
 
         vm.onEvent(EditorEvent.VideoPicked(null))
         assertEquals(0, importer.callCount)
@@ -109,6 +124,7 @@ class EditorViewModelTest {
             Reason.NOT_A_VIDEO to EditorError.IMPORT_NOT_A_VIDEO,
             Reason.NO_SPACE to EditorError.IMPORT_NO_SPACE,
         )
+
         for ((reason, expectedError) in cases) {
             importer.failureReason = reason
             vm.onEvent(EditorEvent.VideoPicked("content://media/picker/video"))
@@ -135,7 +151,8 @@ class EditorViewModelTest {
         assertEquals(initial, state.project)
         assertEquals(EditorError.SAVE_FAILED, state.error)
         assertFalse(state.isImporting)
-        assertFalse(mediaStorage.resolve(importer.lastRelativePath)?.exists() == true)
+        val lastCopiedFile = mediaStorage.resolve(importer.lastRelativePath)
+        assertFalse(lastCopiedFile?.exists() == true)
     }
 
     @Test
@@ -169,8 +186,11 @@ class EditorViewModelTest {
         runTest(testDispatcher) {
             val sharedRel = mediaStorage.clipRelativePath("proj-1", "shared", "mp4")
             val uniqueRel = mediaStorage.clipRelativePath("proj-1", "unique", "mp4")
-            val sharedFile = mediaStorage.resolve(sharedRel)?.apply { parentFile?.mkdirs(); writeText("s") }
-            val uniqueFile = mediaStorage.resolve(uniqueRel)?.apply { parentFile?.mkdirs(); writeText("u") }
+            val sharedFile = mediaStorage.resolve(sharedRel)
+            val uniqueFile = mediaStorage.resolve(uniqueRel)
+            sharedFile?.parentFile?.mkdirs()
+            sharedFile?.writeText("shared-bytes")
+            uniqueFile?.writeText("unique-bytes")
 
             val c1 = Clip(id = "c1", mediaUri = sharedRel, startTimeMs = 0L, durationMs = 2_000L)
             val c2 = Clip(id = "c2", mediaUri = sharedRel, startTimeMs = 2_000L, durationMs = 2_000L)
@@ -208,6 +228,195 @@ class EditorViewModelTest {
             assertFalse(uniqueFile?.exists() == true)
             assertEquals(listOf("c2"), (vm.uiState.value as EditorUiState.Loaded).project.tracks[0].clips.map { it.id })
         }
+
+    // Proves that an export runs to completion, saves to the gallery or a chosen file, and removes the temp file.
+    @Test
+    fun export_success_savesToGalleryAndUri_andDeletesTempFile() = runTest(testDispatcher) {
+        val project = projectWithOneClip(writeExportClip("proj-1", "c1"))
+        val exportDir = File(tempFolder.root, "exports")
+        val exporter = FakeVideoExporter(progressSteps = listOf(45, 100))
+        val saver = FakeExportSaver()
+        val vm = EditorViewModel(
+            "proj-1",
+            FakeEditorProjectRepository(listOf(project)),
+            FakeVideoImporter(mediaStorage),
+            mediaStorage,
+            videoExporter = exporter,
+            exportSaver = saver,
+            tempDirectory = exportDir,
+        )
+
+        vm.onEvent(EditorEvent.StartExport())
+        assertEquals(ExportUiState.Done(savedToGallery = true), (vm.uiState.value as EditorUiState.Loaded).export)
+        assertEquals(1, saver.gallerySaves)
+        assertFalse(File(exportDir, "proj-1.mp4").exists())
+
+        vm.onEvent(EditorEvent.DismissExportDone)
+        assertEquals(ExportUiState.Idle, (vm.uiState.value as EditorUiState.Loaded).export)
+
+        vm.onEvent(EditorEvent.StartExport(destinationUri = "content://saf/video.mp4"))
+        assertEquals(ExportUiState.Done(savedToGallery = false), (vm.uiState.value as EditorUiState.Loaded).export)
+        assertEquals("content://saf/video.mp4", saver.lastSavedUri)
+    }
+
+    // Proves that while an export runs, imports, removals and a second export are ignored, and Cancel cleans up.
+    @Test
+    fun export_whileRunning_blocksOtherActions_andCancelReturnsToIdleWithoutTempFile() = runTest(testDispatcher) {
+        val project = projectWithOneClip(writeExportClip("proj-1", "c1"))
+        val exportDir = File(tempFolder.root, "exports")
+        val exporter = FakeVideoExporter(gate = CompletableDeferred())
+        val importer = FakeVideoImporter(mediaStorage)
+        val vm = EditorViewModel(
+            "proj-1",
+            FakeEditorProjectRepository(listOf(project)),
+            importer,
+            mediaStorage,
+            videoExporter = exporter,
+            exportSaver = FakeExportSaver(),
+            tempDirectory = exportDir,
+        )
+
+        vm.onEvent(EditorEvent.StartExport())
+        assertEquals(ExportUiState.Running(25), (vm.uiState.value as EditorUiState.Loaded).export)
+
+        vm.onEvent(EditorEvent.VideoPicked("content://media/picker/2"))
+        vm.onEvent(EditorEvent.RequestRemoveClip("c1"))
+        vm.onEvent(EditorEvent.StartExport())
+        assertEquals(0, importer.callCount)
+        assertNull((vm.uiState.value as EditorUiState.Loaded).pendingRemoveClipId)
+        assertEquals(1, exporter.callCount)
+
+        vm.onEvent(EditorEvent.CancelExport)
+        val cancelled = vm.uiState.value as EditorUiState.Loaded
+        assertEquals(ExportUiState.Idle, cancelled.export)
+        assertNull(cancelled.error)
+        assertFalse(File(exportDir, "proj-1.mp4").exists())
+    }
+
+    // Proves that every export failure (space, format, other, save, nothing to export) shows the right error.
+    @Test
+    fun export_mapsEveryFailureToItsError() = runTest(testDispatcher) {
+        val rel = writeExportClip("proj-1", "c1")
+        val project = projectWithOneClip(rel)
+        var freeBytes = 1024L
+        val exporter = FakeVideoExporter()
+        val saver = FakeExportSaver()
+        val vm = EditorViewModel(
+            "proj-1",
+            FakeEditorProjectRepository(listOf(project)),
+            FakeVideoImporter(mediaStorage),
+            mediaStorage,
+            videoExporter = exporter,
+            exportSaver = saver,
+            cacheSpaceProvider = { freeBytes },
+            tempDirectory = File(tempFolder.root, "exports"),
+        )
+
+        vm.onEvent(EditorEvent.StartExport())
+        assertEquals(EditorError.EXPORT_NO_SPACE, (vm.uiState.value as EditorUiState.Loaded).error)
+        assertEquals(0, exporter.callCount)
+
+        freeBytes = Long.MAX_VALUE
+        for ((reason, expected) in listOf(
+            VideoExportException.Reason.UNSUPPORTED to EditorError.EXPORT_UNSUPPORTED,
+            VideoExportException.Reason.NO_SPACE to EditorError.EXPORT_NO_SPACE,
+            VideoExportException.Reason.FAILED to EditorError.EXPORT_FAILED,
+        )) {
+            exporter.failureReason = reason
+            vm.onEvent(EditorEvent.StartExport())
+            assertEquals(expected, (vm.uiState.value as EditorUiState.Loaded).error)
+        }
+
+        exporter.failureReason = null
+        saver.shouldFail = true
+        vm.onEvent(EditorEvent.StartExport())
+        assertEquals(EditorError.EXPORT_SAVE_FAILED, (vm.uiState.value as EditorUiState.Loaded).error)
+
+        mediaStorage.deleteClipFile(rel)
+        vm.onEvent(EditorEvent.StartExport())
+        assertEquals(EditorError.EXPORT_NOTHING, (vm.uiState.value as EditorUiState.Loaded).error)
+    }
+
+    // Proves that exporting a project without clips does nothing.
+    @Test
+    fun export_withoutClips_isIgnored() = runTest(testDispatcher) {
+        val empty = Project(id = "proj-1", title = "Empty")
+        val exporter = FakeVideoExporter()
+        val vm = EditorViewModel(
+            "proj-1",
+            FakeEditorProjectRepository(listOf(empty)),
+            FakeVideoImporter(mediaStorage),
+            mediaStorage,
+            videoExporter = exporter,
+            exportSaver = FakeExportSaver(),
+            tempDirectory = File(tempFolder.root, "exports"),
+        )
+
+        vm.onEvent(EditorEvent.StartExport())
+
+        assertEquals(0, exporter.callCount)
+        assertEquals(ExportUiState.Idle, (vm.uiState.value as EditorUiState.Loaded).export)
+    }
+
+    private fun writeExportClip(projectId: String, clipId: String): String {
+        val relativePath = mediaStorage.clipRelativePath(projectId, clipId, "mp4")
+        val file = mediaStorage.resolve(relativePath)
+        file?.parentFile?.mkdirs()
+        file?.writeText("video")
+        return relativePath
+    }
+
+    private fun projectWithOneClip(relativePath: String): Project {
+        val clip = Clip(
+            id = "c1",
+            mediaUri = relativePath,
+            startTimeMs = 0L,
+            durationMs = 4_000L,
+            trimEndMs = 4_000L,
+        )
+        return Project(
+            id = "proj-1",
+            title = "Demo",
+            durationMs = 4_000L,
+            tracks = listOf(Track(id = "t-1", type = TrackType.VIDEO, clips = listOf(clip))),
+        )
+    }
+}
+
+private class FakeVideoExporter(
+    private val progressSteps: List<Int> = listOf(50, 100),
+    var failureReason: VideoExportException.Reason? = null,
+    private val gate: CompletableDeferred<Unit>? = null,
+) : VideoExporter {
+    var callCount = 0
+
+    override suspend fun export(plan: ExportPlan, outputFile: File, onProgress: (Int) -> Unit) {
+        callCount++
+        outputFile.parentFile?.mkdirs()
+        outputFile.writeText("mp4-bytes")
+        if (gate != null) {
+            onProgress(25)
+            gate.await()
+        }
+        failureReason?.let { throw VideoExportException(it) }
+        progressSteps.forEach { onProgress(it) }
+    }
+}
+
+private class FakeExportSaver(var shouldFail: Boolean = false) : ExportSaver {
+    var gallerySaves = 0
+    var lastSavedUri: String? = null
+
+    override suspend fun saveToGallery(source: File, displayName: String): SavedExport {
+        if (shouldFail) throw IOException("Save failed")
+        gallerySaves++
+        return SavedExport("Movies/ProjectMediaPro/$displayName.mp4")
+    }
+
+    override suspend fun saveToUri(source: File, destinationUri: String) {
+        if (shouldFail) throw IOException("Save failed")
+        lastSavedUri = destinationUri
+    }
 }
 
 private class FakeVideoImporter(
@@ -224,10 +433,14 @@ private class FakeVideoImporter(
     override suspend fun importVideo(projectId: String, sourceUri: String): ImportedVideo {
         callCount++
         failureReason?.let { throw VideoImportException(it) }
-        deferredResult?.let { return it.await() }
+        if (deferredResult != null) {
+            return deferredResult.await()
+        }
         val rel = storage.clipRelativePath(projectId, "imported-$callCount", "mp4")
         lastRelativePath = rel
-        storage.resolve(rel)?.apply { parentFile?.mkdirs(); writeText("fake-video") }
+        val file = storage.resolve(rel)
+        file?.parentFile?.mkdirs()
+        file?.writeText("fake-video-content")
         return ImportedVideo(relativePath = rel, durationMs = nextDurationMs)
     }
 }
@@ -238,15 +451,25 @@ private class FakeEditorProjectRepository(
     var shouldFailSave: Boolean = false,
 ) : ProjectRepository {
     private val map = initialProjects.associateBy { it.id }.toMutableMap()
+
     override suspend fun listProjects(): List<Project> = map.values.toList()
-    override suspend fun getProject(id: String): Project? =
-        if (shouldFailLoad) throw IOException("Read failed") else map[id]
-    override suspend fun createProject(title: String): Project =
-        Project(id = "new-id", title = title).also { map[it.id] = it }
+
+    override suspend fun getProject(id: String): Project? {
+        if (shouldFailLoad) throw IOException("Storage read failed")
+        return map[id]
+    }
+
+    override suspend fun createProject(title: String): Project {
+        val project = Project(id = "new-id", title = title)
+        map[project.id] = project
+        return project
+    }
+
     override suspend fun saveProject(project: Project) {
-        if (shouldFailSave) throw IOException("Write failed")
+        if (shouldFailSave) throw IOException("Storage write failed")
         map[project.id] = project
     }
+
     override suspend fun deleteProject(id: String) {
         map.remove(id)
     }
