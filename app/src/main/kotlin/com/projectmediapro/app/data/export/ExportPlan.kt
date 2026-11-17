@@ -53,20 +53,15 @@ object ExportPlanner {
             val file = resolve(clip.mediaUri)
             if (file == null || !file.isFile) continue
 
-            val hasValidTrimRange = clip.trimStartMs >= 0L && clip.trimEndMs > clip.trimStartMs
-            val isTrimmed = ProjectTimeline.isClipTrimmed(clip)
-            val clipDurationMs = if (hasValidTrimRange) {
-                clip.trimEndMs - clip.trimStartMs
-            } else {
-                clip.durationMs.coerceAtLeast(0L)
-            }
+            val clipDurationMs = ProjectTimeline.effectiveDurationMs(clip)
             if (clipDurationMs <= 0L) continue
 
+            val (trimStartMs, trimEndMs) = ProjectTimeline.resolvedTrimBounds(clip)
             exportClips.add(
                 ExportClip(
                     path = file.absolutePath,
-                    trimStartMs = if (isTrimmed) clip.trimStartMs else 0L,
-                    trimEndMs = if (isTrimmed) clip.trimEndMs else 0L,
+                    trimStartMs = trimStartMs,
+                    trimEndMs = trimEndMs,
                 ),
             )
             totalDurationMs += clipDurationMs
@@ -104,3 +99,4 @@ object ExportPlanner {
 
     private fun toEven(value: Int): Int = (value / 2 * 2).coerceAtLeast(2)
 }
+

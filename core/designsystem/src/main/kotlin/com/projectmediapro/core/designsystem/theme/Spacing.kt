@@ -5,9 +5,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
- * Strict spacing scale (4 / 8 / 12 / 16 / 24 / 32 dp) and touch target floor (48dp).
+ * Strict spacing scale (4 / 8 / 12 / 16 / 24 / 32 dp), border stroke tokens (1 / 2 dp),
+ * and Android touch target floor (48dp).
  */
 object MediaProSpacing {
+    val BorderThin: Dp = 1.dp
+    val BorderSelected: Dp = 2.dp
     val ExtraSmall: Dp = 4.dp
     val Small: Dp = 8.dp
     val MediumSmall: Dp = 12.dp

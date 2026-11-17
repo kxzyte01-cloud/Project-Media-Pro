@@ -361,6 +361,7 @@ class EditorViewModelTest {
             val stateAfterC1 = vm.uiState.value as EditorUiState.Loaded
             assertEquals(listOf("c2", "c3"), stateAfterC1.project.tracks[0].clips.map { it.id })
             assertEquals("c2", stateAfterC1.selectedClipId)
+
             repo.shouldFailSave = true
             vm.onEvent(EditorEvent.RequestRemoveClip("c3"))
             vm.onEvent(EditorEvent.ConfirmRemoveClip)
@@ -623,3 +624,4 @@ private class FakeEditorProjectRepository(
         map.remove(id)
     }
 }
+

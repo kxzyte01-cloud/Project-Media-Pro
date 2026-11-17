@@ -1,5 +1,6 @@
 package com.projectmediapro.app.editor
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import com.projectmediapro.app.R
 import com.projectmediapro.core.designsystem.component.SectionHeader
 import com.projectmediapro.core.designsystem.theme.MediaProShapes
@@ -26,7 +28,8 @@ import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.ProjectTimeline
 
 /**
- * Renders the "Clips" section header and ordered clip cards for the project's video track.
+ * Renders the "Clips" section header and ordered clip cards for the project's video track,
+ * highlighting the selected clip and allowing tap-to-select synchronization with the timeline.
  */
 @Composable
 fun ClipList(
@@ -34,6 +37,8 @@ fun ClipList(
     onRequestRemoveClip: (String) -> Unit,
     modifier: Modifier = Modifier,
     isRemoveEnabled: Boolean = true,
+    selectedClipId: String? = null,
+    onSelectClip: (String) -> Unit = {},
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -47,7 +52,9 @@ fun ClipList(
                 ClipRowCard(
                     clipNumber = index + 1,
                     durationText = ProjectTimeline.formatDuration(clip.durationMs),
+                    isSelected = clip.id == selectedClipId,
                     isRemoveEnabled = isRemoveEnabled,
+                    onCardClick = { onSelectClip(clip.id) },
                     onRemoveClick = { onRequestRemoveClip(clip.id) },
                 )
             }
@@ -59,12 +66,28 @@ fun ClipList(
 private fun ClipRowCard(
     clipNumber: Int,
     durationText: String,
+    isSelected: Boolean,
     isRemoveEnabled: Boolean,
+    onCardClick: () -> Unit,
     onRemoveClick: () -> Unit,
 ) {
+    val borderStroke = if (isSelected) {
+        BorderStroke(MediaProSpacing.BorderSelected, MaterialTheme.colorScheme.primary)
+    } else {
+        BorderStroke(MediaProSpacing.BorderThin, MaterialTheme.colorScheme.outlineVariant)
+    }
+    val containerColor = if (isSelected) {
+        MaterialTheme.colorScheme.surfaceVariant
+    } else {
+        MaterialTheme.colorScheme.surface
+    }
+
     Surface(
+        onClick = onCardClick,
+        enabled = isRemoveEnabled,
         shape = MediaProShapes.Medium,
-        color = MaterialTheme.colorScheme.surface,
+        color = containerColor,
+        border = borderStroke,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
@@ -82,6 +105,7 @@ private fun ClipRowCard(
                 Text(
                     text = stringResource(R.string.editor_clip_title, clipNumber),
                     style = MaterialTheme.typography.titleMedium,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Spacer(modifier = Modifier.height(MediaProSpacing.ExtraSmall))
@@ -105,10 +129,11 @@ private fun ClipRowCard(
                     tint = if (isRemoveEnabled) {
                         MaterialTheme.colorScheme.error
                     } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                     },
                 )
             }
         }
     }
 }
+

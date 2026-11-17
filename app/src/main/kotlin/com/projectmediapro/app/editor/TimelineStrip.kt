@@ -3,7 +3,6 @@ package com.projectmediapro.app.editor
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
@@ -26,6 +25,8 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.projectmediapro.app.R
@@ -37,7 +38,8 @@ import com.projectmediapro.core.model.ProjectTimeline
 private const val DP_PER_SECOND = 12f
 
 /**
- * Displays the Timeline header with Undo/Redo actions and a horizontally scrollable row of clip blocks.
+ * Displays the Timeline header with 8dp-spaced Undo/Redo actions and a recessed, horizontally
+ * scrollable studio track strip of proportional clip blocks.
  */
 @Composable
 fun TimelineStrip(
@@ -54,6 +56,7 @@ fun TimelineStrip(
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = MediaProSpacing.Medium, bottom = MediaProSpacing.ExtraSmall),
@@ -92,20 +95,31 @@ fun TimelineStrip(
             }
         }
 
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-        ) {
-            clips.forEachIndexed { index, clip ->
-                TimelineClipBlock(
-                    clipNumber = index + 1,
-                    durationMs = clip.durationMs,
-                    isSelected = clip.id == selectedClipId,
-                    isEnabled = isEnabled,
-                    onClick = { onSelectClip(clip.id) },
-                )
+        if (clips.isNotEmpty()) {
+            Surface(
+                shape = MediaProShapes.Medium,
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                border = BorderStroke(MediaProSpacing.BorderThin, MaterialTheme.colorScheme.outlineVariant),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(MediaProSpacing.Small),
+                ) {
+                    clips.forEachIndexed { index, clip ->
+                        TimelineClipBlock(
+                            clipNumber = index + 1,
+                            durationMs = clip.durationMs,
+                            isSelected = clip.id == selectedClipId,
+                            isEnabled = isEnabled,
+                            onClick = { onSelectClip(clip.id) },
+                        )
+                    }
+                }
             }
         }
     }
@@ -134,10 +148,10 @@ private fun TimelineClipBlock(
     } else {
         MaterialTheme.colorScheme.onSurface
     }
-    val borderColor = if (isSelected) {
-        MaterialTheme.colorScheme.primary
+    val borderStroke = if (isSelected) {
+        BorderStroke(MediaProSpacing.BorderSelected, MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f))
     } else {
-        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.24f)
+        BorderStroke(MediaProSpacing.BorderThin, MaterialTheme.colorScheme.outline)
     }
 
     Surface(
@@ -146,7 +160,8 @@ private fun TimelineClipBlock(
         shape = MediaProShapes.Small,
         color = containerColor,
         contentColor = contentColor,
-        border = BorderStroke(1.dp, borderColor),
+        tonalElevation = if (isSelected) MediaProSpacing.ExtraSmall else 0.dp,
+        border = borderStroke,
         modifier = Modifier
             .width(blockWidth)
             .defaultMinSize(
@@ -159,14 +174,28 @@ private fun TimelineClipBlock(
                 selected = isSelected
             },
     ) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier.padding(horizontal = MediaProSpacing.Small),
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(
+                horizontal = MediaProSpacing.ExtraSmall,
+                vertical = MediaProSpacing.ExtraSmall,
+            ),
         ) {
             Text(
                 text = clipNumber.toString(),
                 style = MaterialTheme.typography.titleMedium,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                maxLines = 1,
+            )
+            Text(
+                text = formattedDuration,
+                style = MaterialTheme.typography.bodySmall,
+                color = contentColor.copy(alpha = if (isSelected) 0.92f else 0.78f),
+                maxLines = 1,
+                overflow = TextOverflow.Clip,
             )
         }
     }
 }
+

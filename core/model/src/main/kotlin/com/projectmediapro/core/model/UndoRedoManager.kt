@@ -46,3 +46,4 @@ class UndoRedoManager<T>(
     val canUndo: Boolean get() = undoStack.isNotEmpty()
     val canRedo: Boolean get() = redoStack.isNotEmpty()
 }
+

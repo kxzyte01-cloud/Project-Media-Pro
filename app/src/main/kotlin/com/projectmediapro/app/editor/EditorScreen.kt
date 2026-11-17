@@ -4,7 +4,9 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +26,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -32,6 +35,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.projectmediapro.app.R
 import com.projectmediapro.app.data.export.sanitizeExportName
@@ -164,13 +170,18 @@ private fun LoadedEditorContent(
                 .fillMaxWidth()
                 .aspectRatio(16f / 9f)
                 .clip(MediaProShapes.Medium)
-                .background(Color.Black),
+                .background(Color.Black)
+                .border(
+                    width = MediaProSpacing.BorderThin,
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                    shape = MediaProShapes.Medium,
+                ),
         ) {
             if (clips.isEmpty()) {
                 Text(
                     text = stringResource(R.string.editor_empty),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Color.White.copy(alpha = 0.7f),
+                    color = Color.White.copy(alpha = 0.78f),
                 )
             } else {
                 PreviewPlayer(
@@ -219,13 +230,20 @@ private fun LoadedEditorContent(
         ) {
             if (state.isImporting) {
                 CircularProgressIndicator(
-                    strokeWidth = 2.dp,
+                    strokeWidth = MediaProSpacing.BorderSelected,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(18.dp),
                 )
                 Spacer(modifier = Modifier.width(MediaProSpacing.Small))
-                Text(text = stringResource(R.string.editor_adding_video))
+                Text(
+                    text = stringResource(R.string.editor_adding_video),
+                    style = MaterialTheme.typography.labelLarge,
+                )
             } else {
-                Text(text = stringResource(R.string.editor_add_video))
+                Text(
+                    text = stringResource(R.string.editor_add_video),
+                    style = MaterialTheme.typography.labelLarge,
+                )
             }
         }
 
@@ -239,18 +257,36 @@ private fun LoadedEditorContent(
         )
 
         if (state.error != null) {
-            Spacer(modifier = Modifier.height(MediaProSpacing.ExtraSmall))
-            Text(
-                text = stringResource(editorErrorStringRes(state.error)),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error,
-            )
+            Spacer(modifier = Modifier.height(MediaProSpacing.Small))
+            Surface(
+                shape = MediaProShapes.Small,
+                color = MaterialTheme.colorScheme.errorContainer,
+                border = BorderStroke(
+                    MediaProSpacing.BorderThin,
+                    MaterialTheme.colorScheme.error.copy(alpha = 0.6f),
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics { liveRegion = LiveRegionMode.Polite },
+            ) {
+                Text(
+                    text = stringResource(editorErrorStringRes(state.error)),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.padding(
+                        horizontal = MediaProSpacing.MediumSmall,
+                        vertical = MediaProSpacing.Small,
+                    ),
+                )
+            }
         }
 
         if (clips.isNotEmpty()) {
             ClipList(
                 clips = clips,
+                selectedClipId = state.selectedClipId,
                 isRemoveEnabled = editsEnabled,
+                onSelectClip = { clipId -> onEvent(EditorEvent.SelectClip(clipId)) },
                 onRequestRemoveClip = { clipId ->
                     onEvent(EditorEvent.RequestRemoveClip(clipId))
                 },
@@ -277,7 +313,8 @@ private fun LoadedEditorContent(
             if (clip != null) {
                 SplitDialog(
                     clip = clip,
-                    onConfirm = { offsetMs ->                        onEvent(EditorEvent.ApplySplit(offsetMs = offsetMs))
+                    onConfirm = { offsetMs ->
+                        onEvent(EditorEvent.ApplySplit(offsetMs = offsetMs))
                     },
                     onDismiss = { onEvent(EditorEvent.DismissDialog) },
                 )
@@ -311,3 +348,4 @@ private fun CenteredEditorStatus(
         content()
     }
 }
+

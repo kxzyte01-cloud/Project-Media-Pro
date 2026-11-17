@@ -49,6 +49,17 @@ object ProjectTimeline {
     }
 
     /**
+     * Returns the effective playback duration of [clip] on the timeline in milliseconds.
+     */
+    fun effectiveDurationMs(clip: Clip): Long {
+        return if (clip.trimStartMs >= 0L && clip.trimEndMs > clip.trimStartMs) {
+            clip.trimEndMs - clip.trimStartMs
+        } else {
+            clip.durationMs.coerceAtLeast(0L)
+        }
+    }
+
+    /**
      * Returns true when [clip] has a valid trim range that trims either the start or the end of
      * its [effectiveSourceDurationMs].
      */
@@ -57,6 +68,18 @@ object ProjectTimeline {
         val hasValidTrimRange = clip.trimStartMs >= 0L && clip.trimEndMs > clip.trimStartMs
         return hasValidTrimRange &&
             (clip.trimStartMs > 0L || clip.trimEndMs < sourceDurationMs)
+    }
+
+    /**
+     * Returns `(trimStartMs, trimEndMs)` when [isClipTrimmed] is true, or `(0L, 0L)` when the full
+     * source file should be played/exported without clipping.
+     */
+    fun resolvedTrimBounds(clip: Clip): Pair<Long, Long> {
+        return if (isClipTrimmed(clip)) {
+            clip.trimStartMs to clip.trimEndMs
+        } else {
+            0L to 0L
+        }
     }
 
     fun canTrimClip(clip: Clip): Boolean =
@@ -278,3 +301,4 @@ object ProjectTimeline {
             ?: 0L
     }
 }
+
