@@ -19,13 +19,13 @@ class ProjectSerializerTest {
                     clips = listOf(
                         Clip(
                             id = "clip-1",
-                            mediaUri = "content://media/external/video/media/123",
+                            mediaUri = "test-1/clip-1.mp4",
                             startTimeMs = 0L,
-                            durationMs = 5000L
-                        )
-                    )
-                )
-            )
+                            durationMs = 5000L,
+                        ),
+                    ),
+                ),
+            ),
         )
 
         val json = ProjectSerializer.serialize(project)
@@ -33,6 +33,7 @@ class ProjectSerializerTest {
 
         assertEquals(project.id, deserialized.id)
         assertEquals(project.title, deserialized.title)
+        assertEquals(project.durationMs, deserialized.durationMs)
         assertEquals(project.tracks.size, deserialized.tracks.size)
         assertEquals(project.tracks[0].clips[0].mediaUri, deserialized.tracks[0].clips[0].mediaUri)
         assertEquals(Project.CURRENT_SCHEMA_VERSION, deserialized.schemaVersion)

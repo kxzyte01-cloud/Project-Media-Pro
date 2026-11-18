@@ -45,4 +45,3 @@ val LightAccentRed = Color(0xFFDC2626)
 val LightOnError = Color(0xFFFFFFFF)
 val LightErrorContainer = Color(0xFFFEE2E2)
 val LightOnErrorContainer = Color(0xFF7F1D1D)
-

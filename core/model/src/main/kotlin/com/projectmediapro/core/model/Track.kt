@@ -6,10 +6,12 @@ import kotlinx.serialization.Serializable
 data class Track(
     val id: String,
     val type: TrackType,
-    val clips: List<Clip> = emptyList()
+    val clips: List<Clip> = emptyList(),
 )
 
 @Serializable
 enum class TrackType {
-    VIDEO, AUDIO, TEXT
+    VIDEO,
+    AUDIO,
+    TEXT,
 }

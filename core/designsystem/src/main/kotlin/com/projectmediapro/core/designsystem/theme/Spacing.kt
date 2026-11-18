@@ -27,4 +27,3 @@ object MediaProShapes {
     val Small = RoundedCornerShape(8.dp)
     val Medium = RoundedCornerShape(12.dp)
 }
-

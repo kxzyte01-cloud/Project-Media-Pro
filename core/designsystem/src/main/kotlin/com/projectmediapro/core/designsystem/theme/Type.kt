@@ -61,4 +61,3 @@ val MediaProTypography = Typography(
         fontFeatureSettings = TABULAR_NUMERALS,
     ),
 )
-

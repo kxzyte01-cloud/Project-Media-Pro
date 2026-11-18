@@ -36,4 +36,3 @@ Every third-party plugin and library used in Project Media Pro is listed below. 
 | :--- | :--- | :--- | :--- | :--- |
 | JUnit 4 | `junit:junit` | `4.13.2` | EPL-1.0 | Standard unit testing runner and assertions for `:core:model` and `:app` JVM unit tests. |
 | Kotlinx Coroutines Test | `org.jetbrains.kotlinx:kotlinx-coroutines-test` | `1.11.0` | Apache-2.0 | Deterministic `runTest` and `UnconfinedTestDispatcher` for testing `SettingsViewModel` coroutines. |
-

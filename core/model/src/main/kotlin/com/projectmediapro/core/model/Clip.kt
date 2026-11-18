@@ -25,4 +25,3 @@ data class Clip(
     val volume: Float = 1.0f,
     val sourceDurationMs: Long = 0L,
 )
-

@@ -15,4 +15,3 @@ All videos, audio clips, images, templates, and project files you create or edit
 
 ## 4. No Cloud Backups or Third-Party SDKs
 Automatic Android cloud backup is disabled (`android:allowBackup="false"`), and the app contains zero advertising, analytics, or tracking libraries.
-

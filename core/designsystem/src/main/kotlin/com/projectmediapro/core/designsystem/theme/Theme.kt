@@ -64,4 +64,3 @@ fun MediaProTheme(
         content = content,
     )
 }
-

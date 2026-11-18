@@ -206,4 +206,3 @@ internal fun editorErrorStringRes(error: EditorError): Int = when (error) {
     EditorError.EXPORT_SAVE_FAILED -> R.string.error_export_save_failed
     EditorError.EXPORT_NOTHING -> R.string.error_export_nothing
 }
-

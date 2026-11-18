@@ -86,7 +86,8 @@ class EditorViewModel(
             EditorEvent.OpenSplit -> openSelectedClipDialog(
                 predicate = ProjectTimeline::canSplitClip,
                 dialogFactory = EditorDialog::Split,
-            )            EditorEvent.DismissDialog -> {
+            )
+            EditorEvent.DismissDialog -> {
                 val current = _uiState.value as? EditorUiState.Loaded ?: return
                 _uiState.value = current.copy(activeDialog = null)
             }
@@ -538,4 +539,3 @@ class EditorViewModel(
         }
     }
 }
-

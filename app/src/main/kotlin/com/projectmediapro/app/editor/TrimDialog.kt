@@ -56,7 +56,8 @@ fun TrimDialog(
                     val candidateStart = range.start.roundToLong()
                         .coerceIn(0L, sourceDurationMs - minDurationMs)
                     val candidateEnd = range.endInclusive.roundToLong()
-                        .coerceIn(candidateStart + minDurationMs, sourceDurationMs)                    startMs = candidateStart
+                        .coerceIn(candidateStart + minDurationMs, sourceDurationMs)
+                    startMs = candidateStart
                     endMs = candidateEnd
                 }
             },
@@ -65,4 +66,3 @@ fun TrimDialog(
         )
     }
 }
-

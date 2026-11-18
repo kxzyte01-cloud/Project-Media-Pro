@@ -154,7 +154,8 @@ class ProjectTimelineTest {
     @Test
     fun trimClip_updatesClipDurationRipplesSubsequentClipsAndValidatesBounds() {
         val c1 = Clip(
-            id = "c1",            mediaUri = "p/1.mp4",
+            id = "c1",
+            mediaUri = "p/1.mp4",
             startTimeMs = 0L,
             durationMs = 5_000L,
             trimStartMs = 0L,
@@ -290,4 +291,3 @@ class ProjectTimelineTest {
         assertEquals("1:02:03", ProjectTimeline.formatDuration(3_723_000L))
     }
 }
-

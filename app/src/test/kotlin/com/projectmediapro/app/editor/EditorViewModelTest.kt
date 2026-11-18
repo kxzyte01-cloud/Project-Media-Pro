@@ -624,4 +624,3 @@ private class FakeEditorProjectRepository(
         map.remove(id)
     }
 }
-

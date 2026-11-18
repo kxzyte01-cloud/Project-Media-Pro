@@ -301,4 +301,3 @@ object ProjectTimeline {
             ?: 0L
     }
 }
-

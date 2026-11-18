@@ -348,4 +348,3 @@ private fun CenteredEditorStatus(
         content()
     }
 }
-
