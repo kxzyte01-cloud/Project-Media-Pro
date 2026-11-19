@@ -115,6 +115,35 @@
     <string name="error_export_save_failed">Export finished, but saving the file failed.</string>
     <string name="error_export_nothing">Add at least one video before exporting.</string>
 
+    <!-- Templates & Template Builder -->
+    <string name="cd_delete_template">Delete template</string>
+    <string name="templates_title">Templates</string>
+    <string name="templates_new_button">New template</string>
+    <string name="templates_name_hint">Template name</string>
+    <string name="templates_default_name">Template %1$d</string>
+    <string name="templates_empty">No saved templates on this device.</string>
+    <string name="templates_slot_summary">%1$d video · %2$d overlay · %3$d audio</string>
+    <string name="templates_delete_title">Delete template?</string>
+    <string name="templates_delete_message">"%1$s" will be permanently deleted from this device.</string>
+    <string name="templates_loading_title">Opening template</string>
+    <string name="templates_not_found_title">Template not found</string>
+    <string name="templates_error_title">Could not open template</string>
+    <string name="template_slot_intro">Intro</string>
+    <string name="template_slot_video_n">Video %1$d</string>
+    <string name="template_slot_outro">Outro</string>
+    <string name="template_slot_pick_media">Pick media</string>
+    <string name="template_slot_replace_media">Replace</string>
+    <string name="template_slot_duration">Duration</string>
+    <string name="template_slot_swap_on_use">Swap on use</string>
+    <string name="template_slot_locked">Locked</string>
+    <string name="template_slot_clear">Clear</string>
+    <string name="template_slot_set">Ready</string>
+    <string name="template_slot_swap_short">Swap</string>
+    <string name="template_slot_empty">Empty</string>
+    <string name="template_add_video_slot">Add video slot</string>
+    <string name="template_add_audio_slot">Add audio slot</string>
+    <string name="template_overlay_duration_title">Overlay duration</string>
+
     <!-- Settings screen -->
     <string name="settings_title">Settings</string>
     <string name="settings_section_appearance">Appearance</string>

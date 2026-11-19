@@ -16,6 +16,8 @@ import com.projectmediapro.app.data.media.ProjectMediaStorage
 import com.projectmediapro.app.data.media.VideoImporter
 import com.projectmediapro.app.data.project.FileProjectRepository
 import com.projectmediapro.app.data.project.ProjectRepository
+import com.projectmediapro.app.data.template.FileTemplateRepository
+import com.projectmediapro.app.data.template.TemplateRepository
 import com.projectmediapro.app.settings.DataStoreThemePreferencesStore
 import com.projectmediapro.app.settings.PrivacyPolicyDataSource
 import com.projectmediapro.app.settings.RawResourcePrivacyPolicyDataSource
@@ -43,6 +45,25 @@ class AppContainer(appContext: Context) {
     val projectRepository: ProjectRepository = FileProjectRepository(
         directory = File(appContext.filesDir, "projects"),
         mediaStorage = mediaStorage,
+    )
+    val templateMediaStorage: ProjectMediaStorage = ProjectMediaStorage(
+        rootDirectory = File(appContext.filesDir, "template_media"),
+    )
+    val templateVideoImporter: VideoImporter = AndroidVideoImporter(
+        context = appContext,
+        storage = templateMediaStorage,
+    )
+    val templateAudioImporter: AudioImporter = AndroidAudioImporter(
+        context = appContext,
+        storage = templateMediaStorage,
+    )
+    val templateOverlayImporter: OverlayImporter = AndroidOverlayImporter(
+        context = appContext,
+        storage = templateMediaStorage,
+    )
+    val templateRepository: TemplateRepository = FileTemplateRepository(
+        directory = File(appContext.filesDir, "templates"),
+        mediaStorage = templateMediaStorage,
     )
     val videoExporter: VideoExporter = Media3VideoExporter(context = appContext)
     val exportSaver: ExportSaver = AndroidExportSaver(context = appContext)

@@ -17,6 +17,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -40,6 +41,7 @@ fun HomeScreen(
     uiState: HomeUiState,
     onEvent: (HomeEvent) -> Unit,
     onOpenProject: (String) -> Unit,
+    onOpenTemplates: () -> Unit,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -84,14 +86,28 @@ fun HomeScreen(
                 )
             }
             Spacer(modifier = Modifier.height(MediaProSpacing.Small))
-            Button(
-                onClick = { onEvent(HomeEvent.ShowCreateDialog(defaultTitle)) },
-                shape = MediaProShapes.Small,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .defaultMinSize(minHeight = MediaProSpacing.MinTouchTarget),
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
+                modifier = Modifier.fillMaxWidth(),
             ) {
-                Text(text = stringResource(R.string.home_new_project))
+                Button(
+                    onClick = { onEvent(HomeEvent.ShowCreateDialog(defaultTitle)) },
+                    shape = MediaProShapes.Small,
+                    modifier = Modifier
+                        .weight(1f)
+                        .defaultMinSize(minHeight = MediaProSpacing.MinTouchTarget),
+                ) {
+                    Text(text = stringResource(R.string.home_new_project))
+                }
+                OutlinedButton(
+                    onClick = onOpenTemplates,
+                    shape = MediaProShapes.Small,
+                    modifier = Modifier
+                        .weight(1f)
+                        .defaultMinSize(minHeight = MediaProSpacing.MinTouchTarget),
+                ) {
+                    Text(text = stringResource(R.string.templates_title))
+                }
             }
             Spacer(modifier = Modifier.height(MediaProSpacing.Medium))
             if (uiState.projects.isEmpty()) {

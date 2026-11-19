@@ -20,14 +20,23 @@ import com.projectmediapro.app.home.HomeScreen
 import com.projectmediapro.app.home.HomeViewModel
 import com.projectmediapro.app.settings.SettingsScreen
 import com.projectmediapro.app.settings.SettingsViewModel
+import com.projectmediapro.app.template.TemplateBuilderScreen
+import com.projectmediapro.app.template.TemplateBuilderViewModel
+import com.projectmediapro.app.template.TemplatesEffect
+import com.projectmediapro.app.template.TemplatesScreen
+import com.projectmediapro.app.template.TemplatesViewModel
 
 object AppRoutes {
     const val HOME = "home"
     const val SETTINGS = "settings"
+    const val TEMPLATES = "templates"
     const val PROJECT_ID_ARG = "projectId"
     const val EDITOR = "editor/{$PROJECT_ID_ARG}"
+    const val TEMPLATE_ID_ARG = "templateId"
+    const val TEMPLATE_BUILDER = "template/{$TEMPLATE_ID_ARG}"
 
     fun editorRoute(projectId: String): String = "editor/$projectId"
+    fun templateBuilderRoute(templateId: String): String = "template/$templateId"
 }
 
 @Composable
@@ -69,11 +78,75 @@ fun AppNavHost(
                         launchSingleTop = true
                     }
                 },
+                onOpenTemplates = {
+                    navController.navigate(AppRoutes.TEMPLATES) {
+                        launchSingleTop = true
+                    }
+                },
                 onOpenSettings = {
                     navController.navigate(AppRoutes.SETTINGS) {
                         launchSingleTop = true
                     }
                 },
+            )
+        }
+
+        composable(route = AppRoutes.TEMPLATES) {
+            val viewModel: TemplatesViewModel = viewModel(
+                factory = TemplatesViewModel.provideFactory(
+                    templateRepository = container.templateRepository,
+                ),
+            )
+            val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+            LaunchedEffect(viewModel) {
+                viewModel.effects.collect { effect ->
+                    when (effect) {
+                        is TemplatesEffect.OpenTemplate -> {
+                            navController.navigate(AppRoutes.templateBuilderRoute(effect.templateId)) {
+                                launchSingleTop = true
+                            }
+                        }
+                    }
+                }
+            }
+
+            TemplatesScreen(
+                uiState = uiState,
+                onEvent = viewModel::onEvent,
+                onOpenTemplate = { templateId ->
+                    navController.navigate(AppRoutes.templateBuilderRoute(templateId)) {
+                        launchSingleTop = true
+                    }
+                },
+                onNavigateBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(
+            route = AppRoutes.TEMPLATE_BUILDER,
+            arguments = listOf(
+                navArgument(AppRoutes.TEMPLATE_ID_ARG) {
+                    type = NavType.StringType
+                },
+            ),
+        ) { backStackEntry ->
+            val templateId = backStackEntry.arguments?.getString(AppRoutes.TEMPLATE_ID_ARG).orEmpty()
+            val viewModel: TemplateBuilderViewModel = viewModel(
+                factory = TemplateBuilderViewModel.provideFactory(
+                    templateId = templateId,
+                    repository = container.templateRepository,
+                    mediaStorage = container.templateMediaStorage,
+                    videoImporter = container.templateVideoImporter,
+                    audioImporter = container.templateAudioImporter,
+                    overlayImporter = container.templateOverlayImporter,
+                ),
+            )
+            val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+            TemplateBuilderScreen(
+                uiState = uiState,
+                onEvent = viewModel::onEvent,
+                onNavigateBack = { navController.popBackStack() },
             )
         }
 
