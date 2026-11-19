@@ -15,4 +15,3 @@ enum class ThemePreference(val storageKey: String) {
         }
     }
 }
-

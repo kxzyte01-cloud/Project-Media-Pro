@@ -20,7 +20,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import com.projectmediapro.app.R
 import com.projectmediapro.core.designsystem.theme.MediaProShapes
@@ -32,9 +37,6 @@ internal enum class EditorButtonTone {
     Destructive,
 }
 
-/**
- * Shared 48dp-minimum outlined action button used across [ClipTools] and [ExportSection].
- */
 @Composable
 internal fun EditorOutlinedButton(
     label: String,
@@ -42,6 +44,7 @@ internal fun EditorOutlinedButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     tone: EditorButtonTone = EditorButtonTone.Default,
+    leadingContent: (@Composable () -> Unit)? = null,
 ) {
     val borderColor = when {
         !enabled -> MaterialTheme.colorScheme.outlineVariant
@@ -72,6 +75,9 @@ internal fun EditorOutlinedButton(
             minHeight = MediaProSpacing.MinTouchTarget,
         ),
     ) {
+        if (leadingContent != null) {
+            leadingContent()
+        }
         Text(
             text = label,
             style = MaterialTheme.typography.labelLarge,
@@ -79,10 +85,61 @@ internal fun EditorOutlinedButton(
     }
 }
 
-/**
- * Shared dialog scaffold for slider-driven clip edits ([TrimDialog] and [SplitDialog]), combining
- * a polite live-region tabular timecode readout pill with 48x48dp dialog actions.
- */
+@Composable
+internal fun EditorOptionCard(
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    accessibilityLabel: String? = null,
+    content: @Composable (contentColor: Color) -> Unit,
+) {
+    val borderColor = if (isSelected) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.outline
+    }
+    val containerColor = if (isSelected) {
+        MaterialTheme.colorScheme.primaryContainer
+    } else {
+        MaterialTheme.colorScheme.surface
+    }
+    val contentColor = if (isSelected) {
+        MaterialTheme.colorScheme.onPrimaryContainer
+    } else {
+        MaterialTheme.colorScheme.onSurface
+    }
+
+    val semanticsModifier = if (accessibilityLabel != null) {
+        modifier.clearAndSetSemantics {
+            contentDescription = accessibilityLabel
+            role = Role.RadioButton
+            selected = isSelected
+        }
+    } else {
+        modifier.semantics {
+            role = Role.RadioButton
+            selected = isSelected
+        }
+    }
+
+    Surface(
+        onClick = onClick,
+        shape = MediaProShapes.Small,
+        color = containerColor,
+        contentColor = contentColor,
+        border = BorderStroke(
+            width = if (isSelected) MediaProSpacing.BorderSelected else MediaProSpacing.BorderThin,
+            color = borderColor,
+        ),
+        modifier = semanticsModifier.defaultMinSize(
+            minWidth = MediaProSpacing.MinTouchTarget,
+            minHeight = MediaProSpacing.MinTouchTarget,
+        ),
+    ) {
+        content(contentColor)
+    }
+}
+
 @Composable
 internal fun EditorSliderDialog(
     title: String,
@@ -162,9 +219,6 @@ internal fun DialogActionButton(
     }
 }
 
-/**
- * Confirmation dialog shown before removing a clip from the project.
- */
 @Composable
 fun RemoveClipDialog(
     clipNumber: Int,
@@ -198,6 +252,7 @@ fun RemoveClipDialog(
 internal fun editorErrorStringRes(error: EditorError): Int = when (error) {
     EditorError.IMPORT_FAILED -> R.string.error_import_failed
     EditorError.IMPORT_NOT_A_VIDEO -> R.string.error_import_not_video
+    EditorError.IMPORT_NOT_AUDIO -> R.string.error_import_not_audio
     EditorError.IMPORT_NO_SPACE -> R.string.error_import_no_space
     EditorError.SAVE_FAILED -> R.string.error_save_failed
     EditorError.EXPORT_FAILED -> R.string.error_export_failed
@@ -206,4 +261,3 @@ internal fun editorErrorStringRes(error: EditorError): Int = when (error) {
     EditorError.EXPORT_SAVE_FAILED -> R.string.error_export_save_failed
     EditorError.EXPORT_NOTHING -> R.string.error_export_nothing
 }
-

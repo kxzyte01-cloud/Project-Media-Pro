@@ -2,24 +2,16 @@ package com.projectmediapro.core.model
 
 import java.util.Locale
 
-/**
- * Returns the clips of the first [TrackType.VIDEO] track in timeline order, or an empty list.
- */
 fun Project.videoClips(): List<Clip> =
     tracks.firstOrNull { it.type == TrackType.VIDEO }?.clips.orEmpty()
 
-/**
- * Pure timeline operations for querying, appending, removing, trimming, splitting, and moving clips,
- * plus formatting durations.
- */
+fun Project.audioClips(): List<Clip> =
+    tracks.firstOrNull { it.type == TrackType.AUDIO }?.clips.orEmpty()
+
 object ProjectTimeline {
 
     const val MIN_CLIP_DURATION_MS: Long = 500L
 
-    /**
-     * Returns the full source duration of [clip] in milliseconds. When [Clip.sourceDurationMs] is `0L`
-     * (unknown), falls back to `max(trimEndMs, durationMs)`.
-     */
     fun effectiveSourceDurationMs(clip: Clip): Long {
         return if (clip.sourceDurationMs > 0L) {
             clip.sourceDurationMs
@@ -28,16 +20,8 @@ object ProjectTimeline {
         }
     }
 
-    /**
-     * Returns the effective trim start of [clip] in milliseconds (`>= 0L`).
-     */
     fun effectiveTrimStartMs(clip: Clip): Long = clip.trimStartMs.coerceAtLeast(0L)
 
-    /**
-     * Returns the effective trim end of [clip] in milliseconds, falling back to
-     * `(effectiveTrimStartMs(clip) + durationMs).coerceAtMost(effectiveSourceDurationMs(clip))`
-     * when [Clip.trimEndMs] is not set.
-     */
     fun effectiveTrimEndMs(clip: Clip): Long {
         val sourceDurationMs = effectiveSourceDurationMs(clip)
         val startMs = effectiveTrimStartMs(clip)
@@ -48,9 +32,6 @@ object ProjectTimeline {
         }
     }
 
-    /**
-     * Returns the effective playback duration of [clip] on the timeline in milliseconds.
-     */
     fun effectiveDurationMs(clip: Clip): Long {
         return if (clip.trimStartMs >= 0L && clip.trimEndMs > clip.trimStartMs) {
             clip.trimEndMs - clip.trimStartMs
@@ -59,10 +40,6 @@ object ProjectTimeline {
         }
     }
 
-    /**
-     * Returns true when [clip] has a valid trim range that trims either the start or the end of
-     * its [effectiveSourceDurationMs].
-     */
     fun isClipTrimmed(clip: Clip): Boolean {
         val sourceDurationMs = effectiveSourceDurationMs(clip)
         val hasValidTrimRange = clip.trimStartMs >= 0L && clip.trimEndMs > clip.trimStartMs
@@ -72,7 +49,7 @@ object ProjectTimeline {
 
     /**
      * Returns `(trimStartMs, trimEndMs)` when [isClipTrimmed] is true, or `(0L, 0L)` when the full
-     * source file should be played/exported without clipping.
+     * file should be played or exported without clipping.
      */
     fun resolvedTrimBounds(clip: Clip): Pair<Long, Long> {
         return if (isClipTrimmed(clip)) {
@@ -91,24 +68,20 @@ object ProjectTimeline {
     fun isMediaReferenced(project: Project, mediaUri: String): Boolean =
         project.tracks.asSequence().flatMap { it.clips.asSequence() }.any { it.mediaUri == mediaUri }
 
-    /**
-     * Appends [clip] to the first [TrackType.VIDEO] track in [project], creating one with [newTrackId]
-     * if none exists. Sets the clip's startTimeMs to the end of that track's last clip and
-     * recalculates [Project.durationMs] as the latest clip end across all tracks.
-     */
     fun appendClip(
         project: Project,
         clip: Clip,
         newTrackId: String,
+        trackType: TrackType = TrackType.VIDEO,
     ): Project {
-        val videoTrackIndex = project.tracks.indexOfFirst { it.type == TrackType.VIDEO }
-        if (videoTrackIndex >= 0) {
-            val track = project.tracks[videoTrackIndex]
-            return updateTrack(project, videoTrackIndex, repositionClips(track.clips + clip))
+        val trackIndex = project.tracks.indexOfFirst { it.type == trackType }
+        if (trackIndex >= 0) {
+            val track = project.tracks[trackIndex]
+            return updateTrack(project, trackIndex, repositionClips(track.clips + clip))
         }
         val newTrack = Track(
             id = newTrackId,
-            type = TrackType.VIDEO,
+            type = trackType,
             clips = repositionClips(listOf(clip)),
         )
         val updatedTracks = project.tracks + newTrack
@@ -118,11 +91,6 @@ object ProjectTimeline {
         )
     }
 
-    /**
-     * Removes the clip with [clipId] from whichever track holds it, shifts subsequent clips on that
-     * track earlier so there are no gaps, and recalculates [Project.durationMs]. Returns [project]
-     * unchanged if [clipId] is not present.
-     */
     fun removeClip(
         project: Project,
         clipId: String,
@@ -130,11 +98,6 @@ object ProjectTimeline {
         clips.toMutableList().apply { removeAt(clipIndex) }
     }
 
-    /**
-     * Trims the clip with [clipId] to `[newStartMs, newEndMs]` within its source duration.
-     * Requires `0 <= newStartMs < newEndMs <= effectiveSourceDurationMs(clip)` and
-     * `newEndMs - newStartMs >= 500`, otherwise returns [project] unchanged.
-     */
     fun trimClip(
         project: Project,
         clipId: String,
@@ -161,12 +124,6 @@ object ProjectTimeline {
         clips.toMutableList().apply { set(clipIndex, updatedClip) }
     }
 
-    /**
-     * Splits the clip with [clipId] at [offsetMs] measured from the start of the clip's current
-     * trimmed range. Both resulting parts must be at least 500 ms, and [newClipId] must be non-blank
-     * and unique in [project], otherwise returns [project] unchanged. The first part keeps [clipId];
-     * the second gets [newClipId] and sits right after the first, sharing [Clip.mediaUri].
-     */
     fun splitClip(
         project: Project,
         clipId: String,
@@ -215,11 +172,6 @@ object ProjectTimeline {
         }
     }
 
-    /**
-     * Moves the clip with [clipId] by [delta] (`-1` for earlier, `+1` for later) within its track.
-     * Returns [project] unchanged when [delta] is not `-1` or `+1`, when [clipId] is not found,
-     * or when the clip is already at the boundary of its track.
-     */
     fun moveClip(
         project: Project,
         clipId: String,
@@ -236,10 +188,21 @@ object ProjectTimeline {
         }
     }
 
-    /**
-     * Formats [ms] as "M:SS" (for example "0:07", "1:05") or "H:MM:SS" (for example "1:02:03").
-     * Negative values return "0:00".
-     */
+    fun setClipVolume(
+        project: Project,
+        clipId: String,
+        volume: Float,
+    ): Project {
+        val clampedVolume = if (volume.isNaN()) 1.0f else volume.coerceIn(0f, 1f)
+        return modifyClipTrack(project, clipId) { clips, clipIndex ->
+            val clip = clips[clipIndex]
+            if (clip.volume == clampedVolume) return@modifyClipTrack null
+            clips.toMutableList().apply {
+                set(clipIndex, clip.copy(volume = clampedVolume))
+            }
+        }
+    }
+
     fun formatDuration(ms: Long): String {
         if (ms <= 0L) return "0:00"
         val totalSeconds = ms / 1_000L
@@ -301,4 +264,3 @@ object ProjectTimeline {
             ?: 0L
     }
 }
-

@@ -27,10 +27,6 @@ import com.projectmediapro.core.designsystem.theme.MediaProSpacing
 import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.ProjectTimeline
 
-/**
- * Renders the "Clips" section header and ordered clip cards for the project's video track,
- * highlighting the selected clip and allowing tap-to-select synchronization with the timeline.
- */
 @Composable
 fun ClipList(
     clips: List<Clip>,
@@ -136,4 +132,3 @@ private fun ClipRowCard(
         }
     }
 }
-

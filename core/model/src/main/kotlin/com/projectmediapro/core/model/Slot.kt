@@ -7,5 +7,5 @@ data class Slot(
     val id: String,
     val label: String,
     val requiredType: TrackType,
-    val filledMediaUri: String? = null
+    val filledMediaUri: String? = null,
 )

@@ -9,8 +9,8 @@ import androidx.compose.ui.unit.sp
 private const val TABULAR_NUMERALS = "tnum"
 
 /**
- * Studio typography scale with tabular numerals (`tnum`) enabled so timecodes (`0:04`, `1:05`),
- * trim ranges, split offsets, and export percentages never jitter horizontally during updates.
+ * Typography scale with OpenType tabular numerals (`tnum`) enabled so timecodes, trim ranges,
+ * volume percentages, and export progress never jitter horizontally as digits change.
  */
 val MediaProTypography = Typography(
     headlineSmall = TextStyle(
@@ -61,4 +61,3 @@ val MediaProTypography = Typography(
         fontFeatureSettings = TABULAR_NUMERALS,
     ),
 )
-

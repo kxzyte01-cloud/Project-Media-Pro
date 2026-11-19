@@ -1,6 +1,7 @@
 package com.projectmediapro.app.editor
 
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Slider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -14,10 +15,7 @@ import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.ProjectTimeline
 import kotlin.math.roundToLong
 
-/**
- * Dialog with a [Slider] for choosing a split offset inside [clip]'s current length such that
- * both resulting parts are at least [ProjectTimeline.MIN_CLIP_DURATION_MS].
- */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SplitDialog(
     clip: Clip,
@@ -52,4 +50,3 @@ fun SplitDialog(
         )
     }
 }
-

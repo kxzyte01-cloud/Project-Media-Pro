@@ -8,6 +8,9 @@ import android.os.Looper
 import androidx.media3.common.Effect
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
+import androidx.media3.common.audio.AudioProcessor
+import androidx.media3.common.audio.ChannelMixingAudioProcessor
+import androidx.media3.common.audio.ChannelMixingMatrix
 import androidx.media3.effect.Presentation
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.EditedMediaItem
@@ -18,6 +21,7 @@ import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.ProgressHolder
 import androidx.media3.transformer.Transformer
 import com.projectmediapro.app.data.export.VideoExportException.Reason
+import com.projectmediapro.core.model.CanvasAspect
 import java.io.File
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -26,8 +30,10 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 
 /**
- * [VideoExporter] built on Media3 Transformer: one composition, one sequence, H.264 video and AAC audio.
- * Transformer must be created, started and queried on the main thread, so all of that happens there.
+ * [VideoExporter] built on Media3 Transformer: H.264 video and AAC audio, mixing the video track's
+ * audio with an optional second [EditedMediaItemSequence] for music clips.
+ * Transformer must be created, started and queried on the main thread.
+ * Media3 1.4.1 [Presentation.LAYOUT_SCALE_TO_FIT] renders letterbox/pillarbox bars in black.
  */
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 class Media3VideoExporter(
@@ -40,7 +46,7 @@ class Media3VideoExporter(
         }
         val targetSize = withContext(Dispatchers.IO) {
             prepareOutputFile(outputFile)
-            readTargetSize(plan.clips.first().path)
+            resolveTargetSize(plan)
         }
         val composition = buildComposition(plan, targetSize)
         runTransformer(composition, outputFile, onProgress)
@@ -56,7 +62,25 @@ class Media3VideoExporter(
         }
     }
 
-    private fun readTargetSize(path: String): Pair<Int, Int>? {
+    private fun resolveTargetSize(plan: ExportPlan): Pair<Int, Int>? {
+        if (plan.canvasAspect != CanvasAspect.ORIGINAL) {
+            return ExportGeometry.sizeFor(
+                aspect = plan.canvasAspect,
+                quality = plan.exportQuality,
+                firstClipWidth = 0,
+                firstClipHeight = 0,
+            )
+        }
+        val firstSize = readRotatedSize(plan.clips.first().path) ?: return null
+        return ExportGeometry.sizeFor(
+            aspect = CanvasAspect.ORIGINAL,
+            quality = plan.exportQuality,
+            firstClipWidth = firstSize.first,
+            firstClipHeight = firstSize.second,
+        )
+    }
+
+    private fun readRotatedSize(path: String): Pair<Int, Int>? {
         val retriever = MediaMetadataRetriever()
         return try {
             retriever.setDataSource(path)
@@ -72,9 +96,9 @@ class Media3VideoExporter(
             if (width == null || height == null) {
                 null
             } else if (rotation == 90 || rotation == 270) {
-                ExportPlanner.fitExportSize(height, width)
+                Pair(height, width)
             } else {
-                ExportPlanner.fitExportSize(width, height)
+                Pair(width, height)
             }
         } catch (_: RuntimeException) {
             null
@@ -96,24 +120,60 @@ class Media3VideoExporter(
             emptyList()
         }
 
-        val editedItems = plan.clips.map { clip ->
-            val mediaItemBuilder = MediaItem.Builder().setUri(Uri.fromFile(File(clip.path)))
-            if (clip.trimEndMs > clip.trimStartMs) {
-                mediaItemBuilder.setClippingConfiguration(
-                    MediaItem.ClippingConfiguration.Builder()
-                        .setStartPositionMs(clip.trimStartMs)
-                        .setEndPositionMs(clip.trimEndMs)
-                        .build(),
-                )
-            }
-            EditedMediaItem.Builder(mediaItemBuilder.build())
+        val editedVideoItems = plan.clips.map { clip ->
+            val mediaItem = buildClippedMediaItem(clip.path, clip.trimStartMs, clip.trimEndMs)
+            EditedMediaItem.Builder(mediaItem)
                 .setEffects(Effects(emptyList(), videoEffects))
                 .build()
         }
 
-        return Composition.Builder(listOf(EditedMediaItemSequence(editedItems)))
+        val sequences = mutableListOf(EditedMediaItemSequence(editedVideoItems))
+        if (plan.audioClips.isNotEmpty()) {
+            val editedAudioItems = plan.audioClips.map { audioClip ->
+                val mediaItem = buildClippedMediaItem(
+                    path = audioClip.path,
+                    trimStartMs = audioClip.trimStartMs,
+                    trimEndMs = audioClip.trimEndMs,
+                )
+                val audioProcessors = buildVolumeProcessors(audioClip.volume)
+                EditedMediaItem.Builder(mediaItem)
+                    .setRemoveVideo(true)
+                    .setEffects(Effects(audioProcessors, emptyList()))
+                    .build()
+            }
+            sequences.add(EditedMediaItemSequence(editedAudioItems))
+        }
+
+        return Composition.Builder(sequences)
             .experimentalSetForceAudioTrack(true)
             .build()
+    }
+
+    private fun buildClippedMediaItem(
+        path: String,
+        trimStartMs: Long,
+        trimEndMs: Long,
+    ): MediaItem {
+        val builder = MediaItem.Builder().setUri(Uri.fromFile(File(path)))
+        if (trimEndMs > trimStartMs) {
+            builder.setClippingConfiguration(
+                MediaItem.ClippingConfiguration.Builder()
+                    .setStartPositionMs(trimStartMs)
+                    .setEndPositionMs(trimEndMs)
+                    .build(),
+            )
+        }
+        return builder.build()
+    }
+
+    private fun buildVolumeProcessors(volume: Float): List<AudioProcessor> {
+        val clamped = volume.coerceIn(0f, 1f)
+        if (clamped >= 1.0f) return emptyList()
+        val processor = ChannelMixingAudioProcessor().apply {
+            putChannelMixingMatrix(ChannelMixingMatrix.create(1, 1).scaleBy(clamped))
+            putChannelMixingMatrix(ChannelMixingMatrix.create(2, 2).scaleBy(clamped))
+        }
+        return listOf(processor)
     }
 
     private suspend fun runTransformer(

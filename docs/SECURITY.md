@@ -22,4 +22,3 @@ Instead, use **GitHub Private Vulnerability Reporting** directly on this reposit
 1. Navigate to the **Security** tab of this GitHub repository.
 2. Click **Report a vulnerability** to open a private advisory draft visible only to the repository maintainers.
 3. Include steps to reproduce the issue and the affected module (`:app`, `:core:model`, or `:core:designsystem`).
-

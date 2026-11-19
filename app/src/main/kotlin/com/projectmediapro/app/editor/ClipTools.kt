@@ -11,10 +11,6 @@ import androidx.compose.ui.res.stringResource
 import com.projectmediapro.app.R
 import com.projectmediapro.core.designsystem.theme.MediaProSpacing
 
-/**
- * Horizontally scrollable row of editing actions for the currently selected timeline clip.
- * Destructive Remove action is visually distinguished via semantic error border and text tokens.
- */
 @Composable
 fun ClipTools(
     isEnabled: Boolean,
@@ -28,6 +24,10 @@ fun ClipTools(
     onMoveLaterClick: () -> Unit,
     onRemoveClick: () -> Unit,
     modifier: Modifier = Modifier,
+    isAudioClip: Boolean = false,
+    isAudioPlaying: Boolean = false,
+    onVolumeClick: () -> Unit = {},
+    onTogglePlayClick: () -> Unit = {},
 ) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
@@ -42,9 +42,16 @@ fun ClipTools(
         )
         EditorOutlinedButton(
             label = stringResource(R.string.editor_tool_split),
-            enabled = isEnabled && canSplit,
+            enabled = isEnabled && !isAudioClip && canSplit,
             onClick = onSplitClick,
         )
+        if (isAudioClip) {
+            EditorOutlinedButton(
+                label = stringResource(R.string.editor_tool_volume),
+                enabled = isEnabled,
+                onClick = onVolumeClick,
+            )
+        }
         EditorOutlinedButton(
             label = stringResource(R.string.editor_tool_earlier),
             enabled = isEnabled && canMoveEarlier,
@@ -55,6 +62,19 @@ fun ClipTools(
             enabled = isEnabled && canMoveLater,
             onClick = onMoveLaterClick,
         )
+        if (isAudioClip) {
+            val playLabelRes = if (isAudioPlaying) {
+                R.string.editor_tool_pause
+            } else {
+                R.string.editor_tool_play
+            }
+            EditorOutlinedButton(
+                label = stringResource(playLabelRes),
+                enabled = isEnabled,
+                tone = if (isAudioPlaying) EditorButtonTone.Primary else EditorButtonTone.Default,
+                onClick = onTogglePlayClick,
+            )
+        }
         EditorOutlinedButton(
             label = stringResource(R.string.editor_remove_confirm),
             enabled = isEnabled,
@@ -63,4 +83,3 @@ fun ClipTools(
         )
     }
 }
-

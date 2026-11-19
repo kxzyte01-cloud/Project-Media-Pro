@@ -10,12 +10,14 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -40,11 +42,15 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.projectmediapro.app.R
+import com.projectmediapro.app.data.export.ExportGeometry
 import com.projectmediapro.app.data.export.sanitizeExportName
 import com.projectmediapro.core.designsystem.component.MediaProTopBar
 import com.projectmediapro.core.designsystem.theme.MediaProShapes
 import com.projectmediapro.core.designsystem.theme.MediaProSpacing
+import com.projectmediapro.core.model.CanvasBackground
+import com.projectmediapro.core.model.ExportQuality
 import com.projectmediapro.core.model.ProjectTimeline
+import com.projectmediapro.core.model.audioClips
 import com.projectmediapro.core.model.videoClips
 
 @Composable
@@ -60,11 +66,17 @@ fun EditorScreen(
         onEvent(EditorEvent.VideoPicked(uri?.toString()))
     }
 
+    val audioPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+    ) { uri ->
+        onEvent(EditorEvent.AudioPicked(uri?.toString()))
+    }
+
     val createDocumentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("video/mp4"),
     ) { uri ->
         if (uri != null) {
-            onEvent(EditorEvent.StartExport(uri.toString()))
+            onEvent(EditorEvent.StartExport(destinationUri = uri.toString()))
         }
     }
 
@@ -128,10 +140,14 @@ fun EditorScreen(
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly),
                         )
                     },
-                    onRequestExport = {
+                    onPickAudio = {
+                        audioPickerLauncher.launch("audio/*")
+                    },
+                    onConfirmExportQuality = { quality ->
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                            onEvent(EditorEvent.StartExport())
+                            onEvent(EditorEvent.StartExport(quality = quality))
                         } else {
+                            onEvent(EditorEvent.SelectExportQuality(quality))
                             createDocumentLauncher.launch("${sanitizeExportName(uiState.project.title)}.mp4")
                         }
                     },
@@ -147,15 +163,27 @@ fun EditorScreen(
 private fun LoadedEditorContent(
     state: EditorUiState.Loaded,
     onPickVideo: () -> Unit,
-    onRequestExport: () -> Unit,
+    onPickAudio: () -> Unit,
+    onConfirmExportQuality: (ExportQuality) -> Unit,
     onEvent: (EditorEvent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val clips = state.project.videoClips()
-    val isExporting = state.export is ExportUiState.Running
-    val editsEnabled = !state.isImporting && !isExporting
-    val selectedIndex = clips.indexOfFirst { it.id == state.selectedClipId }
-    val selectedClip = clips.getOrNull(selectedIndex)
+    val audioClips = state.project.audioClips()
+    val editsEnabled = !state.isBusy
+    val selectedLocation = state.project.findClipLocation(state.selectedClipId)
+    val previewAspectRatio = ExportGeometry.previewAspectRatio(state.project.canvasAspect)
+    val previewBackground = canvasBackgroundColor(state.project.canvasBackground)
+    val emptyPreviewTextColor = if (state.project.canvasBackground == CanvasBackground.WHITE) {
+        Color.Black.copy(alpha = 0.72f)
+    } else {
+        Color.White.copy(alpha = 0.78f)
+    }
+
+    AudioPreviewPlayer(
+        audioPreview = state.audioPreview,
+        onPlaybackEnded = { onEvent(EditorEvent.StopAudioPreview) },
+    )
 
     Column(
         modifier = modifier
@@ -166,34 +194,41 @@ private fun LoadedEditorContent(
         Spacer(modifier = Modifier.height(MediaProSpacing.Medium))
         Box(
             contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(16f / 9f)
-                .clip(MediaProShapes.Medium)
-                .background(Color.Black)
-                .border(
-                    width = MediaProSpacing.BorderThin,
-                    color = MaterialTheme.colorScheme.outlineVariant,
-                    shape = MediaProShapes.Medium,
-                ),
+            modifier = Modifier.fillMaxWidth(),
         ) {
-            if (clips.isEmpty()) {
-                Text(
-                    text = stringResource(R.string.editor_empty),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color.White.copy(alpha = 0.78f),
-                )
-            } else {
-                PreviewPlayer(
-                    previewClips = state.previewClips,
-                    modifier = Modifier.fillMaxSize(),
-                )
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .heightIn(max = 360.dp)
+                    .aspectRatio(previewAspectRatio)
+                    .clip(MediaProShapes.Medium)
+                    .background(previewBackground)
+                    .border(
+                        width = MediaProSpacing.BorderThin,
+                        color = MaterialTheme.colorScheme.outlineVariant,
+                        shape = MediaProShapes.Medium,
+                    ),
+            ) {
+                if (clips.isEmpty()) {
+                    Text(
+                        text = stringResource(R.string.editor_empty),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = emptyPreviewTextColor,
+                    )
+                } else {
+                    PreviewPlayer(
+                        previewClips = state.previewClips,
+                        backgroundColor = previewBackground,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
             }
         }
 
-        if (clips.isNotEmpty() || state.canUndo || state.canRedo) {
+        if (clips.isNotEmpty() || audioClips.isNotEmpty() || state.canUndo || state.canRedo) {
             TimelineStrip(
                 clips = clips,
+                audioClips = audioClips,
                 selectedClipId = state.selectedClipId,
                 canUndo = state.canUndo,
                 canRedo = state.canRedo,
@@ -202,56 +237,96 @@ private fun LoadedEditorContent(
                 onUndo = { onEvent(EditorEvent.Undo) },
                 onRedo = { onEvent(EditorEvent.Redo) },
             )
-            if (selectedClip != null) {
+            if (selectedLocation != null) {
+                val selectedClip = selectedLocation.clip
                 Spacer(modifier = Modifier.height(MediaProSpacing.Small))
                 ClipTools(
                     isEnabled = editsEnabled,
                     canTrim = ProjectTimeline.canTrimClip(selectedClip),
-                    canSplit = ProjectTimeline.canSplitClip(selectedClip),
-                    canMoveEarlier = selectedIndex > 0,
-                    canMoveLater = selectedIndex < clips.lastIndex,
+                    canSplit = !selectedLocation.isAudio && ProjectTimeline.canSplitClip(selectedClip),
+                    canMoveEarlier = selectedLocation.canMoveEarlier,
+                    canMoveLater = selectedLocation.canMoveLater,
+                    isAudioClip = selectedLocation.isAudio,
+                    isAudioPlaying = state.audioPreview?.clipId == selectedClip.id,
                     onTrimClick = { onEvent(EditorEvent.OpenTrim) },
                     onSplitClick = { onEvent(EditorEvent.OpenSplit) },
+                    onVolumeClick = { onEvent(EditorEvent.OpenVolume) },
                     onMoveEarlierClick = { onEvent(EditorEvent.MoveSelected(-1)) },
                     onMoveLaterClick = { onEvent(EditorEvent.MoveSelected(1)) },
+                    onTogglePlayClick = { onEvent(EditorEvent.ToggleAudioPreview) },
                     onRemoveClick = { onEvent(EditorEvent.RequestRemoveClip(selectedClip.id)) },
                 )
             }
         }
 
         Spacer(modifier = Modifier.height(MediaProSpacing.Medium))
-        Button(
-            onClick = onPickVideo,
-            enabled = editsEnabled,
-            shape = MediaProShapes.Small,
-            modifier = Modifier
-                .fillMaxWidth()
-                .defaultMinSize(minHeight = MediaProSpacing.MinTouchTarget),
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
+            modifier = Modifier.fillMaxWidth(),
         ) {
-            if (state.isImporting) {
-                CircularProgressIndicator(
-                    strokeWidth = MediaProSpacing.BorderSelected,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(modifier = Modifier.width(MediaProSpacing.Small))
-                Text(
-                    text = stringResource(R.string.editor_adding_video),
-                    style = MaterialTheme.typography.labelLarge,
-                )
-            } else {
-                Text(
-                    text = stringResource(R.string.editor_add_video),
-                    style = MaterialTheme.typography.labelLarge,
-                )
+            Button(
+                onClick = onPickVideo,
+                enabled = editsEnabled,
+                shape = MediaProShapes.Small,
+                modifier = Modifier
+                    .weight(1f)
+                    .defaultMinSize(minHeight = MediaProSpacing.MinTouchTarget),
+            ) {
+                if (state.isImporting && !state.isImportingAudio) {
+                    CircularProgressIndicator(
+                        strokeWidth = MediaProSpacing.BorderSelected,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(MediaProSpacing.Small))
+                    Text(
+                        text = stringResource(R.string.editor_adding_video),
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                } else {
+                    Text(
+                        text = stringResource(R.string.editor_add_video),
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                }
             }
+            EditorOutlinedButton(
+                label = if (state.isImportingAudio) {
+                    stringResource(R.string.editor_adding_audio)
+                } else {
+                    stringResource(R.string.editor_add_audio)
+                },
+                enabled = editsEnabled,
+                onClick = onPickAudio,
+                modifier = Modifier.weight(1f),
+                leadingContent = if (state.isImportingAudio) {
+                    {
+                        CircularProgressIndicator(
+                            strokeWidth = MediaProSpacing.BorderSelected,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(modifier = Modifier.width(MediaProSpacing.Small))
+                    }
+                } else {
+                    null
+                },
+            )
         }
+
+        Spacer(modifier = Modifier.height(MediaProSpacing.Small))
+        EditorOutlinedButton(
+            label = stringResource(R.string.editor_canvas_button),
+            enabled = editsEnabled,
+            onClick = { onEvent(EditorEvent.OpenCanvas) },
+            modifier = Modifier.fillMaxWidth(),
+        )
 
         Spacer(modifier = Modifier.height(MediaProSpacing.Small))
         ExportSection(
             exportState = state.export,
             isExportEnabled = clips.isNotEmpty() && editsEnabled,
-            onExportClick = onRequestExport,
+            onExportClick = { onEvent(EditorEvent.OpenExportQuality) },
             onCancelExport = { onEvent(EditorEvent.CancelExport) },
             onDismissDone = { onEvent(EditorEvent.DismissExportDone) },
         )
@@ -297,7 +372,7 @@ private fun LoadedEditorContent(
 
     when (val dialog = state.activeDialog) {
         is EditorDialog.Trim -> {
-            val clip = clips.firstOrNull { it.id == dialog.clipId }
+            val clip = state.project.findClipLocation(dialog.clipId)?.clip
             if (clip != null) {
                 TrimDialog(
                     clip = clip,
@@ -309,10 +384,10 @@ private fun LoadedEditorContent(
             }
         }
         is EditorDialog.Split -> {
-            val clip = clips.firstOrNull { it.id == dialog.clipId }
-            if (clip != null) {
+            val location = state.project.findClipLocation(dialog.clipId)
+            if (location != null && !location.isAudio) {
                 SplitDialog(
-                    clip = clip,
+                    clip = location.clip,
                     onConfirm = { offsetMs ->
                         onEvent(EditorEvent.ApplySplit(offsetMs = offsetMs))
                     },
@@ -320,13 +395,42 @@ private fun LoadedEditorContent(
                 )
             }
         }
+        is EditorDialog.Volume -> {
+            val location = state.project.findClipLocation(dialog.clipId)
+            if (location != null && location.isAudio) {
+                VolumeDialog(
+                    clip = location.clip,
+                    onConfirm = { volume ->
+                        onEvent(EditorEvent.ApplyVolume(volume = volume))
+                    },
+                    onDismiss = { onEvent(EditorEvent.DismissDialog) },
+                )
+            }
+        }
+        EditorDialog.Canvas -> {
+            CanvasDialog(
+                initialAspect = state.project.canvasAspect,
+                initialBackground = state.project.canvasBackground,
+                onConfirm = { aspect, background ->
+                    onEvent(EditorEvent.ApplyCanvas(aspect = aspect, background = background))
+                },
+                onDismiss = { onEvent(EditorEvent.DismissDialog) },
+            )
+        }
+        EditorDialog.Quality -> {
+            ExportQualityDialog(
+                initialQuality = state.project.exportQuality,
+                onConfirm = onConfirmExportQuality,
+                onDismiss = { onEvent(EditorEvent.DismissDialog) },
+            )
+        }
         null -> Unit
     }
 
-    val pendingIndex = clips.indexOfFirst { it.id == state.pendingRemoveClipId }
-    if (pendingIndex >= 0) {
+    val pendingLocation = state.project.findClipLocation(state.pendingRemoveClipId)
+    if (pendingLocation != null) {
         RemoveClipDialog(
-            clipNumber = pendingIndex + 1,
+            clipNumber = pendingLocation.clipNumber,
             onConfirm = { onEvent(EditorEvent.ConfirmRemoveClip) },
             onDismiss = { onEvent(EditorEvent.CancelRemoveClip) },
         )
@@ -348,4 +452,3 @@ private fun CenteredEditorStatus(
         content()
     }
 }
-

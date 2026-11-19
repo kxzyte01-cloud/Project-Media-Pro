@@ -52,6 +52,27 @@ class ProjectTimelineTest {
     }
 
     @Test
+    fun appendClip_audioTrackType_createsAudioTrackAndPositionsAudioClipsSequentially() {
+        val v1 = Clip(id = "v1", mediaUri = "p/v1.mp4", startTimeMs = 0L, durationMs = 8_000L)
+        val initial = Project(
+            id = "p",
+            title = "Audio Demo",
+            durationMs = 8_000L,
+            tracks = listOf(Track(id = "t-video", type = TrackType.VIDEO, clips = listOf(v1))),
+        )
+        val a1 = Clip(id = "a1", mediaUri = "p/a1.mp3", startTimeMs = 0L, durationMs = 3_000L)
+        val a2 = Clip(id = "a2", mediaUri = "p/a2.m4a", startTimeMs = 0L, durationMs = 4_000L)
+
+        val withFirstAudio = ProjectTimeline.appendClip(initial, a1, "t-audio", TrackType.AUDIO)
+        val withSecondAudio = ProjectTimeline.appendClip(withFirstAudio, a2, "unused", TrackType.AUDIO)
+
+        assertEquals(listOf("v1"), withSecondAudio.videoClips().map { it.id })
+        assertEquals(listOf("a1", "a2"), withSecondAudio.audioClips().map { it.id })
+        assertEquals(listOf(0L, 3_000L), withSecondAudio.audioClips().map { it.startTimeMs })
+        assertEquals(8_000L, withSecondAudio.durationMs)
+    }
+
+    @Test
     fun removeClip_firstOrMiddleClip_ripplesLaterClipsEarlierWithoutGaps() {
         val c1 = Clip(id = "c1", mediaUri = "p/1.mp4", startTimeMs = 0L, durationMs = 2_000L)
         val c2 = Clip(id = "c2", mediaUri = "p/2.mp4", startTimeMs = 2_000L, durationMs = 5_000L)
@@ -149,12 +170,15 @@ class ProjectTimelineTest {
         assertEquals(5_000L, ProjectTimeline.effectiveSourceDurationMs(untrimmed))
         assertTrue(ProjectTimeline.isClipTrimmed(explicit))
         assertFalse(ProjectTimeline.isClipTrimmed(untrimmed))
+        assertEquals(500L to 2_500L, ProjectTimeline.resolvedTrimBounds(explicit))
+        assertEquals(0L to 0L, ProjectTimeline.resolvedTrimBounds(untrimmed))
     }
 
     @Test
     fun trimClip_updatesClipDurationRipplesSubsequentClipsAndValidatesBounds() {
         val c1 = Clip(
-            id = "c1",            mediaUri = "p/1.mp4",
+            id = "c1",
+            mediaUri = "p/1.mp4",
             startTimeMs = 0L,
             durationMs = 5_000L,
             trimStartMs = 0L,
@@ -279,6 +303,57 @@ class ProjectTimelineTest {
     }
 
     @Test
+    fun setClipVolume_clampsToZeroAndOne_worksOnAudioClips_andReturnsUnchangedWhenMissing() {
+        val a1 = Clip(
+            id = "a1",
+            mediaUri = "p/a1.mp3",
+            startTimeMs = 0L,
+            durationMs = 4_000L,
+            trimStartMs = 0L,
+            trimEndMs = 4_000L,
+            sourceDurationMs = 4_000L,
+            volume = 1.0f,
+        )
+        val a2 = Clip(
+            id = "a2",
+            mediaUri = "p/a2.mp3",
+            startTimeMs = 4_000L,
+            durationMs = 3_000L,
+            trimStartMs = 0L,
+            trimEndMs = 3_000L,
+            sourceDurationMs = 3_000L,
+            volume = 0.5f,
+        )
+        val project = Project(
+            id = "p",
+            title = "Audio Ops",
+            durationMs = 7_000L,
+            tracks = listOf(Track(id = "t-a", type = TrackType.AUDIO, clips = listOf(a1, a2))),
+        )
+
+        val halfVolume = ProjectTimeline.setClipVolume(project, "a1", 0.65f)
+        assertEquals(0.65f, halfVolume.audioClips()[0].volume, 0.0001f)
+
+        val clampedLow = ProjectTimeline.setClipVolume(project, "a1", -0.5f)
+        assertEquals(0.0f, clampedLow.audioClips()[0].volume, 0.0001f)
+
+        val clampedHigh = ProjectTimeline.setClipVolume(project, "a2", 1.8f)
+        assertEquals(1.0f, clampedHigh.audioClips()[1].volume, 0.0001f)
+
+        assertSame(project, ProjectTimeline.setClipVolume(project, "missing", 0.5f))
+        assertSame(project, ProjectTimeline.setClipVolume(project, "a2", 0.5f))
+
+        val trimmedAudio = ProjectTimeline.trimClip(project, "a1", 500L, 2_500L)
+        assertEquals(2_000L, trimmedAudio.audioClips()[0].durationMs)
+        assertEquals(2_000L, trimmedAudio.audioClips()[1].startTimeMs)
+        assertEquals(5_000L, trimmedAudio.durationMs)
+
+        val movedAudio = ProjectTimeline.moveClip(project, "a1", 1)
+        assertEquals(listOf("a2", "a1"), movedAudio.audioClips().map { it.id })
+        assertEquals(listOf(0L, 3_000L), movedAudio.audioClips().map { it.startTimeMs })
+    }
+
+    @Test
     fun formatDuration_handlesNegativeZeroSecondsMinutesAndHours() {
         assertEquals("0:00", ProjectTimeline.formatDuration(Long.MIN_VALUE))
         assertEquals("0:00", ProjectTimeline.formatDuration(-1L))
@@ -290,4 +365,3 @@ class ProjectTimelineTest {
         assertEquals("1:02:03", ProjectTimeline.formatDuration(3_723_000L))
     }
 }
-

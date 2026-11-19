@@ -6,6 +6,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
@@ -13,6 +15,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.media3.common.MediaItem
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import java.io.File
 
@@ -27,15 +30,18 @@ data class PreviewClip(
 
 /**
  * Plays the project's resolved video clips in sequence using a single [ExoPlayer] instance,
- * honoring per-clip [MediaItem.ClippingConfiguration] bounds.
+ * fitting each clip inside the canvas on [backgroundColor] without cropping or stretching.
  */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
 fun PreviewPlayer(
     previewClips: List<PreviewClip>,
     modifier: Modifier = Modifier,
+    backgroundColor: Color = Color.Black,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val backgroundArgb = backgroundColor.toArgb()
 
     val player = remember(context) {
         ExoPlayer.Builder(context).build().apply {
@@ -93,6 +99,7 @@ fun PreviewPlayer(
         factory = { viewContext ->
             PlayerView(viewContext).apply {
                 useController = true
+                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
                 this.player = player
             }
         },
@@ -100,8 +107,9 @@ fun PreviewPlayer(
             if (playerView.player !== player) {
                 playerView.player = player
             }
+            playerView.setBackgroundColor(backgroundArgb)
+            playerView.setShutterBackgroundColor(backgroundArgb)
         },
         modifier = modifier,
     )
 }
-

@@ -2,15 +2,14 @@ package com.projectmediapro.core.designsystem.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Layer 1 & 2: Dark Mode Semantic Tokens (OLED Studio Slate Hierarchy — WCAG AA/AAA verified)
 val DarkPrimary = Color(0xFF60A5FA)
 val DarkOnPrimary = Color(0xFF06162E)
 val DarkPrimaryContainer = Color(0xFF1E3A8A)
 val DarkOnPrimaryContainer = Color(0xFFDBEAFE)
 val DarkSecondary = Color(0xFF38BDF8)
 val DarkOnSecondary = Color(0xFF082F49)
-val DarkSecondaryContainer = Color(0xFF1E293B)
-val DarkOnSecondaryContainer = Color(0xFFE2E8F0)
+val DarkSecondaryContainer = Color(0xFF0C4A6E)
+val DarkOnSecondaryContainer = Color(0xFFE0F2FE)
 val DarkBackground = Color(0xFF0B0F17)
 val DarkOnBackground = Color(0xFFF8FAFC)
 val DarkSurface = Color(0xFF131C2E)
@@ -24,7 +23,6 @@ val DarkOnError = Color(0xFF450A0A)
 val DarkErrorContainer = Color(0xFF7F1D1D)
 val DarkOnErrorContainer = Color(0xFFFEE2E2)
 
-// Layer 1 & 2: Light Mode Semantic Tokens (High-Contrast Studio Daylight — WCAG AA/AAA verified)
 val LightPrimary = Color(0xFF2563EB)
 val LightOnPrimary = Color(0xFFFFFFFF)
 val LightPrimaryContainer = Color(0xFFDBEAFE)
@@ -45,4 +43,3 @@ val LightAccentRed = Color(0xFFDC2626)
 val LightOnError = Color(0xFFFFFFFF)
 val LightErrorContainer = Color(0xFFFEE2E2)
 val LightOnErrorContainer = Color(0xFF7F1D1D)
-

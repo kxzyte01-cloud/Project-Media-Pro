@@ -7,5 +7,5 @@ data class Template(
     val id: String,
     val name: String,
     val description: String,
-    val slots: List<Slot> = emptyList()
+    val slots: List<Slot> = emptyList(),
 )
