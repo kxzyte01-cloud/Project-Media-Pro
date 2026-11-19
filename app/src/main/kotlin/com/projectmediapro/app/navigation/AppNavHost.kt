@@ -25,6 +25,9 @@ import com.projectmediapro.app.template.TemplateBuilderViewModel
 import com.projectmediapro.app.template.TemplatesEffect
 import com.projectmediapro.app.template.TemplatesScreen
 import com.projectmediapro.app.template.TemplatesViewModel
+import com.projectmediapro.app.template.UseTemplateEffect
+import com.projectmediapro.app.template.UseTemplateScreen
+import com.projectmediapro.app.template.UseTemplateViewModel
 
 object AppRoutes {
     const val HOME = "home"
@@ -34,9 +37,11 @@ object AppRoutes {
     const val EDITOR = "editor/{$PROJECT_ID_ARG}"
     const val TEMPLATE_ID_ARG = "templateId"
     const val TEMPLATE_BUILDER = "template/{$TEMPLATE_ID_ARG}"
+    const val USE_TEMPLATE = "use_template/{$TEMPLATE_ID_ARG}"
 
     fun editorRoute(projectId: String): String = "editor/$projectId"
     fun templateBuilderRoute(templateId: String): String = "template/$templateId"
+    fun useTemplateRoute(templateId: String): String = "use_template/$templateId"
 }
 
 @Composable
@@ -119,6 +124,11 @@ fun AppNavHost(
                         launchSingleTop = true
                     }
                 },
+                onUseTemplate = { templateId ->
+                    navController.navigate(AppRoutes.useTemplateRoute(templateId)) {
+                        launchSingleTop = true
+                    }
+                },
                 onNavigateBack = { navController.popBackStack() },
             )
         }
@@ -144,6 +154,44 @@ fun AppNavHost(
             )
             val uiState by viewModel.uiState.collectAsStateWithLifecycle()
             TemplateBuilderScreen(
+                uiState = uiState,
+                onEvent = viewModel::onEvent,
+                onNavigateBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(
+            route = AppRoutes.USE_TEMPLATE,
+            arguments = listOf(
+                navArgument(AppRoutes.TEMPLATE_ID_ARG) {
+                    type = NavType.StringType
+                },
+            ),
+        ) { backStackEntry ->
+            val templateId = backStackEntry.arguments?.getString(AppRoutes.TEMPLATE_ID_ARG).orEmpty()
+            val viewModel: UseTemplateViewModel = viewModel(
+                factory = UseTemplateViewModel.provideFactory(
+                    templateId = templateId,
+                    templateRepository = container.templateRepository,
+                    projectCreator = container.templateProjectCreator,
+                ),
+            )
+            val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+            LaunchedEffect(viewModel) {
+                viewModel.effects.collect { effect ->
+                    when (effect) {
+                        is UseTemplateEffect.OpenProject -> {
+                            navController.navigate(AppRoutes.editorRoute(effect.projectId)) {
+                                popUpTo(AppRoutes.TEMPLATES)
+                                launchSingleTop = true
+                            }
+                        }
+                    }
+                }
+            }
+
+            UseTemplateScreen(
                 uiState = uiState,
                 onEvent = viewModel::onEvent,
                 onNavigateBack = { navController.popBackStack() },

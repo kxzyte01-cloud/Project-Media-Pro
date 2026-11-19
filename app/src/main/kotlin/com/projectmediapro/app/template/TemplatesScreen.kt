@@ -28,6 +28,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import com.projectmediapro.app.R
+import com.projectmediapro.app.editor.EditorButtonTone
+import com.projectmediapro.app.editor.EditorOutlinedButton
 import com.projectmediapro.core.designsystem.component.MediaProTopBar
 import com.projectmediapro.core.designsystem.theme.MediaProShapes
 import com.projectmediapro.core.designsystem.theme.MediaProSpacing
@@ -41,6 +43,7 @@ fun TemplatesScreen(
     uiState: TemplatesUiState,
     onEvent: (TemplatesEvent) -> Unit,
     onOpenTemplate: (String) -> Unit,
+    onUseTemplate: (String) -> Unit,
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -64,55 +67,78 @@ fun TemplatesScreen(
             )
         },
     ) { innerPadding ->
-        Column(
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
                 .padding(horizontal = MediaProSpacing.Medium),
         ) {
-            Spacer(modifier = Modifier.height(MediaProSpacing.Medium))
-            if (uiState.error != null) {
-                Text(
-                    text = stringResource(templatesErrorStringRes(uiState.error)),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                )
-                Spacer(modifier = Modifier.height(MediaProSpacing.Small))
-            }
-            Button(
-                onClick = { onEvent(TemplatesEvent.ShowCreateDialog(defaultName)) },
-                shape = MediaProShapes.Small,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .defaultMinSize(minHeight = MediaProSpacing.MinTouchTarget),
-            ) {
-                Text(text = stringResource(R.string.templates_new_button))
-            }
-            Spacer(modifier = Modifier.height(MediaProSpacing.Medium))
-            if (uiState.templates.isEmpty()) {
-                Text(
-                    text = stringResource(R.string.templates_empty),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            } else {
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                ) {
-                    items(
-                        items = uiState.templates,
-                        key = { it.id },
-                    ) { template ->
-                        TemplateRowCard(
-                            template = template,
-                            onClick = { onOpenTemplate(template.id) },
-                            onDeleteClick = { onEvent(TemplatesEvent.RequestDelete(template.id)) },
-                        )
-                    }
+            item(key = "header-actions") {
+                Spacer(modifier = Modifier.height(MediaProSpacing.Medium))
+                if (uiState.error != null) {
+                    Text(
+                        text = stringResource(templatesErrorStringRes(uiState.error)),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    Spacer(modifier = Modifier.height(MediaProSpacing.Small))
                 }
+                Button(
+                    onClick = { onEvent(TemplatesEvent.ShowCreateDialog(defaultName)) },
+                    shape = MediaProShapes.Small,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .defaultMinSize(minHeight = MediaProSpacing.MinTouchTarget),
+                ) {
+                    Text(text = stringResource(R.string.templates_new_button))
+                }
+            }
+
+            if (uiState.templates.isNotEmpty()) {
+                item(key = "my-templates-heading") {
+                    Spacer(modifier = Modifier.height(MediaProSpacing.Small))
+                    Text(
+                        text = stringResource(R.string.templates_my_heading),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                items(
+                    items = uiState.templates,
+                    key = { it.id },
+                ) { template ->
+                    TemplateRowCard(
+                        template = template,
+                        onOpenBuilder = { onOpenTemplate(template.id) },
+                        onUseClick = { onUseTemplate(template.id) },
+                        onDeleteClick = { onEvent(TemplatesEvent.RequestDelete(template.id)) },
+                    )
+                }
+            }
+
+            item(key = "starter-templates-heading") {
+                Spacer(modifier = Modifier.height(MediaProSpacing.Small))
+                Text(
+                    text = stringResource(R.string.templates_starter_heading),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+
+            items(
+                items = uiState.starterTemplates,
+                key = { it.id },
+            ) { starter ->
+                StarterTemplateCard(
+                    template = starter,
+                    onUseClick = { onUseTemplate(starter.id) },
+                    onCustomizeClick = { onEvent(TemplatesEvent.CustomizeStarter(starter)) },
+                )
+            }
+
+            item(key = "bottom-spacer") {
+                Spacer(modifier = Modifier.height(MediaProSpacing.ExtraLarge))
             }
         }
     }
@@ -193,7 +219,8 @@ fun TemplatesScreen(
 @Composable
 private fun TemplateRowCard(
     template: Template,
-    onClick: () -> Unit,
+    onOpenBuilder: () -> Unit,
+    onUseClick: () -> Unit,
     onDeleteClick: () -> Unit,
 ) {
     Surface(
@@ -201,10 +228,11 @@ private fun TemplateRowCard(
         color = MaterialTheme.colorScheme.surface,
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .clickable(onClick = onOpenBuilder),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.ExtraSmall),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(
@@ -232,6 +260,12 @@ private fun TemplateRowCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            EditorOutlinedButton(
+                label = stringResource(R.string.templates_use_button),
+                enabled = true,
+                tone = EditorButtonTone.Primary,
+                onClick = onUseClick,
+            )
             IconButton(
                 onClick = onDeleteClick,
                 modifier = Modifier.defaultMinSize(
@@ -243,6 +277,61 @@ private fun TemplateRowCard(
                     painter = painterResource(R.drawable.ic_delete),
                     contentDescription = stringResource(R.string.cd_delete_template),
                     tint = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun StarterTemplateCard(
+    template: Template,
+    onUseClick: () -> Unit,
+    onCustomizeClick: () -> Unit,
+) {
+    Surface(
+        shape = MediaProShapes.Medium,
+        color = MaterialTheme.colorScheme.surface,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(MediaProSpacing.Medium),
+        ) {
+            Text(
+                text = template.name,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(modifier = Modifier.height(MediaProSpacing.ExtraSmall))
+            Text(
+                text = stringResource(
+                    R.string.templates_slot_summary,
+                    template.mainVideoSlots().size,
+                    template.overlaySlots().size,
+                    template.audioSlots().size,
+                ),
+                style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.height(MediaProSpacing.Small))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                EditorOutlinedButton(
+                    label = stringResource(R.string.templates_use_button),
+                    enabled = true,
+                    tone = EditorButtonTone.Primary,
+                    onClick = onUseClick,
+                    modifier = Modifier.weight(1f),
+                )
+                EditorOutlinedButton(
+                    label = stringResource(R.string.templates_customize_button),
+                    enabled = true,
+                    onClick = onCustomizeClick,
+                    modifier = Modifier.weight(1f),
                 )
             }
         }

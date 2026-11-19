@@ -121,7 +121,6 @@
     <string name="templates_new_button">New template</string>
     <string name="templates_name_hint">Template name</string>
     <string name="templates_default_name">Template %1$d</string>
-    <string name="templates_empty">No saved templates on this device.</string>
     <string name="templates_slot_summary">%1$d video · %2$d overlay · %3$d audio</string>
     <string name="templates_delete_title">Delete template?</string>
     <string name="templates_delete_message">"%1$s" will be permanently deleted from this device.</string>
@@ -143,6 +142,18 @@
     <string name="template_add_video_slot">Add video slot</string>
     <string name="template_add_audio_slot">Add audio slot</string>
     <string name="template_overlay_duration_title">Overlay duration</string>
+
+    <string name="templates_my_heading">My templates</string>
+    <string name="templates_starter_heading">Starter templates</string>
+    <string name="templates_use_button">Use</string>
+    <string name="templates_customize_button">Customize</string>
+    <string name="use_template_title">Use template</string>
+    <string name="use_template_locked_kept">%1$d locked template item(s) will stay intact.</string>
+    <string name="use_template_swap_heading">Choose your clips</string>
+    <string name="use_template_slot_selected">Selected</string>
+    <string name="use_template_slot_default">Default media</string>
+    <string name="use_template_create_button">Create &amp; open project</string>
+    <string name="use_template_creating">Creating project…</string>
 
     <!-- Settings screen -->
     <string name="settings_title">Settings</string>

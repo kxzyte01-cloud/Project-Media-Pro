@@ -4,8 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.projectmediapro.app.data.template.TemplateRepository
+import com.projectmediapro.core.model.StarterTemplates
 import com.projectmediapro.core.model.Template
 import java.io.IOException
+import java.util.UUID
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,6 +25,7 @@ enum class TemplatesError {
 
 data class TemplatesUiState(
     val templates: List<Template> = emptyList(),
+    val starterTemplates: List<Template> = StarterTemplates.all(),
     val isCreateDialogVisible: Boolean = false,
     val draftName: String = "",
     val pendingDeleteId: String? = null,
@@ -34,6 +37,7 @@ sealed interface TemplatesEvent {
     data class UpdateDraftName(val name: String) : TemplatesEvent
     data object DismissCreateDialog : TemplatesEvent
     data class ConfirmCreate(val fallbackName: String) : TemplatesEvent
+    data class CustomizeStarter(val starter: Template) : TemplatesEvent
     data class RequestDelete(val templateId: String) : TemplatesEvent
     data object CancelDelete : TemplatesEvent
     data object ConfirmDelete : TemplatesEvent
@@ -45,6 +49,7 @@ sealed interface TemplatesEffect {
 
 class TemplatesViewModel(
     private val templateRepository: TemplateRepository,
+    private val idProvider: () -> String = { UUID.randomUUID().toString() },
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(TemplatesUiState())
@@ -86,6 +91,27 @@ class TemplatesViewModel(
                 viewModelScope.launch {
                     val created = try {
                         templateRepository.createTemplate(resolvedName)
+                    } catch (_: IOException) {
+                        _uiState.update { it.copy(error = TemplatesError.SAVE_FAILED) }
+                        return@launch
+                    }
+                    refreshTemplates()
+                    _effects.send(TemplatesEffect.OpenTemplate(created.id))
+                }
+            }
+            is TemplatesEvent.CustomizeStarter -> {
+                viewModelScope.launch {
+                    val created = try {
+                        val base = templateRepository.createTemplate(event.starter.name)
+                        val copiedSlots = event.starter.slots.map { it.copy(id = idProvider()) }
+                        val customized = base.copy(
+                            description = event.starter.description,
+                            slots = copiedSlots,
+                            canvasAspect = event.starter.canvasAspect,
+                            canvasBackground = event.starter.canvasBackground,
+                        )
+                        templateRepository.saveTemplate(customized)
+                        customized
                     } catch (_: IOException) {
                         _uiState.update { it.copy(error = TemplatesError.SAVE_FAILED) }
                         return@launch
