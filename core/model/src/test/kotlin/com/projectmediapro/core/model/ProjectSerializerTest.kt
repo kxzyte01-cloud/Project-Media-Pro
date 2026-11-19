@@ -26,6 +26,9 @@ class ProjectSerializerTest {
                     ),
                 ),
             ),
+            canvasAspect = CanvasAspect.RATIO_9_16,
+            canvasBackground = CanvasBackground.GREY,
+            exportQuality = ExportQuality.UHD_4K,
         )
 
         val json = ProjectSerializer.serialize(project)
@@ -37,6 +40,9 @@ class ProjectSerializerTest {
         assertEquals(project.tracks.size, deserialized.tracks.size)
         assertEquals(project.tracks[0].clips[0].mediaUri, deserialized.tracks[0].clips[0].mediaUri)
         assertEquals(Project.CURRENT_SCHEMA_VERSION, deserialized.schemaVersion)
+        assertEquals(CanvasAspect.RATIO_9_16, deserialized.canvasAspect)
+        assertEquals(CanvasBackground.GREY, deserialized.canvasBackground)
+        assertEquals(ExportQuality.UHD_4K, deserialized.exportQuality)
     }
 
     @Test
@@ -49,9 +55,35 @@ class ProjectSerializerTest {
         )
 
         val json = ProjectSerializer.serialize(project)
+        val restored = ProjectSerializer.deserialize(json)
 
         assertTrue(json.contains("\"schemaVersion\""))
-        assertEquals(1, ProjectSerializer.deserialize(json).schemaVersion)
+        assertEquals(1, restored.schemaVersion)
+        assertEquals(CanvasAspect.ORIGINAL, restored.canvasAspect)
+        assertEquals(CanvasBackground.BLACK, restored.canvasBackground)
+        assertEquals(ExportQuality.FULL_HD_1080P, restored.exportQuality)
+    }
+
+    @Test
+    fun deserialize_oldProjectWithoutCanvasFields_loadsWithDefaults() {
+        val legacyJson = """
+            {
+                "id": "proj-legacy",
+                "title": "Legacy Project",
+                "durationMs": 5000,
+                "tracks": [],
+                "createdAt": 100,
+                "updatedAt": 200,
+                "schemaVersion": 1
+            }
+        """.trimIndent()
+
+        val project = ProjectSerializer.deserialize(legacyJson)
+
+        assertEquals("proj-legacy", project.id)
+        assertEquals(CanvasAspect.ORIGINAL, project.canvasAspect)
+        assertEquals(CanvasBackground.BLACK, project.canvasBackground)
+        assertEquals(ExportQuality.FULL_HD_1080P, project.exportQuality)
     }
 
     @Test

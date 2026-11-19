@@ -25,10 +25,6 @@ import com.projectmediapro.app.R
 import com.projectmediapro.core.designsystem.theme.MediaProShapes
 import com.projectmediapro.core.designsystem.theme.MediaProSpacing
 
-/**
- * The "Export video" button, the running-export progress card with a Cancel button (keeping the
- * screen awake while exporting), and the dismissible completion card.
- */
 @Composable
 fun ExportSection(
     exportState: ExportUiState,

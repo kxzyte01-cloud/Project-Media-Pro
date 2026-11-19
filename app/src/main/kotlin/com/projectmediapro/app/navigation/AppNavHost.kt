@@ -21,9 +21,6 @@ import com.projectmediapro.app.home.HomeViewModel
 import com.projectmediapro.app.settings.SettingsScreen
 import com.projectmediapro.app.settings.SettingsViewModel
 
-/**
- * Single source of truth for all navigation routes in the application.
- */
 object AppRoutes {
     const val HOME = "home"
     const val SETTINGS = "settings"
@@ -95,6 +92,7 @@ fun AppNavHost(
                     repository = container.projectRepository,
                     videoImporter = container.videoImporter,
                     mediaStorage = container.mediaStorage,
+                    audioImporter = container.audioImporter,
                     videoExporter = container.videoExporter,
                     exportSaver = container.exportSaver,
                     cacheSpaceProvider = container.cacheSpaceProvider,

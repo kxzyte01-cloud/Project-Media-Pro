@@ -5,8 +5,10 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -18,6 +20,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -37,10 +40,6 @@ import com.projectmediapro.core.model.ProjectTimeline
 
 private const val DP_PER_SECOND = 12f
 
-/**
- * Displays the Timeline header with 8dp-spaced Undo/Redo actions and a recessed, horizontally
- * scrollable studio track strip of proportional clip blocks.
- */
 @Composable
 fun TimelineStrip(
     clips: List<Clip>,
@@ -52,6 +51,7 @@ fun TimelineStrip(
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     modifier: Modifier = Modifier,
+    audioClips: List<Clip> = emptyList(),
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
@@ -96,30 +96,95 @@ fun TimelineStrip(
         }
 
         if (clips.isNotEmpty()) {
-            Surface(
-                shape = MediaProShapes.Medium,
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                border = BorderStroke(MediaProSpacing.BorderThin, MaterialTheme.colorScheme.outlineVariant),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(MediaProSpacing.Small),
-                ) {
-                    clips.forEachIndexed { index, clip ->
-                        TimelineClipBlock(
-                            clipNumber = index + 1,
-                            durationMs = clip.durationMs,
-                            isSelected = clip.id == selectedClipId,
-                            isEnabled = isEnabled,
-                            onClick = { onSelectClip(clip.id) },
-                        )
-                    }
-                }
+            TimelineTrackLane(
+                laneTitle = stringResource(R.string.editor_lane_video),
+                clips = clips,
+                selectedClipId = selectedClipId,
+                isEnabled = isEnabled,
+                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                selectedContentColor = MaterialTheme.colorScheme.onPrimary,
+                unselectedContainerColor = MaterialTheme.colorScheme.surface,
+                unselectedContentColor = MaterialTheme.colorScheme.onSurface,
+                blockLabel = { number -> number.toString() },
+                accessibilityLabel = { number, formattedDuration ->
+                    stringResource(R.string.cd_timeline_clip, number, formattedDuration)
+                },
+                onSelectClip = onSelectClip,
+            )
+        }
+
+        if (audioClips.isNotEmpty()) {
+            if (clips.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(MediaProSpacing.Small))
+            }
+            TimelineTrackLane(
+                laneTitle = stringResource(R.string.editor_lane_music),
+                clips = audioClips,
+                selectedClipId = selectedClipId,
+                isEnabled = isEnabled,
+                selectedContainerColor = MaterialTheme.colorScheme.secondary,
+                selectedContentColor = MaterialTheme.colorScheme.onSecondary,
+                unselectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                unselectedContentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                blockLabel = { number -> "A$number" },
+                accessibilityLabel = { number, formattedDuration ->
+                    stringResource(R.string.cd_timeline_audio_clip, number, formattedDuration)
+                },
+                onSelectClip = onSelectClip,
+            )
+        }
+    }
+}
+
+@Composable
+private fun TimelineTrackLane(
+    laneTitle: String,
+    clips: List<Clip>,
+    selectedClipId: String?,
+    isEnabled: Boolean,
+    selectedContainerColor: Color,
+    selectedContentColor: Color,
+    unselectedContainerColor: Color,
+    unselectedContentColor: Color,
+    blockLabel: (Int) -> String,
+    accessibilityLabel: @Composable (Int, String) -> String,
+    onSelectClip: (String) -> Unit,
+) {
+    Text(
+        text = laneTitle,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(bottom = MediaProSpacing.ExtraSmall),
+    )
+    Surface(
+        shape = MediaProShapes.Medium,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(MediaProSpacing.BorderThin, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(MediaProSpacing.Small),
+        ) {
+            clips.forEachIndexed { index, clip ->
+                val clipNumber = index + 1
+                val isSelected = clip.id == selectedClipId
+                val formattedDuration = ProjectTimeline.formatDuration(clip.durationMs)
+                TimelineClipBlock(
+                    label = blockLabel(clipNumber),
+                    formattedDuration = formattedDuration,
+                    accessibilityLabel = accessibilityLabel(clipNumber, formattedDuration),
+                    durationMs = clip.durationMs,
+                    isSelected = isSelected,
+                    isEnabled = isEnabled,
+                    containerColor = if (isSelected) selectedContainerColor else unselectedContainerColor,
+                    contentColor = if (isSelected) selectedContentColor else unselectedContentColor,
+                    onClick = { onSelectClip(clip.id) },
+                )
             }
         }
     }
@@ -127,29 +192,20 @@ fun TimelineStrip(
 
 @Composable
 private fun TimelineClipBlock(
-    clipNumber: Int,
+    label: String,
+    formattedDuration: String,
+    accessibilityLabel: String,
     durationMs: Long,
     isSelected: Boolean,
     isEnabled: Boolean,
+    containerColor: Color,
+    contentColor: Color,
     onClick: () -> Unit,
 ) {
     val blockWidth: Dp = ((durationMs.coerceAtLeast(0L) / 1_000f) * DP_PER_SECOND).dp
         .coerceAtLeast(MediaProSpacing.MinTouchTarget)
-    val formattedDuration = ProjectTimeline.formatDuration(durationMs)
-    val accessibilityLabel = stringResource(R.string.cd_timeline_clip, clipNumber, formattedDuration)
-
-    val containerColor = if (isSelected) {
-        MaterialTheme.colorScheme.primary
-    } else {
-        MaterialTheme.colorScheme.surface
-    }
-    val contentColor = if (isSelected) {
-        MaterialTheme.colorScheme.onPrimary
-    } else {
-        MaterialTheme.colorScheme.onSurface
-    }
     val borderStroke = if (isSelected) {
-        BorderStroke(MediaProSpacing.BorderSelected, MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f))
+        BorderStroke(MediaProSpacing.BorderSelected, contentColor.copy(alpha = 0.85f))
     } else {
         BorderStroke(MediaProSpacing.BorderThin, MaterialTheme.colorScheme.outline)
     }
@@ -183,7 +239,7 @@ private fun TimelineClipBlock(
             ),
         ) {
             Text(
-                text = clipNumber.toString(),
+                text = label,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
                 maxLines = 1,

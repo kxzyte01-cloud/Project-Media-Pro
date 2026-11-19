@@ -15,10 +15,6 @@ import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.ProjectTimeline
 import kotlin.math.roundToLong
 
-/**
- * Dialog with a [RangeSlider] over `[0, effectiveSourceDurationMs(clip)]` enforcing a minimum
- * remaining length of [ProjectTimeline.MIN_CLIP_DURATION_MS] and displaying a tabular timecode pill.
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TrimDialog(

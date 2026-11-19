@@ -7,7 +7,9 @@ import com.projectmediapro.app.data.export.ExportSaver
 import com.projectmediapro.app.data.export.Media3VideoExporter
 import com.projectmediapro.app.data.export.VideoExporter
 import com.projectmediapro.app.data.export.usableBytesNear
+import com.projectmediapro.app.data.media.AndroidAudioImporter
 import com.projectmediapro.app.data.media.AndroidVideoImporter
+import com.projectmediapro.app.data.media.AudioImporter
 import com.projectmediapro.app.data.media.ProjectMediaStorage
 import com.projectmediapro.app.data.media.VideoImporter
 import com.projectmediapro.app.data.project.FileProjectRepository
@@ -18,10 +20,6 @@ import com.projectmediapro.app.settings.RawResourcePrivacyPolicyDataSource
 import com.projectmediapro.app.settings.ThemePreferencesStore
 import java.io.File
 
-/**
- * Plain manual dependency container created once in [com.projectmediapro.app.MediaProApplication].
- * Keeps AppNavHost free of feature-specific parameters.
- */
 class AppContainer(appContext: Context) {
     val themePreferencesStore: ThemePreferencesStore = DataStoreThemePreferencesStore(appContext)
     val privacyPolicyDataSource: PrivacyPolicyDataSource = RawResourcePrivacyPolicyDataSource(appContext)
@@ -29,6 +27,10 @@ class AppContainer(appContext: Context) {
         rootDirectory = File(appContext.filesDir, "media"),
     )
     val videoImporter: VideoImporter = AndroidVideoImporter(
+        context = appContext,
+        storage = mediaStorage,
+    )
+    val audioImporter: AudioImporter = AndroidAudioImporter(
         context = appContext,
         storage = mediaStorage,
     )

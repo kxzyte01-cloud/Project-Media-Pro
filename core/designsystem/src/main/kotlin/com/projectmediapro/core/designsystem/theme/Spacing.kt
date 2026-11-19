@@ -4,10 +4,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
-/**
- * Strict spacing scale (4 / 8 / 12 / 16 / 24 / 32 dp), border stroke tokens (1 / 2 dp),
- * and Android touch target floor (48dp).
- */
 object MediaProSpacing {
     val BorderThin: Dp = 1.dp
     val BorderSelected: Dp = 2.dp
@@ -20,9 +16,6 @@ object MediaProSpacing {
     val MinTouchTarget: Dp = 48.dp
 }
 
-/**
- * At most two corner radii across the entire design system.
- */
 object MediaProShapes {
     val Small = RoundedCornerShape(8.dp)
     val Medium = RoundedCornerShape(12.dp)

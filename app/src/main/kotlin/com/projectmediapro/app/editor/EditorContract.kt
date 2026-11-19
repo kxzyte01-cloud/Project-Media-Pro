@@ -1,13 +1,14 @@
 package com.projectmediapro.app.editor
 
+import com.projectmediapro.core.model.CanvasAspect
+import com.projectmediapro.core.model.CanvasBackground
+import com.projectmediapro.core.model.ExportQuality
 import com.projectmediapro.core.model.Project
 
-/**
- * Non-text error categories for the Editor screen, mapped to string resources in the UI layer.
- */
 enum class EditorError {
     IMPORT_FAILED,
     IMPORT_NOT_A_VIDEO,
+    IMPORT_NOT_AUDIO,
     IMPORT_NO_SPACE,
     SAVE_FAILED,
     EXPORT_FAILED,
@@ -17,26 +18,28 @@ enum class EditorError {
     EXPORT_NOTHING,
 }
 
-/**
- * Progress of exporting the project to a video file.
- */
 sealed interface ExportUiState {
     data object Idle : ExportUiState
     data class Running(val percent: Int) : ExportUiState
     data class Done(val savedToGallery: Boolean) : ExportUiState
 }
 
-/**
- * Active clip editing dialog on the Editor screen.
- */
 sealed interface EditorDialog {
     data class Trim(val clipId: String) : EditorDialog
     data class Split(val clipId: String) : EditorDialog
+    data class Volume(val clipId: String) : EditorDialog
+    data object Canvas : EditorDialog
+    data object Quality : EditorDialog
 }
 
-/**
- * UI state for the Editor screen.
- */
+data class AudioPreviewState(
+    val clipId: String,
+    val path: String,
+    val trimStartMs: Long = 0L,
+    val trimEndMs: Long = 0L,
+    val volume: Float = 1.0f,
+)
+
 sealed interface EditorUiState {
     data object Loading : EditorUiState
     data object NotFound : EditorUiState
@@ -49,30 +52,47 @@ sealed interface EditorUiState {
         val canRedo: Boolean = false,
         val activeDialog: EditorDialog? = null,
         val isImporting: Boolean = false,
+        val isImportingAudio: Boolean = false,
+        val audioPreview: AudioPreviewState? = null,
         val pendingRemoveClipId: String? = null,
         val export: ExportUiState = ExportUiState.Idle,
         val error: EditorError? = null,
-    ) : EditorUiState
+    ) : EditorUiState {
+        val isBusy: Boolean
+            get() = isImporting || isImportingAudio || export is ExportUiState.Running
+    }
 }
 
-/**
- * User events emitted from the Editor screen.
- */
 sealed interface EditorEvent {
     data class VideoPicked(val sourceUri: String?) : EditorEvent
+    data class AudioPicked(val sourceUri: String?) : EditorEvent
     data class SelectClip(val clipId: String) : EditorEvent
     data object OpenTrim : EditorEvent
     data object OpenSplit : EditorEvent
+    data object OpenVolume : EditorEvent
+    data object OpenCanvas : EditorEvent
+    data object OpenExportQuality : EditorEvent
     data object DismissDialog : EditorEvent
     data class ApplyTrim(val startMs: Long, val endMs: Long) : EditorEvent
     data class ApplySplit(val offsetMs: Long) : EditorEvent
+    data class ApplyVolume(val volume: Float) : EditorEvent
+    data class ApplyCanvas(
+        val aspect: CanvasAspect,
+        val background: CanvasBackground,
+    ) : EditorEvent
+    data class SelectExportQuality(val quality: ExportQuality) : EditorEvent
     data class MoveSelected(val delta: Int) : EditorEvent
+    data object ToggleAudioPreview : EditorEvent
+    data object StopAudioPreview : EditorEvent
     data object Undo : EditorEvent
     data object Redo : EditorEvent
     data class RequestRemoveClip(val clipId: String) : EditorEvent
     data object ConfirmRemoveClip : EditorEvent
     data object CancelRemoveClip : EditorEvent
-    data class StartExport(val destinationUri: String? = null) : EditorEvent
+    data class StartExport(
+        val destinationUri: String? = null,
+        val quality: ExportQuality? = null,
+    ) : EditorEvent
     data object CancelExport : EditorEvent
     data object DismissExportDone : EditorEvent
 }
