@@ -21,8 +21,7 @@ class TemplateSerializerTest {
 
         val json = TemplateSerializer.serialize(template)
         val restored = TemplateSerializer.deserialize(json)
-
-        assertTrue(json.contains(""schemaVersion""))
+assertTrue(json.contains("\"schemaVersion\""))
         assertEquals(template.id, restored.id)
         assertEquals(template.name, restored.name)
         assertEquals(3, restored.slots.size)
