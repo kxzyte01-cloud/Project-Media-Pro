@@ -13,5 +13,6 @@ data class Track(
 enum class TrackType {
     VIDEO,
     AUDIO,
+    OVERLAY,
     TEXT,
 }

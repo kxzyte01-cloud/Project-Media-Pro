@@ -8,9 +8,16 @@ fun Project.videoClips(): List<Clip> =
 fun Project.audioClips(): List<Clip> =
     tracks.firstOrNull { it.type == TrackType.AUDIO }?.clips.orEmpty()
 
+fun Project.overlayClips(): List<Clip> =
+    tracks.firstOrNull { it.type == TrackType.OVERLAY }?.clips.orEmpty()
+
 object ProjectTimeline {
 
     const val MIN_CLIP_DURATION_MS: Long = 500L
+    const val DEFAULT_OVERLAY_DURATION_MS: Long = 5_000L
+
+    fun videoDurationMs(project: Project): Long =
+        project.videoClips().sumOf { effectiveDurationMs(it) }
 
     fun effectiveSourceDurationMs(clip: Clip): Long {
         return if (clip.sourceDurationMs > 0L) {
@@ -77,18 +84,109 @@ object ProjectTimeline {
         val trackIndex = project.tracks.indexOfFirst { it.type == trackType }
         if (trackIndex >= 0) {
             val track = project.tracks[trackIndex]
-            return updateTrack(project, trackIndex, repositionClips(track.clips + clip))
+            return updateTrack(project, trackIndex, normalizeTrackClips(trackType, track.clips + clip))
         }
         val newTrack = Track(
             id = newTrackId,
             type = trackType,
-            clips = repositionClips(listOf(clip)),
+            clips = normalizeTrackClips(trackType, listOf(clip)),
         )
         val updatedTracks = project.tracks + newTrack
         return project.copy(
             tracks = updatedTracks,
             durationMs = latestClipEndMs(updatedTracks),
         )
+    }
+
+    fun addOverlayClip(
+        project: Project,
+        clipId: String,
+        mediaUri: String,
+        newTrackId: String,
+    ): Project {
+        val totalVideoMs = videoDurationMs(project)
+        val initialDurationMs = if (totalVideoMs > 0L) {
+            minOf(DEFAULT_OVERLAY_DURATION_MS, totalVideoMs)
+        } else {
+            DEFAULT_OVERLAY_DURATION_MS
+        }
+        val overlayClip = Clip(
+            id = clipId,
+            mediaUri = mediaUri,
+            startTimeMs = 0L,
+            durationMs = initialDurationMs,
+        )
+        return appendClip(
+            project = project,
+            clip = overlayClip,
+            newTrackId = newTrackId,
+            trackType = TrackType.OVERLAY,
+        )
+    }
+
+    fun updateOverlayTransform(
+        project: Project,
+        clipId: String,
+        centerX: Float,
+        centerY: Float,
+        widthFraction: Float,
+    ): Project {
+        val clampedX = if (centerX.isNaN()) Clip.DEFAULT_OVERLAY_CENTER_X else centerX.coerceIn(0f, 1f)
+        val clampedY = if (centerY.isNaN()) Clip.DEFAULT_OVERLAY_CENTER_Y else centerY.coerceIn(0f, 1f)
+        val clampedWidth = if (widthFraction.isNaN()) {
+            Clip.DEFAULT_OVERLAY_WIDTH_FRACTION
+        } else {
+            widthFraction.coerceIn(Clip.MIN_OVERLAY_WIDTH_FRACTION, Clip.MAX_OVERLAY_WIDTH_FRACTION)
+        }
+        return modifyClipTrack(project, clipId, requiredTrackType = TrackType.OVERLAY) { clips, clipIndex ->
+            val clip = clips[clipIndex]
+            if (clip.overlayCenterX == clampedX &&
+                clip.overlayCenterY == clampedY &&
+                clip.overlayWidthFraction == clampedWidth
+            ) {
+                return@modifyClipTrack null
+            }
+            clips.toMutableList().apply {
+                set(
+                    clipIndex,
+                    clip.copy(
+                        overlayCenterX = clampedX,
+                        overlayCenterY = clampedY,
+                        overlayWidthFraction = clampedWidth,
+                    ),
+                )
+            }
+        }
+    }
+
+    fun updateOverlayTiming(
+        project: Project,
+        clipId: String,
+        startTimeMs: Long,
+        durationMs: Long,
+    ): Project {
+        val totalVideoMs = videoDurationMs(project)
+        if (totalVideoMs < MIN_CLIP_DURATION_MS) return project
+        val maxStartMs = (totalVideoMs - MIN_CLIP_DURATION_MS).coerceAtLeast(0L)
+        val clampedStartMs = startTimeMs.coerceIn(0L, maxStartMs)
+        val maxDurationMs = (totalVideoMs - clampedStartMs).coerceAtLeast(MIN_CLIP_DURATION_MS)
+        val clampedDurationMs = durationMs.coerceIn(MIN_CLIP_DURATION_MS, maxDurationMs)
+
+        return modifyClipTrack(project, clipId, requiredTrackType = TrackType.OVERLAY) { clips, clipIndex ->
+            val clip = clips[clipIndex]
+            if (clip.startTimeMs == clampedStartMs && clip.durationMs == clampedDurationMs) {
+                return@modifyClipTrack null
+            }
+            clips.toMutableList().apply {
+                set(
+                    clipIndex,
+                    clip.copy(
+                        startTimeMs = clampedStartMs,
+                        durationMs = clampedDurationMs,
+                    ),
+                )
+            }
+        }
     }
 
     fun removeClip(
@@ -219,17 +317,32 @@ object ProjectTimeline {
     private inline fun modifyClipTrack(
         project: Project,
         clipId: String,
+        requiredTrackType: TrackType? = null,
         transform: (clips: List<Clip>, clipIndex: Int) -> List<Clip>?,
     ): Project {
         for (trackIndex in project.tracks.indices) {
-            val clips = project.tracks[trackIndex].clips
+            val track = project.tracks[trackIndex]
+            if (requiredTrackType != null && track.type != requiredTrackType) continue
+            val clips = track.clips
             val clipIndex = clips.indexOfFirst { it.id == clipId }
             if (clipIndex >= 0) {
                 val updatedClips = transform(clips, clipIndex) ?: return project
-                return updateTrack(project, trackIndex, repositionClips(updatedClips))
+                return updateTrack(
+                    project,
+                    trackIndex,
+                    normalizeTrackClips(track.type, updatedClips),
+                )
             }
         }
         return project
+    }
+
+    private fun normalizeTrackClips(trackType: TrackType, clips: List<Clip>): List<Clip> {
+        return if (trackType == TrackType.OVERLAY) {
+            clips
+        } else {
+            repositionClips(clips)
+        }
     }
 
     private fun repositionClips(clips: List<Clip>): List<Clip> {

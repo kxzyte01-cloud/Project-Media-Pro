@@ -364,4 +364,83 @@ class ProjectTimelineTest {
         assertEquals("59:59", ProjectTimeline.formatDuration(3_599_000L))
         assertEquals("1:02:03", ProjectTimeline.formatDuration(3_723_000L))
     }
+
+    @Test
+    fun overlayClips_supportFreeOverlappingTimingTransformClampingAndRemoval() {
+        val shortVideo = Project(
+            id = "p1",
+            title = "Short",
+            durationMs = 3_000L,
+            tracks = listOf(
+                Track(
+                    id = "v1",
+                    type = TrackType.VIDEO,
+                    clips = listOf(
+                        Clip(
+                            id = "c1",
+                            mediaUri = "p1/c1.mp4",
+                            startTimeMs = 0L,
+                            durationMs = 3_000L,
+                            trimEndMs = 3_000L,
+                            sourceDurationMs = 3_000L,
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val withShortOverlay = ProjectTimeline.addOverlayClip(
+            project = shortVideo,
+            clipId = "o1",
+            mediaUri = "p1/o1.png",
+            newTrackId = "t-ov",
+        )
+        assertEquals(1, withShortOverlay.overlayClips().size)
+        assertEquals(0L, withShortOverlay.overlayClips()[0].startTimeMs)
+        assertEquals(3_000L, withShortOverlay.overlayClips()[0].durationMs)
+
+        val longVideo = shortVideo.copy(
+            durationMs = 10_000L,
+            tracks = listOf(
+                shortVideo.tracks[0].copy(
+                    clips = listOf(
+                        shortVideo.tracks[0].clips[0].copy(
+                            durationMs = 10_000L,
+                            trimEndMs = 10_000L,
+                            sourceDurationMs = 10_000L,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        var project = ProjectTimeline.addOverlayClip(longVideo, "o1", "p1/o1.png", "t-ov")
+        project = ProjectTimeline.addOverlayClip(project, "o2", "p1/o2.gif", "t-ov2")
+        assertEquals(listOf(0L, 0L), project.overlayClips().map { it.startTimeMs })
+        assertEquals(listOf(5_000L, 5_000L), project.overlayClips().map { it.durationMs })
+
+        project = ProjectTimeline.updateOverlayTiming(project, "o2", startTimeMs = 2_000L, durationMs = 4_000L)
+        assertEquals(0L, project.overlayClips()[0].startTimeMs)
+        assertEquals(2_000L, project.overlayClips()[1].startTimeMs)
+        assertEquals(4_000L, project.overlayClips()[1].durationMs)
+
+        val clampedTiming = ProjectTimeline.updateOverlayTiming(project, "o2", startTimeMs = 9_800L, durationMs = 2_000L)
+        assertEquals(9_500L, clampedTiming.overlayClips()[1].startTimeMs)
+        assertEquals(500L, clampedTiming.overlayClips()[1].durationMs)
+
+        val transformed = ProjectTimeline.updateOverlayTransform(
+            project = project,
+            clipId = "o1",
+            centerX = 1.5f,
+            centerY = -0.2f,
+            widthFraction = 0.02f,
+        )
+        assertEquals(1.0f, transformed.overlayClips()[0].overlayCenterX, 0.0001f)
+        assertEquals(0.0f, transformed.overlayClips()[0].overlayCenterY, 0.0001f)
+        assertEquals(0.1f, transformed.overlayClips()[0].overlayWidthFraction, 0.0001f)
+
+        val afterRemoveFirst = ProjectTimeline.removeClip(project, "o1")
+        assertEquals(1, afterRemoveFirst.overlayClips().size)
+        assertEquals("o2", afterRemoveFirst.overlayClips()[0].id)
+        assertEquals(2_000L, afterRemoveFirst.overlayClips()[0].startTimeMs)
+    }
 }
