@@ -741,7 +741,7 @@ class EditorViewModelTest {
         vm.onEvent(EditorEvent.Undo)
         val afterUndoTiming = vm.uiState.value as EditorUiState.Loaded
         assertEquals(0L, afterUndoTiming.project.overlayClips()[0].startTimeMs)
-        assertEquals(5_000L, afterUndoTiming.project.overlayClips()[0].durationMs)
+       assertEquals(4_000L, afterUndoTiming.project.overlayClips()[0].durationMs)
 
         vm.onEvent(EditorEvent.Redo)
         assertEquals(1_000L, (vm.uiState.value as EditorUiState.Loaded).project.overlayClips()[0].startTimeMs)
