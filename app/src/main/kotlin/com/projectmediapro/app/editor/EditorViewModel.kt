@@ -8,6 +8,7 @@ import com.projectmediapro.app.data.export.ExportSaver
 import com.projectmediapro.app.data.export.VideoExportException
 import com.projectmediapro.app.data.export.VideoExporter
 import com.projectmediapro.app.data.media.AudioImporter
+import com.projectmediapro.app.data.media.OverlayImporter
 import com.projectmediapro.app.data.media.ProjectMediaStorage
 import com.projectmediapro.app.data.media.VideoImportException
 import com.projectmediapro.app.data.media.VideoImporter
@@ -19,6 +20,7 @@ import com.projectmediapro.core.model.ProjectTimeline
 import com.projectmediapro.core.model.TrackType
 import com.projectmediapro.core.model.UndoRedoManager
 import com.projectmediapro.core.model.audioClips
+import com.projectmediapro.core.model.overlayClips
 import com.projectmediapro.core.model.videoClips
 import java.io.File
 import java.io.IOException
@@ -38,6 +40,7 @@ class EditorViewModel(
     private val videoImporter: VideoImporter,
     private val mediaStorage: ProjectMediaStorage,
     private val audioImporter: AudioImporter = FailingAudioImporter,
+    private val overlayImporter: OverlayImporter = FailingOverlayImporter,
     private val videoExporter: VideoExporter? = null,
     private val exportSaver: ExportSaver? = null,
     private val cacheSpaceProvider: () -> Long = { Long.MAX_VALUE },
@@ -63,8 +66,10 @@ class EditorViewModel(
                         EditorUiState.Loaded(
                             project = project,
                             previewClips = resolvePreviewClips(project, mediaStorage),
+                            overlayFilePaths = resolveOverlayFilePaths(project, mediaStorage),
                             selectedClipId = project.videoClips().firstOrNull()?.id
-                                ?: project.audioClips().firstOrNull()?.id,
+                                ?: project.audioClips().firstOrNull()?.id
+                                ?: project.overlayClips().firstOrNull()?.id,
                         )
                     } else {
                         EditorUiState.NotFound
@@ -80,19 +85,34 @@ class EditorViewModel(
         when (event) {
             is EditorEvent.VideoPicked -> handleMediaPicked(event.sourceUri, TrackType.VIDEO)
             is EditorEvent.AudioPicked -> handleMediaPicked(event.sourceUri, TrackType.AUDIO)
+            is EditorEvent.OverlayPicked -> handleMediaPicked(event.sourceUri, TrackType.OVERLAY)
             is EditorEvent.SelectClip -> handleSelectClip(event.clipId)
             EditorEvent.OpenTrim -> openSelectedClipDialog(
-                predicate = { ProjectTimeline.canTrimClip(it.clip) },
+                predicate = { !it.isOverlay && ProjectTimeline.canTrimClip(it.clip) },
                 dialogFactory = EditorDialog::Trim,
             )
             EditorEvent.OpenSplit -> openSelectedClipDialog(
-                predicate = { !it.isAudio && ProjectTimeline.canSplitClip(it.clip) },
+                predicate = { it.isVideo && ProjectTimeline.canSplitClip(it.clip) },
                 dialogFactory = EditorDialog::Split,
             )
             EditorEvent.OpenVolume -> openSelectedClipDialog(
                 predicate = { it.isAudio },
                 dialogFactory = EditorDialog::Volume,
             )
+            EditorEvent.OpenOverlayPosition -> openSelectedClipDialog(
+                predicate = { it.isOverlay },
+                dialogFactory = EditorDialog::OverlayPosition,
+            )
+            EditorEvent.OpenOverlayTiming -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                if (ProjectTimeline.videoDurationMs(current.project) < ProjectTimeline.MIN_CLIP_DURATION_MS) {
+                    return
+                }
+                openSelectedClipDialog(
+                    predicate = { it.isOverlay },
+                    dialogFactory = EditorDialog::OverlayTiming,
+                )
+            }
             EditorEvent.OpenCanvas -> {
                 val current = _uiState.value as? EditorUiState.Loaded ?: return
                 if (current.isBusy) return
@@ -112,6 +132,7 @@ class EditorViewModel(
                 val targetId = (current.activeDialog as? EditorDialog.Trim)?.clipId
                     ?: current.selectedClipId
                     ?: return
+                if (current.project.findClipLocation(targetId)?.isOverlay != false) return
                 commitUndoableEdit(targetId) { project ->
                     ProjectTimeline.trimClip(project, targetId, event.startMs, event.endMs)
                 }
@@ -121,7 +142,7 @@ class EditorViewModel(
                 val targetId = (current.activeDialog as? EditorDialog.Split)?.clipId
                     ?: current.selectedClipId
                     ?: return
-                if (current.project.findClipLocation(targetId)?.isAudio != false) return
+                if (current.project.findClipLocation(targetId)?.isVideo != true) return
                 commitUndoableEdit(targetId) { project ->
                     ProjectTimeline.splitClip(project, targetId, event.offsetMs, idProvider())
                 }
@@ -134,6 +155,37 @@ class EditorViewModel(
                 if (current.project.findClipLocation(targetId)?.isAudio != true) return
                 commitUndoableEdit(targetId) { project ->
                     ProjectTimeline.setClipVolume(project, targetId, event.volume)
+                }
+            }
+            is EditorEvent.ApplyOverlayPosition -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                val targetId = (current.activeDialog as? EditorDialog.OverlayPosition)?.clipId
+                    ?: current.selectedClipId
+                    ?: return
+                if (current.project.findClipLocation(targetId)?.isOverlay != true) return
+                commitUndoableEdit(targetId) { project ->
+                    ProjectTimeline.updateOverlayTransform(
+                        project = project,
+                        clipId = targetId,
+                        centerX = event.centerX,
+                        centerY = event.centerY,
+                        widthFraction = event.widthFraction,
+                    )
+                }
+            }
+            is EditorEvent.ApplyOverlayTiming -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                val targetId = (current.activeDialog as? EditorDialog.OverlayTiming)?.clipId
+                    ?: current.selectedClipId
+                    ?: return
+                if (current.project.findClipLocation(targetId)?.isOverlay != true) return
+                commitUndoableEdit(targetId) { project ->
+                    ProjectTimeline.updateOverlayTiming(
+                        project = project,
+                        clipId = targetId,
+                        startTimeMs = event.startTimeMs,
+                        durationMs = event.durationMs,
+                    )
                 }
             }
             is EditorEvent.ApplyCanvas -> {
@@ -149,6 +201,7 @@ class EditorViewModel(
             is EditorEvent.MoveSelected -> {
                 val current = _uiState.value as? EditorUiState.Loaded ?: return
                 val targetId = current.selectedClipId ?: return
+                if (current.project.findClipLocation(targetId)?.isOverlay != false) return
                 commitUndoableEdit(targetId) { project ->
                     ProjectTimeline.moveClip(project, targetId, event.delta)
                 }
@@ -318,11 +371,9 @@ class EditorViewModel(
         if (sourceUri == null) return
         val initial = _uiState.value as? EditorUiState.Loaded ?: return
         if (initial.isBusy) return
-        val isAudio = trackType == TrackType.AUDIO
 
         _uiState.value = initial.copy(
-            isImporting = true,
-            isImportingAudio = isAudio,
+            importingTrack = trackType,
             activeDialog = null,
             audioPreview = null,
             pendingRemoveClipId = null,
@@ -331,12 +382,19 @@ class EditorViewModel(
 
         viewModelScope.launch {
             val (relativePath, durationMs) = try {
-                if (isAudio) {
-                    val imported = audioImporter.importAudio(projectId, sourceUri)
-                    imported.relativePath to imported.durationMs
-                } else {
-                    val imported = videoImporter.importVideo(projectId, sourceUri)
-                    imported.relativePath to imported.durationMs
+                when (trackType) {
+                    TrackType.AUDIO -> {
+                        val imported = audioImporter.importAudio(projectId, sourceUri)
+                        imported.relativePath to imported.durationMs
+                    }
+                    TrackType.OVERLAY -> {
+                        val imported = overlayImporter.importOverlay(projectId, sourceUri)
+                        imported.relativePath to 0L
+                    }
+                    else -> {
+                        val imported = videoImporter.importVideo(projectId, sourceUri)
+                        imported.relativePath to imported.durationMs
+                    }
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -353,29 +411,44 @@ class EditorViewModel(
                 changeMutex.withLock {
                     val beforeSave = _uiState.value as? EditorUiState.Loaded ?: return@withLock
                     val previousProject = beforeSave.project
-                    val clip = Clip(
-                        id = idProvider(),
-                        mediaUri = relativePath,
-                        startTimeMs = 0L,
-                        durationMs = durationMs,
-                        trimStartMs = 0L,
-                        trimEndMs = durationMs,
-                        sourceDurationMs = durationMs,
-                    )
-                    val updatedProject = ProjectTimeline.appendClip(
-                        project = previousProject,
-                        clip = clip,
-                        newTrackId = idProvider(),
-                        trackType = trackType,
-                    )
+                    val newClipId = idProvider()
+                    val updatedProject = if (trackType == TrackType.OVERLAY) {
+                        ProjectTimeline.addOverlayClip(
+                            project = previousProject,
+                            clipId = newClipId,
+                            mediaUri = relativePath,
+                            newTrackId = idProvider(),
+                        )
+                    } else {
+                        val clip = Clip(
+                            id = newClipId,
+                            mediaUri = relativePath,
+                            startTimeMs = 0L,
+                            durationMs = durationMs,
+                            trimStartMs = 0L,
+                            trimEndMs = durationMs,
+                            sourceDurationMs = durationMs,
+                        )
+                        ProjectTimeline.appendClip(
+                            project = previousProject,
+                            clip = clip,
+                            newTrackId = idProvider(),
+                            trackType = trackType,
+                        )
+                    }
                     try {
                         repository.saveProject(updatedProject)
                         saved = true
                         history.reset(updatedProject)
+                        val preferredSelection = if (trackType == TrackType.OVERLAY) {
+                            newClipId
+                        } else {
+                            beforeSave.selectedClipId ?: newClipId
+                        }
                         _uiState.value = beforeSave.withSyncedProject(
                             previousProject = previousProject,
                             targetProject = updatedProject,
-                            preferredSelectedId = beforeSave.selectedClipId ?: clip.id,
+                            preferredSelectedId = preferredSelection,
                             mediaStorage = mediaStorage,
                             history = history,
                         )
@@ -530,8 +603,7 @@ class EditorViewModel(
     private fun finishImportWithError(error: EditorError) {
         val current = _uiState.value as? EditorUiState.Loaded ?: return
         _uiState.value = current.copy(
-            isImporting = false,
-            isImportingAudio = false,
+            importingTrack = null,
             error = error,
         )
     }
@@ -563,6 +635,7 @@ class EditorViewModel(
             videoImporter: VideoImporter,
             mediaStorage: ProjectMediaStorage,
             audioImporter: AudioImporter = FailingAudioImporter,
+            overlayImporter: OverlayImporter = FailingOverlayImporter,
             videoExporter: VideoExporter? = null,
             exportSaver: ExportSaver? = null,
             cacheSpaceProvider: () -> Long = { Long.MAX_VALUE },
@@ -576,6 +649,7 @@ class EditorViewModel(
                     videoImporter = videoImporter,
                     mediaStorage = mediaStorage,
                     audioImporter = audioImporter,
+                    overlayImporter = overlayImporter,
                     videoExporter = videoExporter,
                     exportSaver = exportSaver,
                     cacheSpaceProvider = cacheSpaceProvider,

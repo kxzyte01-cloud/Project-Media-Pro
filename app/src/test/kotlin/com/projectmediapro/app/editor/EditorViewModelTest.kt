@@ -6,6 +6,8 @@ import com.projectmediapro.app.data.export.SavedExport
 import com.projectmediapro.app.data.export.VideoExportException
 import com.projectmediapro.app.data.export.VideoExporter
 import com.projectmediapro.app.data.media.AudioImporter
+import com.projectmediapro.app.data.media.ImportedOverlay
+import com.projectmediapro.app.data.media.OverlayImporter
 import com.projectmediapro.app.data.media.ImportedAudio
 import com.projectmediapro.app.data.media.ImportedVideo
 import com.projectmediapro.app.data.media.ProjectMediaStorage
@@ -21,6 +23,7 @@ import com.projectmediapro.core.model.Project
 import com.projectmediapro.core.model.Track
 import com.projectmediapro.core.model.TrackType
 import com.projectmediapro.core.model.audioClips
+import com.projectmediapro.core.model.overlayClips
 import java.io.File
 import java.io.IOException
 import kotlinx.coroutines.CompletableDeferred
@@ -689,6 +692,73 @@ class EditorViewModelTest {
         }
     }
 
+
+    @Test
+    fun overlay_importPositionTimingUndoRedoErrorsAndBusyBlocking_workAsExpected() = runTest(testDispatcher) {
+        val rel = writeExportClip("proj-1", "c1")
+        val initial = projectWithOneClip(rel)
+        val repo = FakeEditorProjectRepository(listOf(initial))
+        val gate = CompletableDeferred<ImportedVideo>()
+        val overlayImporter = FakeOverlayImporter(mediaStorage)
+        val vm = EditorViewModel(
+            projectId = "proj-1",
+            repository = repo,
+            videoImporter = FakeVideoImporter(mediaStorage, deferredResult = gate),
+            mediaStorage = mediaStorage,
+            overlayImporter = overlayImporter,
+        )
+
+        overlayImporter.failureReason = Reason.NOT_A_VIDEO
+        vm.onEvent(EditorEvent.OverlayPicked("content://media/picker/bad"))
+        assertEquals(EditorError.IMPORT_NOT_IMAGE, (vm.uiState.value as EditorUiState.Loaded).error)
+
+        overlayImporter.failureReason = null
+        vm.onEvent(EditorEvent.OverlayPicked("content://media/picker/img1"))
+        val afterImport = vm.uiState.value as EditorUiState.Loaded
+        assertNull(afterImport.error)
+        assertEquals(1, afterImport.project.overlayClips().size)
+        val overlayId = afterImport.project.overlayClips()[0].id
+        assertEquals(overlayId, afterImport.selectedClipId)
+        assertNotNull(afterImport.overlayFilePaths[overlayId])
+        assertFalse(afterImport.canUndo)
+
+        vm.onEvent(EditorEvent.OpenOverlayPosition)
+        assertEquals(EditorDialog.OverlayPosition(overlayId), (vm.uiState.value as EditorUiState.Loaded).activeDialog)
+        vm.onEvent(EditorEvent.ApplyOverlayPosition(centerX = 0.25f, centerY = 0.75f, widthFraction = 0.5f))
+        val afterPos = vm.uiState.value as EditorUiState.Loaded
+        assertEquals(0.25f, afterPos.project.overlayClips()[0].overlayCenterX, 0.0001f)
+        assertEquals(0.75f, afterPos.project.overlayClips()[0].overlayCenterY, 0.0001f)
+        assertEquals(0.5f, afterPos.project.overlayClips()[0].overlayWidthFraction, 0.0001f)
+        assertTrue(afterPos.canUndo)
+
+        vm.onEvent(EditorEvent.OpenOverlayTiming)
+        assertEquals(EditorDialog.OverlayTiming(overlayId), (vm.uiState.value as EditorUiState.Loaded).activeDialog)
+        vm.onEvent(EditorEvent.ApplyOverlayTiming(startTimeMs = 1_000L, durationMs = 2_000L))
+        val afterTiming = vm.uiState.value as EditorUiState.Loaded
+        assertEquals(1_000L, afterTiming.project.overlayClips()[0].startTimeMs)
+        assertEquals(2_000L, afterTiming.project.overlayClips()[0].durationMs)
+
+        vm.onEvent(EditorEvent.Undo)
+        val afterUndoTiming = vm.uiState.value as EditorUiState.Loaded
+        assertEquals(0L, afterUndoTiming.project.overlayClips()[0].startTimeMs)
+        assertEquals(5_000L, afterUndoTiming.project.overlayClips()[0].durationMs)
+
+        vm.onEvent(EditorEvent.Redo)
+        assertEquals(1_000L, (vm.uiState.value as EditorUiState.Loaded).project.overlayClips()[0].startTimeMs)
+
+        vm.onEvent(EditorEvent.VideoPicked("content://media/picker/v2"))
+        vm.onEvent(EditorEvent.OpenOverlayPosition)
+        assertNull((vm.uiState.value as EditorUiState.Loaded).activeDialog)
+        gate.complete(ImportedVideo(writeExportClip("proj-1", "c2"), 5_000L))
+
+        vm.onEvent(EditorEvent.SelectClip(overlayId))
+        vm.onEvent(EditorEvent.RequestRemoveClip(overlayId))
+        vm.onEvent(EditorEvent.ConfirmRemoveClip)
+        val afterRemove = vm.uiState.value as EditorUiState.Loaded
+        assertTrue(afterRemove.project.overlayClips().isEmpty())
+        assertFalse(afterRemove.canUndo)
+    }
+
     private fun writeExportClip(projectId: String, clipId: String): String {
         val relativePath = mediaStorage.clipRelativePath(projectId, clipId, "mp4")
         val file = mediaStorage.resolve(relativePath)
@@ -825,5 +895,23 @@ private class FakeEditorProjectRepository(
 
     override suspend fun deleteProject(id: String) {
         map.remove(id)
+    }
+}
+
+private class FakeOverlayImporter(
+    private val storage: ProjectMediaStorage,
+    var failureReason: Reason? = null,
+) : OverlayImporter {
+    var callCount = 0
+        private set
+
+    override suspend fun importOverlay(projectId: String, sourceUri: String): ImportedOverlay {
+        callCount++
+        failureReason?.let { throw VideoImportException(it) }
+        val rel = storage.clipRelativePath(projectId, "overlay-$callCount", "png")
+        val file = storage.resolve(rel)
+        file?.parentFile?.mkdirs()
+        file?.writeText("fake-overlay-content")
+        return ImportedOverlay(relativePath = rel, width = 320, height = 240)
     }
 }

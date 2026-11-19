@@ -31,6 +31,10 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,9 +52,12 @@ import com.projectmediapro.core.designsystem.component.MediaProTopBar
 import com.projectmediapro.core.designsystem.theme.MediaProShapes
 import com.projectmediapro.core.designsystem.theme.MediaProSpacing
 import com.projectmediapro.core.model.CanvasBackground
+import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.ExportQuality
 import com.projectmediapro.core.model.ProjectTimeline
+import com.projectmediapro.core.model.TrackType
 import com.projectmediapro.core.model.audioClips
+import com.projectmediapro.core.model.overlayClips
 import com.projectmediapro.core.model.videoClips
 
 @Composable
@@ -70,6 +77,12 @@ fun EditorScreen(
         contract = ActivityResultContracts.GetContent(),
     ) { uri ->
         onEvent(EditorEvent.AudioPicked(uri?.toString()))
+    }
+
+    val overlayPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        onEvent(EditorEvent.OverlayPicked(uri?.toString()))
     }
 
     val createDocumentLauncher = rememberLauncherForActivityResult(
@@ -143,6 +156,11 @@ fun EditorScreen(
                     onPickAudio = {
                         audioPickerLauncher.launch("audio/*")
                     },
+                    onPickOverlay = {
+                        overlayPickerLauncher.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                        )
+                    },
                     onConfirmExportQuality = { quality ->
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                             onEvent(EditorEvent.StartExport(quality = quality))
@@ -164,12 +182,15 @@ private fun LoadedEditorContent(
     state: EditorUiState.Loaded,
     onPickVideo: () -> Unit,
     onPickAudio: () -> Unit,
+    onPickOverlay: () -> Unit,
     onConfirmExportQuality: (ExportQuality) -> Unit,
     onEvent: (EditorEvent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val clips = state.project.videoClips()
     val audioClips = state.project.audioClips()
+    val overlayClips = state.project.overlayClips()
+    val videoDurationMs = ProjectTimeline.videoDurationMs(state.project)
     val editsEnabled = !state.isBusy
     val selectedLocation = state.project.findClipLocation(state.selectedClipId)
     val previewAspectRatio = ExportGeometry.previewAspectRatio(state.project.canvasAspect)
@@ -179,7 +200,6 @@ private fun LoadedEditorContent(
     } else {
         Color.White.copy(alpha = 0.78f)
     }
-
     AudioPreviewPlayer(
         audioPreview = state.audioPreview,
         onPlaybackEnded = { onEvent(EditorEvent.StopAudioPreview) },
@@ -192,43 +212,24 @@ private fun LoadedEditorContent(
             .padding(horizontal = MediaProSpacing.Medium),
     ) {
         Spacer(modifier = Modifier.height(MediaProSpacing.Medium))
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .heightIn(max = 360.dp)
-                    .aspectRatio(previewAspectRatio)
-                    .clip(MediaProShapes.Medium)
-                    .background(previewBackground)
-                    .border(
-                        width = MediaProSpacing.BorderThin,
-                        color = MaterialTheme.colorScheme.outlineVariant,
-                        shape = MediaProShapes.Medium,
-                    ),
-            ) {
-                if (clips.isEmpty()) {
-                    Text(
-                        text = stringResource(R.string.editor_empty),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = emptyPreviewTextColor,
-                    )
-                } else {
-                    PreviewPlayer(
-                        previewClips = state.previewClips,
-                        backgroundColor = previewBackground,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
-            }
-        }
+        EditorPreviewStage(
+            projectId = state.project.id,
+            hasVideoClips = clips.isNotEmpty(),
+            previewClips = state.previewClips,
+            overlayClips = overlayClips,
+            overlayFilePaths = state.overlayFilePaths,
+            previewAspectRatio = previewAspectRatio,
+            previewBackground = previewBackground,
+            emptyPreviewTextColor = emptyPreviewTextColor,
+        )
 
-        if (clips.isNotEmpty() || audioClips.isNotEmpty() || state.canUndo || state.canRedo) {
+        if (clips.isNotEmpty() || audioClips.isNotEmpty() || overlayClips.isNotEmpty() ||
+            state.canUndo || state.canRedo
+        ) {
             TimelineStrip(
                 clips = clips,
                 audioClips = audioClips,
+                overlayClips = overlayClips,
                 selectedClipId = state.selectedClipId,
                 canUndo = state.canUndo,
                 canRedo = state.canRedo,
@@ -242,15 +243,19 @@ private fun LoadedEditorContent(
                 Spacer(modifier = Modifier.height(MediaProSpacing.Small))
                 ClipTools(
                     isEnabled = editsEnabled,
-                    canTrim = ProjectTimeline.canTrimClip(selectedClip),
-                    canSplit = !selectedLocation.isAudio && ProjectTimeline.canSplitClip(selectedClip),
+                    canTrim = !selectedLocation.isOverlay && ProjectTimeline.canTrimClip(selectedClip),
+                    canSplit = selectedLocation.isVideo && ProjectTimeline.canSplitClip(selectedClip),
                     canMoveEarlier = selectedLocation.canMoveEarlier,
                     canMoveLater = selectedLocation.canMoveLater,
                     isAudioClip = selectedLocation.isAudio,
+                    isOverlayClip = selectedLocation.isOverlay,
+                    canEditOverlayTiming = videoDurationMs >= ProjectTimeline.MIN_CLIP_DURATION_MS,
                     isAudioPlaying = state.audioPreview?.clipId == selectedClip.id,
                     onTrimClick = { onEvent(EditorEvent.OpenTrim) },
                     onSplitClick = { onEvent(EditorEvent.OpenSplit) },
                     onVolumeClick = { onEvent(EditorEvent.OpenVolume) },
+                    onOverlayPositionClick = { onEvent(EditorEvent.OpenOverlayPosition) },
+                    onOverlayTimingClick = { onEvent(EditorEvent.OpenOverlayTiming) },
                     onMoveEarlierClick = { onEvent(EditorEvent.MoveSelected(-1)) },
                     onMoveLaterClick = { onEvent(EditorEvent.MoveSelected(1)) },
                     onTogglePlayClick = { onEvent(EditorEvent.ToggleAudioPreview) },
@@ -272,7 +277,7 @@ private fun LoadedEditorContent(
                     .weight(1f)
                     .defaultMinSize(minHeight = MediaProSpacing.MinTouchTarget),
             ) {
-                if (state.isImporting && !state.isImportingAudio) {
+                if (state.importingTrack == TrackType.VIDEO) {
                     CircularProgressIndicator(
                         strokeWidth = MediaProSpacing.BorderSelected,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -315,12 +320,39 @@ private fun LoadedEditorContent(
         }
 
         Spacer(modifier = Modifier.height(MediaProSpacing.Small))
-        EditorOutlinedButton(
-            label = stringResource(R.string.editor_canvas_button),
-            enabled = editsEnabled,
-            onClick = { onEvent(EditorEvent.OpenCanvas) },
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
             modifier = Modifier.fillMaxWidth(),
-        )
+        ) {
+            EditorOutlinedButton(
+                label = if (state.isImportingOverlay) {
+                    stringResource(R.string.editor_adding_overlay)
+                } else {
+                    stringResource(R.string.editor_add_overlay)
+                },
+                enabled = editsEnabled,
+                onClick = onPickOverlay,
+                modifier = Modifier.weight(1f),
+                leadingContent = if (state.isImportingOverlay) {
+                    {
+                        CircularProgressIndicator(
+                            strokeWidth = MediaProSpacing.BorderSelected,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(modifier = Modifier.width(MediaProSpacing.Small))
+                    }
+                } else {
+                    null
+                },
+            )
+            EditorOutlinedButton(
+                label = stringResource(R.string.editor_canvas_button),
+                enabled = editsEnabled,
+                onClick = { onEvent(EditorEvent.OpenCanvas) },
+                modifier = Modifier.weight(1f),
+            )
+        }
 
         Spacer(modifier = Modifier.height(MediaProSpacing.Small))
         ExportSection(
@@ -372,10 +404,10 @@ private fun LoadedEditorContent(
 
     when (val dialog = state.activeDialog) {
         is EditorDialog.Trim -> {
-            val clip = state.project.findClipLocation(dialog.clipId)?.clip
-            if (clip != null) {
+            val location = state.project.findClipLocation(dialog.clipId)
+            if (location != null && !location.isOverlay) {
                 TrimDialog(
-                    clip = clip,
+                    clip = location.clip,
                     onConfirm = { startMs, endMs ->
                         onEvent(EditorEvent.ApplyTrim(startMs = startMs, endMs = endMs))
                     },
@@ -385,7 +417,7 @@ private fun LoadedEditorContent(
         }
         is EditorDialog.Split -> {
             val location = state.project.findClipLocation(dialog.clipId)
-            if (location != null && !location.isAudio) {
+            if (location != null && location.isVideo) {
                 SplitDialog(
                     clip = location.clip,
                     onConfirm = { offsetMs ->
@@ -402,6 +434,46 @@ private fun LoadedEditorContent(
                     clip = location.clip,
                     onConfirm = { volume ->
                         onEvent(EditorEvent.ApplyVolume(volume = volume))
+                    },
+                    onDismiss = { onEvent(EditorEvent.DismissDialog) },
+                )
+            }
+        }
+        is EditorDialog.OverlayPosition -> {
+            val location = state.project.findClipLocation(dialog.clipId)
+            if (location != null && location.isOverlay) {
+                OverlayPositionDialog(
+                    clip = location.clip,
+                    canvasAspect = state.project.canvasAspect,
+                    canvasBackground = state.project.canvasBackground,
+                    onConfirm = { centerX, centerY, widthFraction ->
+                        onEvent(
+                            EditorEvent.ApplyOverlayPosition(
+                                centerX = centerX,
+                                centerY = centerY,
+                                widthFraction = widthFraction,
+                            ),
+                        )
+                    },
+                    onDismiss = { onEvent(EditorEvent.DismissDialog) },
+                )
+            }
+        }
+        is EditorDialog.OverlayTiming -> {
+            val location = state.project.findClipLocation(dialog.clipId)
+            if (location != null && location.isOverlay &&
+                videoDurationMs >= ProjectTimeline.MIN_CLIP_DURATION_MS
+            ) {
+                OverlayTimingDialog(
+                    clip = location.clip,
+                    videoDurationMs = videoDurationMs,
+                    onConfirm = { startTimeMs, durationMs ->
+                        onEvent(
+                            EditorEvent.ApplyOverlayTiming(
+                                startTimeMs = startTimeMs,
+                                durationMs = durationMs,
+                            ),
+                        )
                     },
                     onDismiss = { onEvent(EditorEvent.DismissDialog) },
                 )
@@ -450,5 +522,59 @@ private fun CenteredEditorStatus(
             .padding(horizontal = MediaProSpacing.Medium),
     ) {
         content()
+    }
+}
+
+@Composable
+private fun EditorPreviewStage(
+    projectId: String,
+    hasVideoClips: Boolean,
+    previewClips: List<PreviewClip>,
+    overlayClips: List<Clip>,
+    overlayFilePaths: Map<String, String>,
+    previewAspectRatio: Float,
+    previewBackground: Color,
+    emptyPreviewTextColor: Color,
+) {
+    var timelinePositionMs by remember(projectId) { mutableLongStateOf(0L) }
+
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .heightIn(max = 360.dp)
+                .aspectRatio(previewAspectRatio)
+                .clip(MediaProShapes.Medium)
+                .background(previewBackground)
+                .border(
+                    width = MediaProSpacing.BorderThin,
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                    shape = MediaProShapes.Medium,
+                ),
+        ) {
+            if (!hasVideoClips) {
+                Text(
+                    text = stringResource(R.string.editor_empty),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = emptyPreviewTextColor,
+                )
+            } else {
+                PreviewPlayer(
+                    previewClips = previewClips,
+                    backgroundColor = previewBackground,
+                    onTimelinePositionChanged = { timelinePositionMs = it },
+                    modifier = Modifier.fillMaxSize(),
+                )
+                OverlayPreviewLayer(
+                    overlays = overlayClips,
+                    overlayFilePaths = overlayFilePaths,
+                    timelinePositionMs = timelinePositionMs,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
     }
 }

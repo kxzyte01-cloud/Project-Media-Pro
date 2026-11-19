@@ -31,6 +31,31 @@ internal fun importMediaFromContentUri(
     extensionForMime: (String) -> String,
     checkActive: () -> Unit,
 ): ImportedMediaFile {
+    val (relativePath, durationMs) = copyValidatedMediaFromContentUri(
+        appContext = appContext,
+        storage = storage,
+        projectId = projectId,
+        sourceUri = sourceUri,
+        requiredMimePrefix = requiredMimePrefix,
+        clipIdProvider = clipIdProvider,
+        extensionForMime = extensionForMime,
+        checkActive = checkActive,
+        validateFile = { file -> readValidMediaDurationMs(file, requiredMetadataKey) },
+    )
+    return ImportedMediaFile(relativePath = relativePath, durationMs = durationMs)
+}
+
+internal fun <T> copyValidatedMediaFromContentUri(
+    appContext: Context,
+    storage: ProjectMediaStorage,
+    projectId: String,
+    sourceUri: String,
+    requiredMimePrefix: String,
+    clipIdProvider: () -> String,
+    extensionForMime: (String) -> String,
+    checkActive: () -> Unit,
+    validateFile: (File) -> T,
+): Pair<String, T> {
     val uri = Uri.parse(sourceUri)
     if (uri.scheme != ContentResolver.SCHEME_CONTENT) {
         throw VideoImportException(Reason.UNREADABLE)
@@ -93,12 +118,9 @@ internal fun importMediaFromContentUri(
         }
 
         checkActive()
-        val durationMs = readValidMediaDurationMs(finalFile, requiredMetadataKey)
+        val validated = validateFile(finalFile)
         completed = true
-        return ImportedMediaFile(
-            relativePath = relativePath,
-            durationMs = durationMs,
-        )
+        return relativePath to validated
     } finally {
         if (partFile.exists()) {
             partFile.delete()

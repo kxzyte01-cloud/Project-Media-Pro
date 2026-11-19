@@ -8,8 +8,10 @@ import com.projectmediapro.app.data.export.Media3VideoExporter
 import com.projectmediapro.app.data.export.VideoExporter
 import com.projectmediapro.app.data.export.usableBytesNear
 import com.projectmediapro.app.data.media.AndroidAudioImporter
+import com.projectmediapro.app.data.media.AndroidOverlayImporter
 import com.projectmediapro.app.data.media.AndroidVideoImporter
 import com.projectmediapro.app.data.media.AudioImporter
+import com.projectmediapro.app.data.media.OverlayImporter
 import com.projectmediapro.app.data.media.ProjectMediaStorage
 import com.projectmediapro.app.data.media.VideoImporter
 import com.projectmediapro.app.data.project.FileProjectRepository
@@ -31,6 +33,10 @@ class AppContainer(appContext: Context) {
         storage = mediaStorage,
     )
     val audioImporter: AudioImporter = AndroidAudioImporter(
+        context = appContext,
+        storage = mediaStorage,
+    )
+    val overlayImporter: OverlayImporter = AndroidOverlayImporter(
         context = appContext,
         storage = mediaStorage,
     )

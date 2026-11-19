@@ -93,6 +93,7 @@ fun AppNavHost(
                     videoImporter = container.videoImporter,
                     mediaStorage = container.mediaStorage,
                     audioImporter = container.audioImporter,
+                    overlayImporter = container.overlayImporter,
                     videoExporter = container.videoExporter,
                     exportSaver = container.exportSaver,
                     cacheSpaceProvider = container.cacheSpaceProvider,

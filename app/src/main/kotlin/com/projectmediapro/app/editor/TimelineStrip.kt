@@ -3,21 +3,25 @@ package com.projectmediapro.app.editor
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -52,6 +56,7 @@ fun TimelineStrip(
     onRedo: () -> Unit,
     modifier: Modifier = Modifier,
     audioClips: List<Clip> = emptyList(),
+    overlayClips: List<Clip> = emptyList(),
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
@@ -133,6 +138,19 @@ fun TimelineStrip(
                 onSelectClip = onSelectClip,
             )
         }
+
+        if (overlayClips.isNotEmpty()) {
+            if (clips.isNotEmpty() || audioClips.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(MediaProSpacing.Small))
+            }
+            TimelineOverlayLane(
+                laneTitle = stringResource(R.string.editor_lane_overlays),
+                clips = overlayClips,
+                selectedClipId = selectedClipId,
+                isEnabled = isEnabled,
+                onSelectClip = onSelectClip,
+            )
+        }
     }
 }
 
@@ -160,7 +178,9 @@ private fun TimelineTrackLane(
         shape = MediaProShapes.Medium,
         color = MaterialTheme.colorScheme.surfaceVariant,
         border = BorderStroke(MediaProSpacing.BorderThin, MaterialTheme.colorScheme.outlineVariant),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .systemGestureExclusion(),
     ) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
@@ -191,6 +211,106 @@ private fun TimelineTrackLane(
 }
 
 @Composable
+private fun TimelineOverlayLane(
+    laneTitle: String,
+    clips: List<Clip>,
+    selectedClipId: String?,
+    isEnabled: Boolean,
+    onSelectClip: (String) -> Unit,
+) {
+    val rows = remember(clips) { packOverlayRows(clips) }
+    val totalWidthDp = remember(clips) {
+        clips.maxOfOrNull { clip ->
+            val startDp = (clip.startTimeMs.coerceAtLeast(0L) / 1_000f) * DP_PER_SECOND
+            val blockDp = ((clip.durationMs.coerceAtLeast(0L) / 1_000f) * DP_PER_SECOND)
+                .coerceAtLeast(MediaProSpacing.MinTouchTarget.value)
+            startDp + blockDp
+        }?.dp ?: MediaProSpacing.MinTouchTarget
+    }
+
+    Text(
+        text = laneTitle,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(bottom = MediaProSpacing.ExtraSmall),
+    )
+    Surface(
+        shape = MediaProShapes.Medium,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(MediaProSpacing.BorderThin, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier
+            .fillMaxWidth()
+            .systemGestureExclusion(),
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(MediaProSpacing.Small),
+        ) {
+            rows.forEach { rowEntries ->
+                Box(
+                    modifier = Modifier
+                        .width(totalWidthDp)
+                        .defaultMinSize(minHeight = MediaProSpacing.MinTouchTarget),
+                ) {
+                    rowEntries.forEach { (clipNumber, clip) ->
+                        val isSelected = clip.id == selectedClipId
+                        val formattedDuration = ProjectTimeline.formatDuration(clip.durationMs)
+                        val startOffsetDp = ((clip.startTimeMs.coerceAtLeast(0L) / 1_000f) * DP_PER_SECOND).dp
+                        TimelineClipBlock(
+                            label = "O$clipNumber",
+                            formattedDuration = formattedDuration,
+                            accessibilityLabel = stringResource(
+                                R.string.cd_timeline_overlay_clip,
+                                clipNumber,
+                                formattedDuration,
+                            ),
+                            durationMs = clip.durationMs,
+                            isSelected = isSelected,
+                            isEnabled = isEnabled,
+                            containerColor = if (isSelected) {
+                                MaterialTheme.colorScheme.tertiary
+                            } else {
+                                MaterialTheme.colorScheme.tertiaryContainer
+                            },
+                            contentColor = if (isSelected) {
+                                MaterialTheme.colorScheme.onTertiary
+                            } else {
+                                MaterialTheme.colorScheme.onTertiaryContainer
+                            },
+                            onClick = { onSelectClip(clip.id) },
+                            modifier = Modifier.offset(x = startOffsetDp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun packOverlayRows(clips: List<Clip>): List<List<Pair<Int, Clip>>> {
+    val rows = mutableListOf<MutableList<Pair<Int, Clip>>>()
+    val rowRightEdgesDp = mutableListOf<Float>()
+    clips.forEachIndexed { index, clip ->
+        val startDp = (clip.startTimeMs.coerceAtLeast(0L) / 1_000f) * DP_PER_SECOND
+        val widthDp = ((clip.durationMs.coerceAtLeast(0L) / 1_000f) * DP_PER_SECOND)
+            .coerceAtLeast(MediaProSpacing.MinTouchTarget.value)
+        val endDp = startDp + widthDp
+        val targetRow = rowRightEdgesDp.indexOfFirst { rightEdge -> startDp >= rightEdge + 8f }
+        if (targetRow >= 0) {
+            rows[targetRow].add((index + 1) to clip)
+            rowRightEdgesDp[targetRow] = endDp
+        } else {
+            rows.add(mutableListOf((index + 1) to clip))
+            rowRightEdgesDp.add(endDp)
+        }
+    }
+    return rows
+}
+
+@Composable
 private fun TimelineClipBlock(
     label: String,
     formattedDuration: String,
@@ -201,6 +321,7 @@ private fun TimelineClipBlock(
     containerColor: Color,
     contentColor: Color,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val blockWidth: Dp = ((durationMs.coerceAtLeast(0L) / 1_000f) * DP_PER_SECOND).dp
         .coerceAtLeast(MediaProSpacing.MinTouchTarget)
@@ -218,7 +339,7 @@ private fun TimelineClipBlock(
         contentColor = contentColor,
         tonalElevation = if (isSelected) MediaProSpacing.ExtraSmall else 0.dp,
         border = borderStroke,
-        modifier = Modifier
+        modifier = modifier
             .width(blockWidth)
             .defaultMinSize(
                 minWidth = MediaProSpacing.MinTouchTarget,
@@ -246,8 +367,8 @@ private fun TimelineClipBlock(
             )
             Text(
                 text = formattedDuration,
-                style = MaterialTheme.typography.bodySmall,
-                color = contentColor.copy(alpha = if (isSelected) 0.92f else 0.78f),
+                style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
+                color = contentColor.copy(alpha = if (isSelected) 0.92f else 0.82f),
                 maxLines = 1,
                 overflow = TextOverflow.Clip,
             )

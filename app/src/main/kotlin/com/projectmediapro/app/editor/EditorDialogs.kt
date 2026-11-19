@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -158,7 +160,9 @@ internal fun EditorSliderDialog(
         text = {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
             ) {
                 Surface(
                     shape = MediaProShapes.Small,
@@ -167,7 +171,7 @@ internal fun EditorSliderDialog(
                 ) {
                     Text(
                         text = readoutText,
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier
                             .padding(
@@ -253,6 +257,7 @@ internal fun editorErrorStringRes(error: EditorError): Int = when (error) {
     EditorError.IMPORT_FAILED -> R.string.error_import_failed
     EditorError.IMPORT_NOT_A_VIDEO -> R.string.error_import_not_video
     EditorError.IMPORT_NOT_AUDIO -> R.string.error_import_not_audio
+    EditorError.IMPORT_NOT_IMAGE -> R.string.error_import_not_image
     EditorError.IMPORT_NO_SPACE -> R.string.error_import_no_space
     EditorError.SAVE_FAILED -> R.string.error_save_failed
     EditorError.EXPORT_FAILED -> R.string.error_export_failed

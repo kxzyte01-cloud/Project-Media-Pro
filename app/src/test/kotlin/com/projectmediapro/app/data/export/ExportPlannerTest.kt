@@ -248,6 +248,73 @@ class ExportPlannerTest {
         assertNull(ExportPlanner.fitExportSize(100, -5))
     }
 
+
+    @Test
+    fun plan_clampsAndDropsOverlaysAgainstShortenedVideoWithoutMutatingProject() {
+        val videoRel = createClipFile("proj-1", "v1")
+        val ov1Rel = createClipFile("proj-1", "o1", "png")
+        val ov2Rel = createClipFile("proj-1", "o2", "gif")
+        val project = Project(
+            id = "proj-1",
+            title = "Overlay Export",
+            durationMs = 4_000L,
+            tracks = listOf(
+                Track(
+                    id = "t-v",
+                    type = TrackType.VIDEO,
+                    clips = listOf(
+                        Clip(
+                            id = "v1",
+                            mediaUri = videoRel,
+                            startTimeMs = 0L,
+                            durationMs = 4_000L,
+                            trimEndMs = 4_000L,
+                            sourceDurationMs = 4_000L,
+                        ),
+                    ),
+                ),
+                Track(
+                    id = "t-o",
+                    type = TrackType.OVERLAY,
+                    clips = listOf(
+                        Clip(
+                            id = "o1",
+                            mediaUri = ov1Rel,
+                            startTimeMs = 2_000L,
+                            durationMs = 5_000L,
+                            overlayCenterX = 0.25f,
+                            overlayCenterY = 0.75f,
+                            overlayWidthFraction = 0.4f,
+                        ),
+                        Clip(
+                            id = "o2",
+                            mediaUri = ov2Rel,
+                            startTimeMs = 4_000L,
+                            durationMs = 2_000L,
+                        ),
+                        Clip(
+                            id = "o-missing",
+                            mediaUri = "proj-1/missing.png",
+                            startTimeMs = 0L,
+                            durationMs = 1_000L,
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        val plan = ExportPlanner.plan(project) { storage.resolve(it) }
+
+        assertEquals(1, plan.overlays.size)
+        assertEquals(storage.resolve(ov1Rel)?.absolutePath, plan.overlays[0].path)
+        assertEquals(2_000L, plan.overlays[0].startTimeMs)
+        assertEquals(4_000L, plan.overlays[0].endTimeMs)
+        assertEquals(0.25f, plan.overlays[0].centerX, 0.0001f)
+        assertEquals(0.75f, plan.overlays[0].centerY, 0.0001f)
+        assertEquals(0.4f, plan.overlays[0].widthFraction, 0.0001f)
+        assertEquals(3, project.tracks[1].clips.size)
+    }
+
     private fun createClipFile(projectId: String, clipId: String, ext: String = "mp4"): String {
         val relativePath = storage.clipRelativePath(projectId, clipId, ext)
         val file = storage.resolve(relativePath)

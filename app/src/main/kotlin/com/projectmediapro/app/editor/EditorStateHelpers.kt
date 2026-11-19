@@ -3,6 +3,8 @@ package com.projectmediapro.app.editor
 import com.projectmediapro.app.data.export.VideoExportException
 import com.projectmediapro.app.data.media.AudioImporter
 import com.projectmediapro.app.data.media.ImportedAudio
+import com.projectmediapro.app.data.media.ImportedOverlay
+import com.projectmediapro.app.data.media.OverlayImporter
 import com.projectmediapro.app.data.media.ProjectMediaStorage
 import com.projectmediapro.app.data.media.VideoImportException
 import com.projectmediapro.app.data.media.VideoImportException.Reason
@@ -12,10 +14,17 @@ import com.projectmediapro.core.model.ProjectTimeline
 import com.projectmediapro.core.model.TrackType
 import com.projectmediapro.core.model.UndoRedoManager
 import com.projectmediapro.core.model.audioClips
+import com.projectmediapro.core.model.overlayClips
 import com.projectmediapro.core.model.videoClips
 
 internal object FailingAudioImporter : AudioImporter {
     override suspend fun importAudio(projectId: String, sourceUri: String): ImportedAudio {
+        throw VideoImportException(Reason.FAILED)
+    }
+}
+
+internal object FailingOverlayImporter : OverlayImporter {
+    override suspend fun importOverlay(projectId: String, sourceUri: String): ImportedOverlay {
         throw VideoImportException(Reason.FAILED)
     }
 }
@@ -26,23 +35,26 @@ internal data class ClipLocation(
     val indexInTrack: Int,
     val trackClips: List<Clip>,
 ) {
+    val isVideo: Boolean get() = trackType == TrackType.VIDEO
     val isAudio: Boolean get() = trackType == TrackType.AUDIO
+    val isOverlay: Boolean get() = trackType == TrackType.OVERLAY
     val clipNumber: Int get() = indexInTrack + 1
-    val canMoveEarlier: Boolean get() = indexInTrack > 0
-    val canMoveLater: Boolean get() = indexInTrack in 0 until trackClips.lastIndex
+    val canMoveEarlier: Boolean get() = !isOverlay && indexInTrack > 0
+    val canMoveLater: Boolean get() = !isOverlay && indexInTrack in 0 until trackClips.lastIndex
 }
 
 internal fun Project.findClipLocation(clipId: String?): ClipLocation? {
     if (clipId == null) return null
-    val videos = videoClips()
-    val videoIndex = videos.indexOfFirst { it.id == clipId }
-    if (videoIndex >= 0) {
-        return ClipLocation(TrackType.VIDEO, videos[videoIndex], videoIndex, videos)
-    }
-    val audios = audioClips()
-    val audioIndex = audios.indexOfFirst { it.id == clipId }
-    if (audioIndex >= 0) {
-        return ClipLocation(TrackType.AUDIO, audios[audioIndex], audioIndex, audios)
+    val tracksToCheck = listOf(
+        TrackType.VIDEO to videoClips(),
+        TrackType.AUDIO to audioClips(),
+        TrackType.OVERLAY to overlayClips(),
+    )
+    for ((trackType, clips) in tracksToCheck) {
+        val index = clips.indexOfFirst { it.id == clipId }
+        if (index >= 0) {
+            return ClipLocation(trackType, clips[index], index, clips)
+        }
     }
     return null
 }
@@ -57,9 +69,23 @@ internal fun resolvePreviewClips(
         val (trimStartMs, trimEndMs) = ProjectTimeline.resolvedTrimBounds(clip)
         PreviewClip(
             path = file.absolutePath,
+            durationMs = ProjectTimeline.effectiveDurationMs(clip),
             trimStartMs = trimStartMs,
             trimEndMs = trimEndMs,
         )
+    }
+
+internal fun resolveOverlayFilePaths(
+    project: Project,
+    mediaStorage: ProjectMediaStorage,
+): Map<String, String> =
+    buildMap {
+        for (clip in project.overlayClips()) {
+            val file = mediaStorage.resolve(clip.mediaUri)
+            if (file != null && file.isFile) {
+                put(clip.id, file.absolutePath)
+            }
+        }
     }
 
 internal fun resolveAudioPreview(
@@ -83,9 +109,10 @@ internal fun resolveClipSelection(
     previousSelectedId: String?,
     updatedProject: Project,
 ): String? {
-    val newVideoClips = updatedProject.videoClips()
-    val newAudioClips = updatedProject.audioClips()
-    if (newVideoClips.isEmpty() && newAudioClips.isEmpty()) return null
+    val newVideos = updatedProject.videoClips()
+    val newAudios = updatedProject.audioClips()
+    val newOverlays = updatedProject.overlayClips()
+    if (newVideos.isEmpty() && newAudios.isEmpty() && newOverlays.isEmpty()) return null
 
     if (previousSelectedId != null) {
         if (updatedProject.findClipLocation(previousSelectedId) != null) {
@@ -93,17 +120,21 @@ internal fun resolveClipSelection(
         }
         val oldLocation = previousProject.findClipLocation(previousSelectedId)
         if (oldLocation != null) {
-            val sameTrackNewClips = if (oldLocation.isAudio) newAudioClips else newVideoClips
-            val fallbackNewClips = if (oldLocation.isAudio) newVideoClips else newAudioClips
-            return if (sameTrackNewClips.isNotEmpty()) {
-                sameTrackNewClips[oldLocation.indexInTrack.coerceAtMost(sameTrackNewClips.lastIndex)].id
-            } else {
-                fallbackNewClips.firstOrNull()?.id
+            val sameTrackNewClips = when (oldLocation.trackType) {
+                TrackType.VIDEO -> newVideos
+                TrackType.AUDIO -> newAudios
+                TrackType.OVERLAY -> newOverlays
+                TrackType.TEXT -> emptyList()
+            }
+            if (sameTrackNewClips.isNotEmpty()) {
+                return sameTrackNewClips[oldLocation.indexInTrack.coerceAtMost(sameTrackNewClips.lastIndex)].id
             }
         }
     }
 
-    return newVideoClips.firstOrNull()?.id ?: newAudioClips.firstOrNull()?.id
+    return newVideos.firstOrNull()?.id
+        ?: newAudios.firstOrNull()?.id
+        ?: newOverlays.firstOrNull()?.id
 }
 
 internal fun EditorUiState.Loaded.withSyncedProject(
@@ -115,6 +146,7 @@ internal fun EditorUiState.Loaded.withSyncedProject(
 ): EditorUiState.Loaded = copy(
     project = targetProject,
     previewClips = resolvePreviewClips(targetProject, mediaStorage),
+    overlayFilePaths = resolveOverlayFilePaths(targetProject, mediaStorage),
     selectedClipId = resolveClipSelection(
         previousProject = previousProject,
         previousSelectedId = preferredSelectedId,
@@ -123,8 +155,7 @@ internal fun EditorUiState.Loaded.withSyncedProject(
     canUndo = history.canUndo,
     canRedo = history.canRedo,
     activeDialog = null,
-    isImporting = false,
-    isImportingAudio = false,
+    importingTrack = null,
     audioPreview = null,
     error = null,
 )
@@ -136,11 +167,11 @@ internal fun EditorUiState.Loaded.withSaveFailedRollback(
 ): EditorUiState.Loaded = copy(
     project = previousProject,
     previewClips = resolvePreviewClips(previousProject, mediaStorage),
+    overlayFilePaths = resolveOverlayFilePaths(previousProject, mediaStorage),
     canUndo = history.canUndo,
     canRedo = history.canRedo,
     activeDialog = null,
-    isImporting = false,
-    isImportingAudio = false,
+    importingTrack = null,
     audioPreview = null,
     error = EditorError.SAVE_FAILED,
 )
@@ -149,10 +180,10 @@ internal fun mapImportError(
     reason: Reason,
     trackType: TrackType,
 ): EditorError = when (reason) {
-    Reason.NOT_A_VIDEO -> if (trackType == TrackType.AUDIO) {
-        EditorError.IMPORT_NOT_AUDIO
-    } else {
-        EditorError.IMPORT_NOT_A_VIDEO
+    Reason.NOT_A_VIDEO -> when (trackType) {
+        TrackType.AUDIO -> EditorError.IMPORT_NOT_AUDIO
+        TrackType.OVERLAY -> EditorError.IMPORT_NOT_IMAGE
+        else -> EditorError.IMPORT_NOT_A_VIDEO
     }
     Reason.NO_SPACE -> EditorError.IMPORT_NO_SPACE
     Reason.UNREADABLE, Reason.FAILED -> EditorError.IMPORT_FAILED

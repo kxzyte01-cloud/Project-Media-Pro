@@ -1,6 +1,8 @@
 package com.projectmediapro.app.data.export
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Handler
@@ -11,7 +13,12 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.ChannelMixingAudioProcessor
 import androidx.media3.common.audio.ChannelMixingMatrix
+import androidx.media3.common.util.Size
+import androidx.media3.effect.BitmapOverlay
+import androidx.media3.effect.OverlayEffect
+import androidx.media3.effect.OverlaySettings
 import androidx.media3.effect.Presentation
+import androidx.media3.effect.TextureOverlay
 import androidx.media3.transformer.Composition
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.EditedMediaItemSequence
@@ -20,18 +27,21 @@ import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.ProgressHolder
 import androidx.media3.transformer.Transformer
+import com.google.common.collect.ImmutableList
 import com.projectmediapro.app.data.export.VideoExportException.Reason
 import com.projectmediapro.core.model.CanvasAspect
 import java.io.File
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 
 /**
  * [VideoExporter] built on Media3 Transformer: H.264 video and AAC audio, mixing the video track's
- * audio with an optional second [EditedMediaItemSequence] for music clips.
+ * audio with an optional second [EditedMediaItemSequence] for music clips and a single
+ * composition-level [OverlayEffect] for timed picture overlays.
  * Transformer must be created, started and queried on the main thread.
  * Media3 1.4.1 [Presentation.LAYOUT_SCALE_TO_FIT] renders letterbox/pillarbox bars in black.
  */
@@ -144,9 +154,14 @@ class Media3VideoExporter(
             sequences.add(EditedMediaItemSequence(editedAudioItems))
         }
 
-        return Composition.Builder(sequences)
+        val builder = Composition.Builder(sequences)
             .experimentalSetForceAudioTrack(true)
-            .build()
+        if (plan.overlays.isNotEmpty()) {
+            val textureOverlays: List<TextureOverlay> = plan.overlays.map { TimedBitmapOverlay(it) }
+            val overlayEffect = OverlayEffect(ImmutableList.copyOf(textureOverlays))
+            builder.setEffects(Effects(emptyList(), listOf(overlayEffect)))
+        }
+        return builder.build()
     }
 
     private fun buildClippedMediaItem(
@@ -271,4 +286,90 @@ class Media3VideoExporter(
     private companion object {
         const val POLL_INTERVAL_MS = 250L
     }
+}
+
+/**
+ * Timed static [BitmapOverlay] for Media3 1.4.1.
+ * Scales the decoded first frame to exact canvas pixel width inside [configure] so OpenGL textures
+ * stay bounded and aspect ratio is preserved; hides outside `[startTimeUs, endTimeUs)` via alpha 0.
+ */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+private class TimedBitmapOverlay(
+    private val overlay: ExportOverlay,
+) : BitmapOverlay() {
+
+    private val startTimeUs: Long = overlay.startTimeMs * 1_000L
+    private val endTimeUs: Long = overlay.endTimeMs * 1_000L
+
+    private val visibleSettings: OverlaySettings = OverlaySettings.Builder()
+        .setAlphaScale(1f)
+        .setBackgroundFrameAnchor(
+            overlay.centerX * 2f - 1f,
+            1f - overlay.centerY * 2f,
+        )
+        .setOverlayFrameAnchor(0f, 0f)
+        .build()
+
+    private val hiddenSettings: OverlaySettings = OverlaySettings.Builder()
+        .setAlphaScale(0f)
+        .build()
+
+    private var cachedBitmap: Bitmap? = null
+
+    override fun configure(videoSize: Size) {
+        super.configure(videoSize)
+        cachedBitmap?.let { if (!it.isRecycled) it.recycle() }
+        val targetWidthPx = (videoSize.width * overlay.widthFraction).roundToInt().coerceAtLeast(1)
+        cachedBitmap = decodeScaledOverlayBitmap(overlay.path, targetWidthPx)
+    }
+
+    override fun getBitmap(presentationTimeUs: Long): Bitmap {
+        val current = cachedBitmap
+        if (current != null && !current.isRecycled) {
+            return current
+        }
+        val fallback = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+        cachedBitmap = fallback
+        return fallback
+    }
+
+    override fun getOverlaySettings(presentationTimeUs: Long): OverlaySettings {
+        return if (presentationTimeUs in startTimeUs until endTimeUs) {
+            visibleSettings
+        } else {
+            hiddenSettings
+        }
+    }
+
+    override fun release() {
+        super.release()
+        cachedBitmap?.let { if (!it.isRecycled) it.recycle() }
+        cachedBitmap = null
+    }
+}
+
+private fun decodeScaledOverlayBitmap(path: String, targetWidthPx: Int): Bitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(path, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+    var sampleSize = 1
+    while (bounds.outWidth / (sampleSize * 2) >= targetWidthPx) {
+        sampleSize *= 2
+    }
+    val decodeOptions = BitmapFactory.Options().apply {
+        inSampleSize = sampleSize
+        inPreferredConfig = Bitmap.Config.ARGB_8888
+    }
+    val decoded = BitmapFactory.decodeFile(path, decodeOptions) ?: return null
+    val aspectRatio = bounds.outWidth.toFloat() / bounds.outHeight.toFloat()
+    val targetHeightPx = (targetWidthPx / aspectRatio).roundToInt().coerceAtLeast(1)
+    if (decoded.width == targetWidthPx && decoded.height == targetHeightPx) {
+        return decoded
+    }
+    val scaled = Bitmap.createScaledBitmap(decoded, targetWidthPx, targetHeightPx, true)
+    if (scaled !== decoded) {
+        decoded.recycle()
+    }
+    return scaled
 }

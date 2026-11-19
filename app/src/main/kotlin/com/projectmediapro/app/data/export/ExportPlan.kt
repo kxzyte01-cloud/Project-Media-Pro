@@ -6,6 +6,7 @@ import com.projectmediapro.core.model.ExportQuality
 import com.projectmediapro.core.model.Project
 import com.projectmediapro.core.model.ProjectTimeline
 import com.projectmediapro.core.model.audioClips as modelAudioClips
+import com.projectmediapro.core.model.overlayClips as modelOverlayClips
 import com.projectmediapro.core.model.videoClips as modelVideoClips
 import java.io.File
 
@@ -30,10 +31,23 @@ data class ExportAudioClip(
     val volume: Float = 1.0f,
 )
 
+/**
+ * One timed image overlay to composite over the exported video frame.
+ */
+data class ExportOverlay(
+    val path: String,
+    val startTimeMs: Long,
+    val endTimeMs: Long,
+    val centerX: Float,
+    val centerY: Float,
+    val widthFraction: Float,
+)
+
 data class ExportPlan(
     val clips: List<ExportClip>,
     val totalDurationMs: Long,
     val audioClips: List<ExportAudioClip> = emptyList(),
+    val overlays: List<ExportOverlay> = emptyList(),
     val canvasAspect: CanvasAspect = CanvasAspect.ORIGINAL,
     val exportQuality: ExportQuality = ExportQuality.FULL_HD_1080P,
 )
@@ -78,11 +92,17 @@ object ExportPlanner {
             totalVideoDurationMs = totalDurationMs,
             resolve = resolve,
         )
+        val exportOverlays = planOverlays(
+            overlayClips = project.modelOverlayClips(),
+            totalVideoDurationMs = totalDurationMs,
+            resolve = resolve,
+        )
 
         return ExportPlan(
             clips = exportClips,
             totalDurationMs = totalDurationMs,
             audioClips = exportAudioClips,
+            overlays = exportOverlays,
             canvasAspect = project.canvasAspect,
             exportQuality = project.exportQuality,
         )
@@ -129,6 +149,43 @@ object ExportPlanner {
             timelineMs += exportedDurationMs
         }
 
+        return planned
+    }
+
+    private fun planOverlays(
+        overlayClips: List<Clip>,
+        totalVideoDurationMs: Long,
+        resolve: (String) -> File?,
+    ): List<ExportOverlay> {
+        if (overlayClips.isEmpty() || totalVideoDurationMs <= 0L) return emptyList()
+        val planned = mutableListOf<ExportOverlay>()
+        for (clip in overlayClips) {
+            val file = resolve(clip.mediaUri)
+            if (file == null || !file.isFile) continue
+
+            val durationMs = clip.durationMs.coerceAtLeast(0L)
+            if (durationMs <= 0L) continue
+
+            val startMs = clip.startTimeMs.coerceAtLeast(0L)
+            if (startMs >= totalVideoDurationMs) continue
+
+            val endMs = minOf(startMs + durationMs, totalVideoDurationMs)
+            if (endMs <= startMs) continue
+
+            planned.add(
+                ExportOverlay(
+                    path = file.absolutePath,
+                    startTimeMs = startMs,
+                    endTimeMs = endMs,
+                    centerX = clip.overlayCenterX.coerceIn(0f, 1f),
+                    centerY = clip.overlayCenterY.coerceIn(0f, 1f),
+                    widthFraction = clip.overlayWidthFraction.coerceIn(
+                        Clip.MIN_OVERLAY_WIDTH_FRACTION,
+                        Clip.MAX_OVERLAY_WIDTH_FRACTION,
+                    ),
+                ),
+            )
+        }
         return planned
     }
 
