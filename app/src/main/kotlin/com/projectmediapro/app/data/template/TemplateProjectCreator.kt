@@ -55,12 +55,12 @@ class TemplateProjectCreator(
         try {
             val resolvedMedia = mutableMapOf<String, ResolvedTemplateMedia>()
             for (slot in template.slots) {
-                val pickedUri = pickedUrisBySlotId[slot.id]
-                if (pickedUri != null) {
-                    resolvedMedia[slot.id] = importPickedSlot(created.id, slot.requiredType, pickedUri)
-                } else if (slot.filledMediaUri != null) {
-                    val copiedPath = copyLockedTemplateFile(created.id, slot.requiredType, slot.filledMediaUri)
-                    if (copiedPath != null) {
+        val pickedUri = pickedUrisBySlotId[slot.id]
+             val filledUri = slot.filledMediaUri
+             if (pickedUri != null) {
+                 resolvedMedia[slot.id] = importPickedSlot(created.id, slot.requiredType, pickedUri)
+             } else if (filledUri != null) {
+                 val copiedPath = copyLockedTemplateFile(created.id, slot.requiredType, filledUri)
                         resolvedMedia[slot.id] = ResolvedTemplateMedia(
                             relativePath = copiedPath,
                             durationMs = slot.durationMs,
