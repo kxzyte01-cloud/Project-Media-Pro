@@ -13,7 +13,6 @@ import com.projectmediapro.core.model.Template
 import com.projectmediapro.core.model.TemplateApplier
 import com.projectmediapro.core.model.TrackType
 import java.io.File
-import java.io.FileInputStream
 import java.io.IOException
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
@@ -55,12 +54,13 @@ class TemplateProjectCreator(
         try {
             val resolvedMedia = mutableMapOf<String, ResolvedTemplateMedia>()
             for (slot in template.slots) {
-        val pickedUri = pickedUrisBySlotId[slot.id]
-             val filledUri = slot.filledMediaUri
-             if (pickedUri != null) {
-                 resolvedMedia[slot.id] = importPickedSlot(created.id, slot.requiredType, pickedUri)
-             } else if (filledUri != null) {
-                 val copiedPath = copyLockedTemplateFile(created.id, slot.requiredType, filledUri)
+                val pickedUri = pickedUrisBySlotId[slot.id]
+                val filledUri = slot.filledMediaUri
+                if (pickedUri != null) {
+                    resolvedMedia[slot.id] = importPickedSlot(created.id, slot.requiredType, pickedUri)
+                } else if (filledUri != null) {
+                    val copiedPath = copyLockedTemplateFile(created.id, slot.requiredType, filledUri)
+                    if (copiedPath != null) {
                         resolvedMedia[slot.id] = ResolvedTemplateMedia(
                             relativePath = copiedPath,
                             durationMs = slot.durationMs,
@@ -118,16 +118,16 @@ class TemplateProjectCreator(
         trackType: TrackType,
         templateRelativePath: String,
     ): String? = withContext(ioDispatcher) {
-     val sourceFile: File = templateMediaStorage.resolve(templateRelativePath)
-         ?.takeIf { it.isFile }
-         ?: return@withContext null
+        val sourceFile: File = templateMediaStorage.resolve(templateRelativePath)
+            ?.takeIf { it.isFile }
+            ?: return@withContext null
         val extension = sourceFile.extension.ifBlank { "mp4" }
         val targetRel = projectMediaStorage.clipRelativePath(projectId, idProvider(), extension)
         val targetFile = projectMediaStorage.resolve(targetRel)
             ?: throw TemplateSlotImportException(trackType, Reason.FAILED)
         val partFile = File(targetFile.parentFile, "${targetFile.name}.part")
         try {
-         sourceFile.inputStream().use { input ->
+            sourceFile.inputStream().use { input ->
                 copyStreamAtomically(
                     input = input,
                     partFile = partFile,
