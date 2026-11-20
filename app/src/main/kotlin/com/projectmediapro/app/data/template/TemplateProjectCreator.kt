@@ -118,8 +118,9 @@ class TemplateProjectCreator(
         trackType: TrackType,
         templateRelativePath: String,
     ): String? = withContext(ioDispatcher) {
-        val sourceFile = templateMediaStorage.resolve(templateRelativePath)
-        if (sourceFile == null || !sourceFile.isFile) return@withContext null
+     val sourceFile: File = templateMediaStorage.resolve(templateRelativePath)
+         ?.takeIf { it.isFile }
+         ?: return@withContext null
         val extension = sourceFile.extension.ifBlank { "mp4" }
         val targetRel = projectMediaStorage.clipRelativePath(projectId, idProvider(), extension)
         val targetFile = projectMediaStorage.resolve(targetRel)
