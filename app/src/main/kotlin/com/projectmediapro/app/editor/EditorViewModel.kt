@@ -690,7 +690,7 @@ class EditorViewModel(
         }
 
         val plan = try {
-            ExportPlanner.plan(effectiveProject, mediaStorage::resolve)
+            ExportPlanner.plan(effectiveProject, initial.captionDocument, mediaStorage::resolve)
         } catch (_: IllegalStateException) {
             _uiState.value = initial.copy(activeDialog = null, error = EditorError.EXPORT_NOTHING)
             return

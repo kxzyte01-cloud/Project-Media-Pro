@@ -444,28 +444,6 @@ private fun ColorSwatchRow(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun EditorDialogSliderRow(
-    label: String,
-    value: Float,
-    valueRange: ClosedFloatingPointRange<Float>,
-    onValueChange: (Float) -> Unit,
-) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Slider(
-            value = value.coerceIn(valueRange.start, valueRange.endInclusive),
-            onValueChange = { onValueChange(it.coerceIn(valueRange.start, valueRange.endInclusive)) },
-            valueRange = valueRange,
-            modifier = Modifier.fillMaxWidth(),
-        )
-    }
-}
 
 @Composable
 private fun ToggleOptionRow(
