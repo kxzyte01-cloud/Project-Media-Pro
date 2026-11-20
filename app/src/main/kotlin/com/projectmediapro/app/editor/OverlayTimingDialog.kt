@@ -1,5 +1,6 @@
 package com.projectmediapro.app.editor
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -28,6 +29,7 @@ fun OverlayTimingDialog(
     videoDurationMs: Long,
     onConfirm: (startTimeMs: Long, durationMs: Long) -> Unit,
     onDismiss: () -> Unit,
+    @StringRes titleRes: Int = R.string.editor_overlay_timing_title,
 ) {
     val minDurationMs = ProjectTimeline.MIN_CLIP_DURATION_MS
     val safeVideoMs = videoDurationMs.coerceAtLeast(minDurationMs)
@@ -46,7 +48,7 @@ fun OverlayTimingDialog(
     val clampedDurationMs = durationMs.coerceIn(minDurationMs, currentMaxDurationMs)
 
     EditorSliderDialog(
-        title = stringResource(R.string.editor_overlay_timing_title),
+        title = stringResource(titleRes),
         readoutText = stringResource(
             R.string.editor_overlay_timing_summary,
             ProjectTimeline.formatDuration(startMs),

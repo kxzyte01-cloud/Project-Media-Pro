@@ -4,6 +4,7 @@ import com.projectmediapro.core.model.CanvasAspect
 import com.projectmediapro.core.model.CanvasBackground
 import com.projectmediapro.core.model.ExportQuality
 import com.projectmediapro.core.model.Project
+import com.projectmediapro.core.model.TextOverlayStyle
 import com.projectmediapro.core.model.TrackType
 
 enum class EditorError {
@@ -32,6 +33,9 @@ sealed interface EditorDialog {
     data class Volume(val clipId: String) : EditorDialog
     data class OverlayPosition(val clipId: String) : EditorDialog
     data class OverlayTiming(val clipId: String) : EditorDialog
+    data class TextEdit(val clipId: String?) : EditorDialog
+    data class TextPosition(val clipId: String) : EditorDialog
+    data class TextTiming(val clipId: String) : EditorDialog
     data object Canvas : EditorDialog
     data object Quality : EditorDialog
 }
@@ -83,6 +87,10 @@ sealed interface EditorEvent {
     data object OpenVolume : EditorEvent
     data object OpenOverlayPosition : EditorEvent
     data object OpenOverlayTiming : EditorEvent
+    data object OpenAddText : EditorEvent
+    data object OpenEditText : EditorEvent
+    data object OpenTextPosition : EditorEvent
+    data object OpenTextTiming : EditorEvent
     data object OpenCanvas : EditorEvent
     data object OpenExportQuality : EditorEvent
     data object DismissDialog : EditorEvent
@@ -95,6 +103,19 @@ sealed interface EditorEvent {
         val widthFraction: Float,
     ) : EditorEvent
     data class ApplyOverlayTiming(
+        val startTimeMs: Long,
+        val durationMs: Long,
+    ) : EditorEvent
+    data class ApplyText(
+        val text: String,
+        val style: TextOverlayStyle,
+    ) : EditorEvent
+    data class ApplyTextPosition(
+        val centerX: Float,
+        val centerY: Float,
+        val widthFraction: Float,
+    ) : EditorEvent
+    data class ApplyTextTiming(
         val startTimeMs: Long,
         val durationMs: Long,
     ) : EditorEvent

@@ -26,12 +26,16 @@ fun ClipTools(
     modifier: Modifier = Modifier,
     isAudioClip: Boolean = false,
     isOverlayClip: Boolean = false,
+    isTextClip: Boolean = false,
     canEditOverlayTiming: Boolean = false,
     isAudioPlaying: Boolean = false,
     onVolumeClick: () -> Unit = {},
     onTogglePlayClick: () -> Unit = {},
     onOverlayPositionClick: () -> Unit = {},
     onOverlayTimingClick: () -> Unit = {},
+    onEditTextClick: () -> Unit = {},
+    onTextPositionClick: () -> Unit = {},
+    onTextTimingClick: () -> Unit = {},
 ) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
@@ -39,57 +43,78 @@ fun ClipTools(
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState()),
     ) {
-        if (isOverlayClip) {
-            EditorOutlinedButton(
-                label = stringResource(R.string.editor_tool_position),
-                enabled = isEnabled,
-                onClick = onOverlayPositionClick,
-            )
-            EditorOutlinedButton(
-                label = stringResource(R.string.editor_tool_timing),
-                enabled = isEnabled && canEditOverlayTiming,
-                onClick = onOverlayTimingClick,
-            )
-        } else {
-            EditorOutlinedButton(
-                label = stringResource(R.string.editor_tool_trim),
-                enabled = isEnabled && canTrim,
-                onClick = onTrimClick,
-            )
-            EditorOutlinedButton(
-                label = stringResource(R.string.editor_tool_split),
-                enabled = isEnabled && !isAudioClip && canSplit,
-                onClick = onSplitClick,
-            )
-            if (isAudioClip) {
+        when {
+            isTextClip -> {
                 EditorOutlinedButton(
-                    label = stringResource(R.string.editor_tool_volume),
+                    label = stringResource(R.string.editor_tool_text_style),
                     enabled = isEnabled,
-                    onClick = onVolumeClick,
+                    tone = EditorButtonTone.Primary,
+                    onClick = onEditTextClick,
+                )
+                EditorOutlinedButton(
+                    label = stringResource(R.string.editor_tool_position),
+                    enabled = isEnabled,
+                    onClick = onTextPositionClick,
+                )
+                EditorOutlinedButton(
+                    label = stringResource(R.string.editor_tool_timing),
+                    enabled = isEnabled && canEditOverlayTiming,
+                    onClick = onTextTimingClick,
                 )
             }
-            EditorOutlinedButton(
-                label = stringResource(R.string.editor_tool_earlier),
-                enabled = isEnabled && canMoveEarlier,
-                onClick = onMoveEarlierClick,
-            )
-            EditorOutlinedButton(
-                label = stringResource(R.string.editor_tool_later),
-                enabled = isEnabled && canMoveLater,
-                onClick = onMoveLaterClick,
-            )
-            if (isAudioClip) {
-                val playLabelRes = if (isAudioPlaying) {
-                    R.string.editor_tool_pause
-                } else {
-                    R.string.editor_tool_play
+            isOverlayClip -> {
+                EditorOutlinedButton(
+                    label = stringResource(R.string.editor_tool_position),
+                    enabled = isEnabled,
+                    onClick = onOverlayPositionClick,
+                )
+                EditorOutlinedButton(
+                    label = stringResource(R.string.editor_tool_timing),
+                    enabled = isEnabled && canEditOverlayTiming,
+                    onClick = onOverlayTimingClick,
+                )
+            }
+            else -> {
+                EditorOutlinedButton(
+                    label = stringResource(R.string.editor_tool_trim),
+                    enabled = isEnabled && canTrim,
+                    onClick = onTrimClick,
+                )
+                EditorOutlinedButton(
+                    label = stringResource(R.string.editor_tool_split),
+                    enabled = isEnabled && !isAudioClip && canSplit,
+                    onClick = onSplitClick,
+                )
+                if (isAudioClip) {
+                    EditorOutlinedButton(
+                        label = stringResource(R.string.editor_tool_volume),
+                        enabled = isEnabled,
+                        onClick = onVolumeClick,
+                    )
                 }
                 EditorOutlinedButton(
-                    label = stringResource(playLabelRes),
-                    enabled = isEnabled,
-                    tone = if (isAudioPlaying) EditorButtonTone.Primary else EditorButtonTone.Default,
-                    onClick = onTogglePlayClick,
+                    label = stringResource(R.string.editor_tool_earlier),
+                    enabled = isEnabled && canMoveEarlier,
+                    onClick = onMoveEarlierClick,
                 )
+                EditorOutlinedButton(
+                    label = stringResource(R.string.editor_tool_later),
+                    enabled = isEnabled && canMoveLater,
+                    onClick = onMoveLaterClick,
+                )
+                if (isAudioClip) {
+                    val playLabelRes = if (isAudioPlaying) {
+                        R.string.editor_tool_pause
+                    } else {
+                        R.string.editor_tool_play
+                    }
+                    EditorOutlinedButton(
+                        label = stringResource(playLabelRes),
+                        enabled = isEnabled,
+                        tone = if (isAudioPlaying) EditorButtonTone.Primary else EditorButtonTone.Default,
+                        onClick = onTogglePlayClick,
+                    )
+                }
             }
         }
         EditorOutlinedButton(

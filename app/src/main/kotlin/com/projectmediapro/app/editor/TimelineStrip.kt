@@ -57,6 +57,7 @@ fun TimelineStrip(
     modifier: Modifier = Modifier,
     audioClips: List<Clip> = emptyList(),
     overlayClips: List<Clip> = emptyList(),
+    textClips: List<Clip> = emptyList(),
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
@@ -143,11 +144,48 @@ fun TimelineStrip(
             if (clips.isNotEmpty() || audioClips.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(MediaProSpacing.Small))
             }
-            TimelineOverlayLane(
+            TimelineTimedLane(
                 laneTitle = stringResource(R.string.editor_lane_overlays),
                 clips = overlayClips,
                 selectedClipId = selectedClipId,
                 isEnabled = isEnabled,
+                selectedContainerColor = MaterialTheme.colorScheme.tertiary,
+                selectedContentColor = MaterialTheme.colorScheme.onTertiary,
+                unselectedContainerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                unselectedContentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+                blockLabel = { number, _ -> "O$number" },
+                accessibilityLabel = { number, _, formattedDuration ->
+                    stringResource(R.string.cd_timeline_overlay_clip, number, formattedDuration)
+                },
+                onSelectClip = onSelectClip,
+            )
+        }
+
+        if (textClips.isNotEmpty()) {
+            if (clips.isNotEmpty() || audioClips.isNotEmpty() || overlayClips.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(MediaProSpacing.Small))
+            }
+            TimelineTimedLane(
+                laneTitle = stringResource(R.string.editor_lane_text),
+                clips = textClips,
+                selectedClipId = selectedClipId,
+                isEnabled = isEnabled,
+                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                selectedContentColor = MaterialTheme.colorScheme.onPrimary,
+                unselectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                unselectedContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                blockLabel = { number, clip ->
+                    val snippet = clip.textContent.trim().replace('\n', ' ').take(10)
+                    if (snippet.isNotEmpty()) "T$number · $snippet" else "T$number"
+                },
+                accessibilityLabel = { number, clip, formattedDuration ->
+                    stringResource(
+                        R.string.cd_timeline_text_clip,
+                        number,
+                        clip.textContent.trim().take(24),
+                        formattedDuration,
+                    )
+                },
                 onSelectClip = onSelectClip,
             )
         }
@@ -211,11 +249,17 @@ private fun TimelineTrackLane(
 }
 
 @Composable
-private fun TimelineOverlayLane(
+private fun TimelineTimedLane(
     laneTitle: String,
     clips: List<Clip>,
     selectedClipId: String?,
     isEnabled: Boolean,
+    selectedContainerColor: Color,
+    selectedContentColor: Color,
+    unselectedContainerColor: Color,
+    unselectedContentColor: Color,
+    blockLabel: (Int, Clip) -> String,
+    accessibilityLabel: @Composable (Int, Clip, String) -> String,
     onSelectClip: (String) -> Unit,
 ) {
     val rows = remember(clips) { packOverlayRows(clips) }
@@ -260,25 +304,21 @@ private fun TimelineOverlayLane(
                         val formattedDuration = ProjectTimeline.formatDuration(clip.durationMs)
                         val startOffsetDp = ((clip.startTimeMs.coerceAtLeast(0L) / 1_000f) * DP_PER_SECOND).dp
                         TimelineClipBlock(
-                            label = "O$clipNumber",
+                            label = blockLabel(clipNumber, clip),
                             formattedDuration = formattedDuration,
-                            accessibilityLabel = stringResource(
-                                R.string.cd_timeline_overlay_clip,
-                                clipNumber,
-                                formattedDuration,
-                            ),
+                            accessibilityLabel = accessibilityLabel(clipNumber, clip, formattedDuration),
                             durationMs = clip.durationMs,
                             isSelected = isSelected,
                             isEnabled = isEnabled,
                             containerColor = if (isSelected) {
-                                MaterialTheme.colorScheme.tertiary
+                                selectedContainerColor
                             } else {
-                                MaterialTheme.colorScheme.tertiaryContainer
+                                unselectedContainerColor
                             },
                             contentColor = if (isSelected) {
-                                MaterialTheme.colorScheme.onTertiary
+                                selectedContentColor
                             } else {
-                                MaterialTheme.colorScheme.onTertiaryContainer
+                                unselectedContentColor
                             },
                             onClick = { onSelectClip(clip.id) },
                             modifier = Modifier.offset(x = startOffsetDp),
@@ -364,6 +404,7 @@ private fun TimelineClipBlock(
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = formattedDuration,

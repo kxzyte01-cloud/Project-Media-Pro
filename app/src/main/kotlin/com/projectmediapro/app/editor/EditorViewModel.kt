@@ -21,6 +21,7 @@ import com.projectmediapro.core.model.TrackType
 import com.projectmediapro.core.model.UndoRedoManager
 import com.projectmediapro.core.model.audioClips
 import com.projectmediapro.core.model.overlayClips
+import com.projectmediapro.core.model.textClips
 import com.projectmediapro.core.model.videoClips
 import java.io.File
 import java.io.IOException
@@ -69,7 +70,8 @@ class EditorViewModel(
                             overlayFilePaths = resolveOverlayFilePaths(project, mediaStorage),
                             selectedClipId = project.videoClips().firstOrNull()?.id
                                 ?: project.audioClips().firstOrNull()?.id
-                                ?: project.overlayClips().firstOrNull()?.id,
+                                ?: project.overlayClips().firstOrNull()?.id
+                                ?: project.textClips().firstOrNull()?.id,
                         )
                     } else {
                         EditorUiState.NotFound
@@ -88,7 +90,7 @@ class EditorViewModel(
             is EditorEvent.OverlayPicked -> handleMediaPicked(event.sourceUri, TrackType.OVERLAY)
             is EditorEvent.SelectClip -> handleSelectClip(event.clipId)
             EditorEvent.OpenTrim -> openSelectedClipDialog(
-                predicate = { !it.isOverlay && ProjectTimeline.canTrimClip(it.clip) },
+                predicate = { !it.isFreeTimed && ProjectTimeline.canTrimClip(it.clip) },
                 dialogFactory = EditorDialog::Trim,
             )
             EditorEvent.OpenSplit -> openSelectedClipDialog(
@@ -113,6 +115,32 @@ class EditorViewModel(
                     dialogFactory = EditorDialog::OverlayTiming,
                 )
             }
+            EditorEvent.OpenAddText -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                if (current.isBusy) return
+                _uiState.value = current.copy(
+                    activeDialog = EditorDialog.TextEdit(clipId = null),
+                    audioPreview = null,
+                )
+            }
+            EditorEvent.OpenEditText -> openSelectedClipDialog(
+                predicate = { it.isText },
+                dialogFactory = { clipId -> EditorDialog.TextEdit(clipId = clipId) },
+            )
+            EditorEvent.OpenTextPosition -> openSelectedClipDialog(
+                predicate = { it.isText },
+                dialogFactory = EditorDialog::TextPosition,
+            )
+            EditorEvent.OpenTextTiming -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                if (ProjectTimeline.videoDurationMs(current.project) < ProjectTimeline.MIN_CLIP_DURATION_MS) {
+                    return
+                }
+                openSelectedClipDialog(
+                    predicate = { it.isText },
+                    dialogFactory = EditorDialog::TextTiming,
+                )
+            }
             EditorEvent.OpenCanvas -> {
                 val current = _uiState.value as? EditorUiState.Loaded ?: return
                 if (current.isBusy) return
@@ -132,7 +160,7 @@ class EditorViewModel(
                 val targetId = (current.activeDialog as? EditorDialog.Trim)?.clipId
                     ?: current.selectedClipId
                     ?: return
-                if (current.project.findClipLocation(targetId)?.isOverlay != false) return
+                if (current.project.findClipLocation(targetId)?.isFreeTimed != false) return
                 commitUndoableEdit(targetId) { project ->
                     ProjectTimeline.trimClip(project, targetId, event.startMs, event.endMs)
                 }
@@ -188,6 +216,64 @@ class EditorViewModel(
                     )
                 }
             }
+            is EditorEvent.ApplyText -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                val editDialog = current.activeDialog as? EditorDialog.TextEdit
+                val existingClipId = editDialog?.clipId
+                if (existingClipId != null) {
+                    if (current.project.findClipLocation(existingClipId)?.isText != true) return
+                    commitUndoableEdit(existingClipId) { project ->
+                        ProjectTimeline.updateTextClip(
+                            project = project,
+                            clipId = existingClipId,
+                            text = event.text,
+                            style = event.style,
+                        )
+                    }
+                } else {
+                    val newClipId = idProvider()
+                    commitUndoableEdit(newClipId) { project ->
+                        ProjectTimeline.addTextClip(
+                            project = project,
+                            clipId = newClipId,
+                            text = event.text,
+                            style = event.style,
+                            newTrackId = idProvider(),
+                        )
+                    }
+                }
+            }
+            is EditorEvent.ApplyTextPosition -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                val targetId = (current.activeDialog as? EditorDialog.TextPosition)?.clipId
+                    ?: current.selectedClipId
+                    ?: return
+                if (current.project.findClipLocation(targetId)?.isText != true) return
+                commitUndoableEdit(targetId) { project ->
+                    ProjectTimeline.updateTextTransform(
+                        project = project,
+                        clipId = targetId,
+                        centerX = event.centerX,
+                        centerY = event.centerY,
+                        widthFraction = event.widthFraction,
+                    )
+                }
+            }
+            is EditorEvent.ApplyTextTiming -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                val targetId = (current.activeDialog as? EditorDialog.TextTiming)?.clipId
+                    ?: current.selectedClipId
+                    ?: return
+                if (current.project.findClipLocation(targetId)?.isText != true) return
+                commitUndoableEdit(targetId) { project ->
+                    ProjectTimeline.updateTextTiming(
+                        project = project,
+                        clipId = targetId,
+                        startTimeMs = event.startTimeMs,
+                        durationMs = event.durationMs,
+                    )
+                }
+            }
             is EditorEvent.ApplyCanvas -> {
                 val current = _uiState.value as? EditorUiState.Loaded ?: return
                 commitUndoableEdit(current.selectedClipId) { project ->
@@ -201,7 +287,7 @@ class EditorViewModel(
             is EditorEvent.MoveSelected -> {
                 val current = _uiState.value as? EditorUiState.Loaded ?: return
                 val targetId = current.selectedClipId ?: return
-                if (current.project.findClipLocation(targetId)?.isOverlay != false) return
+                if (current.project.findClipLocation(targetId)?.isFreeTimed != false) return
                 commitUndoableEdit(targetId) { project ->
                     ProjectTimeline.moveClip(project, targetId, event.delta)
                 }
@@ -495,7 +581,9 @@ class EditorViewModel(
                     return@withLock
                 }
 
-                if (!ProjectTimeline.isMediaReferenced(updatedProject, removedClip.mediaUri)) {
+                if (removedClip.mediaUri.isNotBlank() &&
+                    !ProjectTimeline.isMediaReferenced(updatedProject, removedClip.mediaUri)
+                ) {
                     mediaStorage.deleteClipFile(removedClip.mediaUri)
                 }
 

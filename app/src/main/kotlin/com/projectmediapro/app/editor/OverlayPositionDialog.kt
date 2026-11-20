@@ -1,5 +1,6 @@
 package com.projectmediapro.app.editor
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -53,6 +54,8 @@ fun OverlayPositionDialog(
     canvasBackground: CanvasBackground,
     onConfirm: (centerX: Float, centerY: Float, widthFraction: Float) -> Unit,
     onDismiss: () -> Unit,
+    @StringRes titleRes: Int = R.string.editor_overlay_position_title,
+    isText: Boolean = false,
 ) {
     var centerX by rememberSaveable(clip.id, clip.overlayCenterX) {
         mutableFloatStateOf(clip.overlayCenterX.coerceIn(0f, 1f))
@@ -80,7 +83,7 @@ fun OverlayPositionDialog(
     val yPercent = (centerY * 100f).roundToInt()
     val sizePercent = (widthFraction * 100f).roundToInt()
     val previewDescription = stringResource(
-        R.string.cd_overlay_position_preview,
+        if (isText) R.string.cd_text_position_preview else R.string.cd_overlay_position_preview,
         xPercent,
         yPercent,
         sizePercent,
@@ -88,7 +91,7 @@ fun OverlayPositionDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(text = stringResource(R.string.editor_overlay_position_title)) },
+        title = { Text(text = stringResource(titleRes)) },
         text = {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -127,22 +130,48 @@ fun OverlayPositionDialog(
                     val boxWidthPx = constraints.maxWidth.toFloat()
                     val boxHeightPx = constraints.maxHeight.toFloat()
                     val overlayWidthDp = maxWidth * widthFraction
+                    val overlayHeightDp = if (isText) 22.dp else overlayWidthDp
                     val overlayWidthPx = boxWidthPx * widthFraction
+                    val overlayHeightPx = if (isText) {
+                        (boxHeightPx * 0.18f).coerceAtLeast(16f)
+                    } else {
+                        overlayWidthPx
+                    }
                     val leftPx = (centerX * boxWidthPx) - (overlayWidthPx / 2f)
-                    val topPx = (centerY * boxHeightPx) - (overlayWidthPx / 2f)
+                    val topPx = (centerY * boxHeightPx) - (overlayHeightPx / 2f)
 
                     Box(
+                        contentAlignment = Alignment.Center,
                         modifier = Modifier
                             .offset { IntOffset(leftPx.roundToInt(), topPx.roundToInt()) }
-                            .size(width = overlayWidthDp, height = overlayWidthDp)
+                            .size(width = overlayWidthDp, height = overlayHeightDp)
                             .clip(MediaProShapes.Small)
-                            .background(MaterialTheme.colorScheme.tertiary.copy(alpha = 0.72f))
+                            .background(
+                                if (isText) {
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.78f)
+                                } else {
+                                    MaterialTheme.colorScheme.tertiary.copy(alpha = 0.72f)
+                                },
+                            )
                             .border(
                                 width = MediaProSpacing.BorderSelected,
-                                color = MaterialTheme.colorScheme.onTertiary,
+                                color = if (isText) {
+                                    MaterialTheme.colorScheme.onPrimary
+                                } else {
+                                    MaterialTheme.colorScheme.onTertiary
+                                },
                                 shape = MediaProShapes.Small,
                             ),
-                    )
+                    ) {
+                        if (isText) {
+                            Text(
+                                text = stringResource(R.string.editor_text_position_badge),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                maxLines = 1,
+                            )
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(MediaProSpacing.MediumSmall))
@@ -159,7 +188,10 @@ fun OverlayPositionDialog(
                     onValueChange = { centerY = it.coerceIn(0f, 1f) },
                 )
                 LabeledSliderRow(
-                    label = stringResource(R.string.editor_overlay_size_value, sizePercent),
+                    label = stringResource(
+                        if (isText) R.string.editor_text_box_width_value else R.string.editor_overlay_size_value,
+                        sizePercent,
+                    ),
                     value = widthFraction,
                     valueRange = Clip.MIN_OVERLAY_WIDTH_FRACTION..Clip.MAX_OVERLAY_WIDTH_FRACTION,
                     onValueChange = {

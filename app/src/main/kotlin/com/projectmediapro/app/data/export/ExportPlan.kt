@@ -5,8 +5,10 @@ import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.ExportQuality
 import com.projectmediapro.core.model.Project
 import com.projectmediapro.core.model.ProjectTimeline
+import com.projectmediapro.core.model.TextOverlayStyle
 import com.projectmediapro.core.model.audioClips as modelAudioClips
 import com.projectmediapro.core.model.overlayClips as modelOverlayClips
+import com.projectmediapro.core.model.textClips as modelTextClips
 import com.projectmediapro.core.model.videoClips as modelVideoClips
 import java.io.File
 
@@ -43,11 +45,25 @@ data class ExportOverlay(
     val widthFraction: Float,
 )
 
+/**
+ * One timed styled text/lyric overlay to composite over the exported video frame.
+ */
+data class ExportTextOverlay(
+    val text: String,
+    val style: TextOverlayStyle,
+    val startTimeMs: Long,
+    val endTimeMs: Long,
+    val centerX: Float,
+    val centerY: Float,
+    val widthFraction: Float,
+)
+
 data class ExportPlan(
     val clips: List<ExportClip>,
     val totalDurationMs: Long,
     val audioClips: List<ExportAudioClip> = emptyList(),
     val overlays: List<ExportOverlay> = emptyList(),
+    val textOverlays: List<ExportTextOverlay> = emptyList(),
     val canvasAspect: CanvasAspect = CanvasAspect.ORIGINAL,
     val exportQuality: ExportQuality = ExportQuality.FULL_HD_1080P,
 )
@@ -97,12 +113,17 @@ object ExportPlanner {
             totalVideoDurationMs = totalDurationMs,
             resolve = resolve,
         )
+        val exportTextOverlays = planTextOverlays(
+            textClips = project.modelTextClips(),
+            totalVideoDurationMs = totalDurationMs,
+        )
 
         return ExportPlan(
             clips = exportClips,
             totalDurationMs = totalDurationMs,
             audioClips = exportAudioClips,
             overlays = exportOverlays,
+            textOverlays = exportTextOverlays,
             canvasAspect = project.canvasAspect,
             exportQuality = project.exportQuality,
         )
@@ -163,30 +184,90 @@ object ExportPlanner {
             val file = resolve(clip.mediaUri)
             if (file == null || !file.isFile) continue
 
-            val durationMs = clip.durationMs.coerceAtLeast(0L)
-            if (durationMs <= 0L) continue
-
-            val startMs = clip.startTimeMs.coerceAtLeast(0L)
-            if (startMs >= totalVideoDurationMs) continue
-
-            val endMs = minOf(startMs + durationMs, totalVideoDurationMs)
-            if (endMs <= startMs) continue
+            val (startMs, endMs) = resolveTimedBounds(clip, totalVideoDurationMs) ?: continue
+            val (centerX, centerY, widthFraction) = resolvePlacement(
+                clip = clip,
+                defaultX = Clip.DEFAULT_OVERLAY_CENTER_X,
+                defaultY = Clip.DEFAULT_OVERLAY_CENTER_Y,
+                defaultWidth = Clip.DEFAULT_OVERLAY_WIDTH_FRACTION,
+            )
 
             planned.add(
                 ExportOverlay(
                     path = file.absolutePath,
                     startTimeMs = startMs,
                     endTimeMs = endMs,
-                    centerX = clip.overlayCenterX.coerceIn(0f, 1f),
-                    centerY = clip.overlayCenterY.coerceIn(0f, 1f),
-                    widthFraction = clip.overlayWidthFraction.coerceIn(
-                        Clip.MIN_OVERLAY_WIDTH_FRACTION,
-                        Clip.MAX_OVERLAY_WIDTH_FRACTION,
-                    ),
+                    centerX = centerX,
+                    centerY = centerY,
+                    widthFraction = widthFraction,
                 ),
             )
         }
         return planned
+    }
+
+    private fun planTextOverlays(
+        textClips: List<Clip>,
+        totalVideoDurationMs: Long,
+    ): List<ExportTextOverlay> {
+        if (textClips.isEmpty() || totalVideoDurationMs <= 0L) return emptyList()
+        val planned = mutableListOf<ExportTextOverlay>()
+        for (clip in textClips) {
+            val cleanedText = clip.textContent.trim()
+            if (cleanedText.isEmpty()) continue
+
+            val (startMs, endMs) = resolveTimedBounds(clip, totalVideoDurationMs) ?: continue
+            val (centerX, centerY, widthFraction) = resolvePlacement(
+                clip = clip,
+                defaultX = Clip.DEFAULT_TEXT_CENTER_X,
+                defaultY = Clip.DEFAULT_TEXT_CENTER_Y,
+                defaultWidth = Clip.DEFAULT_TEXT_WIDTH_FRACTION,
+            )
+
+            planned.add(
+                ExportTextOverlay(
+                    text = cleanedText,
+                    style = (clip.textStyle ?: TextOverlayStyle()).sanitized(),
+                    startTimeMs = startMs,
+                    endTimeMs = endMs,
+                    centerX = centerX,
+                    centerY = centerY,
+                    widthFraction = widthFraction,
+                ),
+            )
+        }
+        return planned
+    }
+
+    private fun resolveTimedBounds(
+        clip: Clip,
+        totalVideoDurationMs: Long,
+    ): Pair<Long, Long>? {
+        val durationMs = clip.durationMs.coerceAtLeast(0L)
+        if (durationMs <= 0L) return null
+        val startMs = clip.startTimeMs.coerceAtLeast(0L)
+        if (startMs >= totalVideoDurationMs) return null
+        val endMs = minOf(startMs + durationMs, totalVideoDurationMs)
+        return if (endMs > startMs) startMs to endMs else null
+    }
+
+    private fun resolvePlacement(
+        clip: Clip,
+        defaultX: Float,
+        defaultY: Float,
+        defaultWidth: Float,
+    ): Triple<Float, Float, Float> {
+        val centerX = if (clip.overlayCenterX.isNaN()) defaultX else clip.overlayCenterX.coerceIn(0f, 1f)
+        val centerY = if (clip.overlayCenterY.isNaN()) defaultY else clip.overlayCenterY.coerceIn(0f, 1f)
+        val widthFraction = if (clip.overlayWidthFraction.isNaN()) {
+            defaultWidth
+        } else {
+            clip.overlayWidthFraction.coerceIn(
+                Clip.MIN_OVERLAY_WIDTH_FRACTION,
+                Clip.MAX_OVERLAY_WIDTH_FRACTION,
+            )
+        }
+        return Triple(centerX, centerY, widthFraction)
     }
 
     /**

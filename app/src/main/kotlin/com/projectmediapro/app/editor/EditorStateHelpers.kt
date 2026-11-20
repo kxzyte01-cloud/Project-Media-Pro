@@ -15,6 +15,7 @@ import com.projectmediapro.core.model.TrackType
 import com.projectmediapro.core.model.UndoRedoManager
 import com.projectmediapro.core.model.audioClips
 import com.projectmediapro.core.model.overlayClips
+import com.projectmediapro.core.model.textClips
 import com.projectmediapro.core.model.videoClips
 
 internal object FailingAudioImporter : AudioImporter {
@@ -38,9 +39,11 @@ internal data class ClipLocation(
     val isVideo: Boolean get() = trackType == TrackType.VIDEO
     val isAudio: Boolean get() = trackType == TrackType.AUDIO
     val isOverlay: Boolean get() = trackType == TrackType.OVERLAY
+    val isText: Boolean get() = trackType == TrackType.TEXT
+    val isFreeTimed: Boolean get() = isOverlay || isText
     val clipNumber: Int get() = indexInTrack + 1
-    val canMoveEarlier: Boolean get() = !isOverlay && indexInTrack > 0
-    val canMoveLater: Boolean get() = !isOverlay && indexInTrack in 0 until trackClips.lastIndex
+    val canMoveEarlier: Boolean get() = !isFreeTimed && indexInTrack > 0
+    val canMoveLater: Boolean get() = !isFreeTimed && indexInTrack in 0 until trackClips.lastIndex
 }
 
 internal fun Project.findClipLocation(clipId: String?): ClipLocation? {
@@ -49,6 +52,7 @@ internal fun Project.findClipLocation(clipId: String?): ClipLocation? {
         TrackType.VIDEO to videoClips(),
         TrackType.AUDIO to audioClips(),
         TrackType.OVERLAY to overlayClips(),
+        TrackType.TEXT to textClips(),
     )
     for ((trackType, clips) in tracksToCheck) {
         val index = clips.indexOfFirst { it.id == clipId }
@@ -112,7 +116,10 @@ internal fun resolveClipSelection(
     val newVideos = updatedProject.videoClips()
     val newAudios = updatedProject.audioClips()
     val newOverlays = updatedProject.overlayClips()
-    if (newVideos.isEmpty() && newAudios.isEmpty() && newOverlays.isEmpty()) return null
+    val newTexts = updatedProject.textClips()
+    if (newVideos.isEmpty() && newAudios.isEmpty() && newOverlays.isEmpty() && newTexts.isEmpty()) {
+        return null
+    }
 
     if (previousSelectedId != null) {
         if (updatedProject.findClipLocation(previousSelectedId) != null) {
@@ -124,7 +131,7 @@ internal fun resolveClipSelection(
                 TrackType.VIDEO -> newVideos
                 TrackType.AUDIO -> newAudios
                 TrackType.OVERLAY -> newOverlays
-                TrackType.TEXT -> emptyList()
+                TrackType.TEXT -> newTexts
             }
             if (sameTrackNewClips.isNotEmpty()) {
                 return sameTrackNewClips[oldLocation.indexInTrack.coerceAtMost(sameTrackNewClips.lastIndex)].id
@@ -135,6 +142,7 @@ internal fun resolveClipSelection(
     return newVideos.firstOrNull()?.id
         ?: newAudios.firstOrNull()?.id
         ?: newOverlays.firstOrNull()?.id
+        ?: newTexts.firstOrNull()?.id
 }
 
 internal fun EditorUiState.Loaded.withSyncedProject(

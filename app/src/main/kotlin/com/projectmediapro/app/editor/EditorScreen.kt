@@ -55,9 +55,11 @@ import com.projectmediapro.core.model.CanvasBackground
 import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.ExportQuality
 import com.projectmediapro.core.model.ProjectTimeline
+import com.projectmediapro.core.model.TextOverlayStyle
 import com.projectmediapro.core.model.TrackType
 import com.projectmediapro.core.model.audioClips
 import com.projectmediapro.core.model.overlayClips
+import com.projectmediapro.core.model.textClips
 import com.projectmediapro.core.model.videoClips
 
 @Composable
@@ -190,6 +192,7 @@ private fun LoadedEditorContent(
     val clips = state.project.videoClips()
     val audioClips = state.project.audioClips()
     val overlayClips = state.project.overlayClips()
+    val textClips = state.project.textClips()
     val videoDurationMs = ProjectTimeline.videoDurationMs(state.project)
     val editsEnabled = !state.isBusy
     val selectedLocation = state.project.findClipLocation(state.selectedClipId)
@@ -218,18 +221,20 @@ private fun LoadedEditorContent(
             previewClips = state.previewClips,
             overlayClips = overlayClips,
             overlayFilePaths = state.overlayFilePaths,
+            textClips = textClips,
             previewAspectRatio = previewAspectRatio,
             previewBackground = previewBackground,
             emptyPreviewTextColor = emptyPreviewTextColor,
         )
 
         if (clips.isNotEmpty() || audioClips.isNotEmpty() || overlayClips.isNotEmpty() ||
-            state.canUndo || state.canRedo
+            textClips.isNotEmpty() || state.canUndo || state.canRedo
         ) {
             TimelineStrip(
                 clips = clips,
                 audioClips = audioClips,
                 overlayClips = overlayClips,
+                textClips = textClips,
                 selectedClipId = state.selectedClipId,
                 canUndo = state.canUndo,
                 canRedo = state.canRedo,
@@ -243,12 +248,13 @@ private fun LoadedEditorContent(
                 Spacer(modifier = Modifier.height(MediaProSpacing.Small))
                 ClipTools(
                     isEnabled = editsEnabled,
-                    canTrim = !selectedLocation.isOverlay && ProjectTimeline.canTrimClip(selectedClip),
+                    canTrim = !selectedLocation.isFreeTimed && ProjectTimeline.canTrimClip(selectedClip),
                     canSplit = selectedLocation.isVideo && ProjectTimeline.canSplitClip(selectedClip),
                     canMoveEarlier = selectedLocation.canMoveEarlier,
                     canMoveLater = selectedLocation.canMoveLater,
                     isAudioClip = selectedLocation.isAudio,
                     isOverlayClip = selectedLocation.isOverlay,
+                    isTextClip = selectedLocation.isText,
                     canEditOverlayTiming = videoDurationMs >= ProjectTimeline.MIN_CLIP_DURATION_MS,
                     isAudioPlaying = state.audioPreview?.clipId == selectedClip.id,
                     onTrimClick = { onEvent(EditorEvent.OpenTrim) },
@@ -256,6 +262,9 @@ private fun LoadedEditorContent(
                     onVolumeClick = { onEvent(EditorEvent.OpenVolume) },
                     onOverlayPositionClick = { onEvent(EditorEvent.OpenOverlayPosition) },
                     onOverlayTimingClick = { onEvent(EditorEvent.OpenOverlayTiming) },
+                    onEditTextClick = { onEvent(EditorEvent.OpenEditText) },
+                    onTextPositionClick = { onEvent(EditorEvent.OpenTextPosition) },
+                    onTextTimingClick = { onEvent(EditorEvent.OpenTextTiming) },
                     onMoveEarlierClick = { onEvent(EditorEvent.MoveSelected(-1)) },
                     onMoveLaterClick = { onEvent(EditorEvent.MoveSelected(1)) },
                     onTogglePlayClick = { onEvent(EditorEvent.ToggleAudioPreview) },
@@ -347,12 +356,20 @@ private fun LoadedEditorContent(
                 },
             )
             EditorOutlinedButton(
-                label = stringResource(R.string.editor_canvas_button),
+                label = stringResource(R.string.editor_add_text),
                 enabled = editsEnabled,
-                onClick = { onEvent(EditorEvent.OpenCanvas) },
+                onClick = { onEvent(EditorEvent.OpenAddText) },
                 modifier = Modifier.weight(1f),
             )
         }
+
+        Spacer(modifier = Modifier.height(MediaProSpacing.Small))
+        EditorOutlinedButton(
+            label = stringResource(R.string.editor_canvas_button),
+            enabled = editsEnabled,
+            onClick = { onEvent(EditorEvent.OpenCanvas) },
+            modifier = Modifier.fillMaxWidth(),
+        )
 
         Spacer(modifier = Modifier.height(MediaProSpacing.Small))
         ExportSection(
@@ -405,7 +422,7 @@ private fun LoadedEditorContent(
     when (val dialog = state.activeDialog) {
         is EditorDialog.Trim -> {
             val location = state.project.findClipLocation(dialog.clipId)
-            if (location != null && !location.isOverlay) {
+            if (location != null && !location.isFreeTimed) {
                 TrimDialog(
                     clip = location.clip,
                     onConfirm = { startMs, endMs ->
@@ -479,6 +496,65 @@ private fun LoadedEditorContent(
                 )
             }
         }
+        is EditorDialog.TextEdit -> {
+            val existingClip = dialog.clipId?.let { state.project.findClipLocation(it) }
+                ?.takeIf { it.isText }
+                ?.clip
+            TextStyleDialog(
+                clipId = existingClip?.id,
+                initialText = existingClip?.textContent.orEmpty(),
+                initialStyle = existingClip?.textStyle ?: TextOverlayStyle(),
+                canvasBackground = state.project.canvasBackground,
+                isEditing = existingClip != null,
+                onConfirm = { text, style ->
+                    onEvent(EditorEvent.ApplyText(text = text, style = style))
+                },
+                onDismiss = { onEvent(EditorEvent.DismissDialog) },
+            )
+        }
+        is EditorDialog.TextPosition -> {
+            val location = state.project.findClipLocation(dialog.clipId)
+            if (location != null && location.isText) {
+                OverlayPositionDialog(
+                    clip = location.clip,
+                    canvasAspect = state.project.canvasAspect,
+                    canvasBackground = state.project.canvasBackground,
+                    titleRes = R.string.editor_text_position_title,
+                    isText = true,
+                    onConfirm = { centerX, centerY, widthFraction ->
+                        onEvent(
+                            EditorEvent.ApplyTextPosition(
+                                centerX = centerX,
+                                centerY = centerY,
+                                widthFraction = widthFraction,
+                            ),
+                        )
+                    },
+                    onDismiss = { onEvent(EditorEvent.DismissDialog) },
+                )
+            }
+        }
+        is EditorDialog.TextTiming -> {
+            val location = state.project.findClipLocation(dialog.clipId)
+            if (location != null && location.isText &&
+                videoDurationMs >= ProjectTimeline.MIN_CLIP_DURATION_MS
+            ) {
+                OverlayTimingDialog(
+                    clip = location.clip,
+                    videoDurationMs = videoDurationMs,
+                    titleRes = R.string.editor_text_timing_title,
+                    onConfirm = { startTimeMs, durationMs ->
+                        onEvent(
+                            EditorEvent.ApplyTextTiming(
+                                startTimeMs = startTimeMs,
+                                durationMs = durationMs,
+                            ),
+                        )
+                    },
+                    onDismiss = { onEvent(EditorEvent.DismissDialog) },
+                )
+            }
+        }
         EditorDialog.Canvas -> {
             CanvasDialog(
                 initialAspect = state.project.canvasAspect,
@@ -532,6 +608,7 @@ private fun EditorPreviewStage(
     previewClips: List<PreviewClip>,
     overlayClips: List<Clip>,
     overlayFilePaths: Map<String, String>,
+    textClips: List<Clip>,
     previewAspectRatio: Float,
     previewBackground: Color,
     emptyPreviewTextColor: Color,
@@ -555,22 +632,29 @@ private fun EditorPreviewStage(
                     shape = MediaProShapes.Medium,
                 ),
         ) {
-            if (!hasVideoClips) {
+            if (!hasVideoClips && textClips.isEmpty()) {
                 Text(
                     text = stringResource(R.string.editor_empty),
                     style = MaterialTheme.typography.bodyMedium,
                     color = emptyPreviewTextColor,
                 )
             } else {
-                PreviewPlayer(
-                    previewClips = previewClips,
-                    backgroundColor = previewBackground,
-                    onTimelinePositionChanged = { timelinePositionMs = it },
-                    modifier = Modifier.fillMaxSize(),
-                )
-                OverlayPreviewLayer(
-                    overlays = overlayClips,
-                    overlayFilePaths = overlayFilePaths,
+                if (hasVideoClips) {
+                    PreviewPlayer(
+                        previewClips = previewClips,
+                        backgroundColor = previewBackground,
+                        onTimelinePositionChanged = { timelinePositionMs = it },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    OverlayPreviewLayer(
+                        overlays = overlayClips,
+                        overlayFilePaths = overlayFilePaths,
+                        timelinePositionMs = timelinePositionMs,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+                TextPreviewLayer(
+                    textClips = textClips,
                     timelinePositionMs = timelinePositionMs,
                     modifier = Modifier.fillMaxSize(),
                 )

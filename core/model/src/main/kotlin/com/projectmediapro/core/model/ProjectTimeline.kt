@@ -11,10 +11,14 @@ fun Project.audioClips(): List<Clip> =
 fun Project.overlayClips(): List<Clip> =
     tracks.firstOrNull { it.type == TrackType.OVERLAY }?.clips.orEmpty()
 
+fun Project.textClips(): List<Clip> =
+    tracks.firstOrNull { it.type == TrackType.TEXT }?.clips.orEmpty()
+
 object ProjectTimeline {
 
     const val MIN_CLIP_DURATION_MS: Long = 500L
     const val DEFAULT_OVERLAY_DURATION_MS: Long = 5_000L
+    const val DEFAULT_TEXT_DURATION_MS: Long = 4_000L
 
     fun videoDurationMs(project: Project): Long =
         project.videoClips().sumOf { effectiveDurationMs(it) }
@@ -72,8 +76,10 @@ object ProjectTimeline {
     fun canSplitClip(clip: Clip): Boolean =
         clip.durationMs >= MIN_CLIP_DURATION_MS * 2L
 
-    fun isMediaReferenced(project: Project, mediaUri: String): Boolean =
-        project.tracks.asSequence().flatMap { it.clips.asSequence() }.any { it.mediaUri == mediaUri }
+    fun isMediaReferenced(project: Project, mediaUri: String): Boolean {
+        if (mediaUri.isBlank()) return false
+        return project.tracks.asSequence().flatMap { it.clips.asSequence() }.any { it.mediaUri == mediaUri }
+    }
 
     fun appendClip(
         project: Project,
@@ -124,70 +130,139 @@ object ProjectTimeline {
         )
     }
 
+    fun addTextClip(
+        project: Project,
+        clipId: String,
+        text: String,
+        style: TextOverlayStyle = TextOverlayStyle(),
+        newTrackId: String,
+        startTimeMs: Long = 0L,
+        durationMs: Long = DEFAULT_TEXT_DURATION_MS,
+        centerX: Float = Clip.DEFAULT_TEXT_CENTER_X,
+        centerY: Float = Clip.DEFAULT_TEXT_CENTER_Y,
+        widthFraction: Float = Clip.DEFAULT_TEXT_WIDTH_FRACTION,
+    ): Project {
+        val cleanedText = text.trim()
+        if (cleanedText.isEmpty()) return project
+        val totalVideoMs = videoDurationMs(project)
+        val (clampedStartMs, clampedDurationMs) = if (totalVideoMs >= MIN_CLIP_DURATION_MS) {
+            clampTimedRange(totalVideoMs, startTimeMs, durationMs)
+        } else {
+            startTimeMs.coerceAtLeast(0L) to durationMs.coerceAtLeast(MIN_CLIP_DURATION_MS)
+        }
+        val clampedX = if (centerX.isNaN()) Clip.DEFAULT_TEXT_CENTER_X else centerX.coerceIn(0f, 1f)
+        val clampedY = if (centerY.isNaN()) Clip.DEFAULT_TEXT_CENTER_Y else centerY.coerceIn(0f, 1f)
+        val clampedWidth = if (widthFraction.isNaN()) {
+            Clip.DEFAULT_TEXT_WIDTH_FRACTION
+        } else {
+            widthFraction.coerceIn(Clip.MIN_OVERLAY_WIDTH_FRACTION, Clip.MAX_OVERLAY_WIDTH_FRACTION)
+        }
+        val textClip = Clip(
+            id = clipId,
+            mediaUri = "",
+            startTimeMs = clampedStartMs,
+            durationMs = clampedDurationMs,
+            overlayCenterX = clampedX,
+            overlayCenterY = clampedY,
+            overlayWidthFraction = clampedWidth,
+            textContent = cleanedText,
+            textStyle = style.sanitized(),
+        )
+        return appendClip(
+            project = project,
+            clip = textClip,
+            newTrackId = newTrackId,
+            trackType = TrackType.TEXT,
+        )
+    }
+
+    fun updateTextClip(
+        project: Project,
+        clipId: String,
+        text: String,
+        style: TextOverlayStyle,
+    ): Project {
+        val cleanedText = text.trim()
+        if (cleanedText.isEmpty()) return project
+        val sanitizedStyle = style.sanitized()
+        return modifyClipTrack(project, clipId, requiredTrackType = TrackType.TEXT) { clips, clipIndex ->
+            val clip = clips[clipIndex]
+            if (clip.textContent == cleanedText && clip.textStyle == sanitizedStyle) {
+                return@modifyClipTrack null
+            }
+            clips.toMutableList().apply {
+                set(
+                    clipIndex,
+                    clip.copy(
+                        textContent = cleanedText,
+                        textStyle = sanitizedStyle,
+                    ),
+                )
+            }
+        }
+    }
+
     fun updateOverlayTransform(
         project: Project,
         clipId: String,
         centerX: Float,
         centerY: Float,
         widthFraction: Float,
-    ): Project {
-        val clampedX = if (centerX.isNaN()) Clip.DEFAULT_OVERLAY_CENTER_X else centerX.coerceIn(0f, 1f)
-        val clampedY = if (centerY.isNaN()) Clip.DEFAULT_OVERLAY_CENTER_Y else centerY.coerceIn(0f, 1f)
-        val clampedWidth = if (widthFraction.isNaN()) {
-            Clip.DEFAULT_OVERLAY_WIDTH_FRACTION
-        } else {
-            widthFraction.coerceIn(Clip.MIN_OVERLAY_WIDTH_FRACTION, Clip.MAX_OVERLAY_WIDTH_FRACTION)
-        }
-        return modifyClipTrack(project, clipId, requiredTrackType = TrackType.OVERLAY) { clips, clipIndex ->
-            val clip = clips[clipIndex]
-            if (clip.overlayCenterX == clampedX &&
-                clip.overlayCenterY == clampedY &&
-                clip.overlayWidthFraction == clampedWidth
-            ) {
-                return@modifyClipTrack null
-            }
-            clips.toMutableList().apply {
-                set(
-                    clipIndex,
-                    clip.copy(
-                        overlayCenterX = clampedX,
-                        overlayCenterY = clampedY,
-                        overlayWidthFraction = clampedWidth,
-                    ),
-                )
-            }
-        }
-    }
+    ): Project = updatePositionedTransform(
+        project = project,
+        clipId = clipId,
+        trackType = TrackType.OVERLAY,
+        centerX = centerX,
+        centerY = centerY,
+        widthFraction = widthFraction,
+        defaultCenterX = Clip.DEFAULT_OVERLAY_CENTER_X,
+        defaultCenterY = Clip.DEFAULT_OVERLAY_CENTER_Y,
+        defaultWidthFraction = Clip.DEFAULT_OVERLAY_WIDTH_FRACTION,
+    )
+
+    fun updateTextTransform(
+        project: Project,
+        clipId: String,
+        centerX: Float,
+        centerY: Float,
+        widthFraction: Float,
+    ): Project = updatePositionedTransform(
+        project = project,
+        clipId = clipId,
+        trackType = TrackType.TEXT,
+        centerX = centerX,
+        centerY = centerY,
+        widthFraction = widthFraction,
+        defaultCenterX = Clip.DEFAULT_TEXT_CENTER_X,
+        defaultCenterY = Clip.DEFAULT_TEXT_CENTER_Y,
+        defaultWidthFraction = Clip.DEFAULT_TEXT_WIDTH_FRACTION,
+    )
 
     fun updateOverlayTiming(
         project: Project,
         clipId: String,
         startTimeMs: Long,
         durationMs: Long,
-    ): Project {
-        val totalVideoMs = videoDurationMs(project)
-        if (totalVideoMs < MIN_CLIP_DURATION_MS) return project
-        val maxStartMs = (totalVideoMs - MIN_CLIP_DURATION_MS).coerceAtLeast(0L)
-        val clampedStartMs = startTimeMs.coerceIn(0L, maxStartMs)
-        val maxDurationMs = (totalVideoMs - clampedStartMs).coerceAtLeast(MIN_CLIP_DURATION_MS)
-        val clampedDurationMs = durationMs.coerceIn(MIN_CLIP_DURATION_MS, maxDurationMs)
+    ): Project = updateTimedClipTiming(
+        project = project,
+        clipId = clipId,
+        trackType = TrackType.OVERLAY,
+        startTimeMs = startTimeMs,
+        durationMs = durationMs,
+    )
 
-        return modifyClipTrack(project, clipId, requiredTrackType = TrackType.OVERLAY) { clips, clipIndex ->
-            val clip = clips[clipIndex]
-            if (clip.startTimeMs == clampedStartMs && clip.durationMs == clampedDurationMs) {
-                return@modifyClipTrack null
-            }
-            clips.toMutableList().apply {
-                set(
-                    clipIndex,
-                    clip.copy(
-                        startTimeMs = clampedStartMs,
-                        durationMs = clampedDurationMs,
-                    ),
-                )
-            }
-        }
-    }
+    fun updateTextTiming(
+        project: Project,
+        clipId: String,
+        startTimeMs: Long,
+        durationMs: Long,
+    ): Project = updateTimedClipTiming(
+        project = project,
+        clipId = clipId,
+        trackType = TrackType.TEXT,
+        startTimeMs = startTimeMs,
+        durationMs = durationMs,
+    )
 
     fun removeClip(
         project: Project,
@@ -314,6 +389,85 @@ object ProjectTimeline {
         }
     }
 
+    private fun updatePositionedTransform(
+        project: Project,
+        clipId: String,
+        trackType: TrackType,
+        centerX: Float,
+        centerY: Float,
+        widthFraction: Float,
+        defaultCenterX: Float,
+        defaultCenterY: Float,
+        defaultWidthFraction: Float,
+    ): Project {
+        val clampedX = if (centerX.isNaN()) defaultCenterX else centerX.coerceIn(0f, 1f)
+        val clampedY = if (centerY.isNaN()) defaultCenterY else centerY.coerceIn(0f, 1f)
+        val clampedWidth = if (widthFraction.isNaN()) {
+            defaultWidthFraction
+        } else {
+            widthFraction.coerceIn(Clip.MIN_OVERLAY_WIDTH_FRACTION, Clip.MAX_OVERLAY_WIDTH_FRACTION)
+        }
+        return modifyClipTrack(project, clipId, requiredTrackType = trackType) { clips, clipIndex ->
+            val clip = clips[clipIndex]
+            if (clip.overlayCenterX == clampedX &&
+                clip.overlayCenterY == clampedY &&
+                clip.overlayWidthFraction == clampedWidth
+            ) {
+                return@modifyClipTrack null
+            }
+            clips.toMutableList().apply {
+                set(
+                    clipIndex,
+                    clip.copy(
+                        overlayCenterX = clampedX,
+                        overlayCenterY = clampedY,
+                        overlayWidthFraction = clampedWidth,
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun updateTimedClipTiming(
+        project: Project,
+        clipId: String,
+        trackType: TrackType,
+        startTimeMs: Long,
+        durationMs: Long,
+    ): Project {
+        val totalVideoMs = videoDurationMs(project)
+        if (totalVideoMs < MIN_CLIP_DURATION_MS) return project
+        val (clampedStartMs, clampedDurationMs) = clampTimedRange(totalVideoMs, startTimeMs, durationMs)
+
+        return modifyClipTrack(project, clipId, requiredTrackType = trackType) { clips, clipIndex ->
+            val clip = clips[clipIndex]
+            if (clip.startTimeMs == clampedStartMs && clip.durationMs == clampedDurationMs) {
+                return@modifyClipTrack null
+            }
+            clips.toMutableList().apply {
+                set(
+                    clipIndex,
+                    clip.copy(
+                        startTimeMs = clampedStartMs,
+                        durationMs = clampedDurationMs,
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun clampTimedRange(
+        totalVideoMs: Long,
+        startTimeMs: Long,
+        durationMs: Long,
+    ): Pair<Long, Long> {
+        val maxStartMs = (totalVideoMs - MIN_CLIP_DURATION_MS).coerceAtLeast(0L)
+        val clampedStartMs = startTimeMs.coerceIn(0L, maxStartMs)
+        val maxDurationMs = (totalVideoMs - clampedStartMs).coerceAtLeast(MIN_CLIP_DURATION_MS)
+        val clampedDurationMs = durationMs.coerceIn(MIN_CLIP_DURATION_MS, maxDurationMs)
+        return clampedStartMs to clampedDurationMs
+    }
+
     private inline fun modifyClipTrack(
         project: Project,
         clipId: String,
@@ -338,7 +492,7 @@ object ProjectTimeline {
     }
 
     private fun normalizeTrackClips(trackType: TrackType, clips: List<Clip>): List<Clip> {
-        return if (trackType == TrackType.OVERLAY) {
+        return if (trackType == TrackType.OVERLAY || trackType == TrackType.TEXT) {
             clips
         } else {
             repositionClips(clips)

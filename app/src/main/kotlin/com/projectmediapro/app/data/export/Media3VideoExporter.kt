@@ -41,7 +41,7 @@ import kotlinx.coroutines.withContext
 /**
  * [VideoExporter] built on Media3 Transformer: H.264 video and AAC audio, mixing the video track's
  * audio with an optional second [EditedMediaItemSequence] for music clips and a single
- * composition-level [OverlayEffect] for timed picture overlays.
+ * composition-level [OverlayEffect] for timed picture and styled text/lyric overlays.
  * Transformer must be created, started and queried on the main thread.
  * Media3 1.4.1 [Presentation.LAYOUT_SCALE_TO_FIT] renders letterbox/pillarbox bars in black.
  */
@@ -156,8 +156,11 @@ class Media3VideoExporter(
 
         val builder = Composition.Builder(sequences)
             .experimentalSetForceAudioTrack(true)
-        if (plan.overlays.isNotEmpty()) {
-            val textureOverlays: List<TextureOverlay> = plan.overlays.map { TimedBitmapOverlay(it) }
+        if (plan.overlays.isNotEmpty() || plan.textOverlays.isNotEmpty()) {
+            val textureOverlays: List<TextureOverlay> = buildList(plan.overlays.size + plan.textOverlays.size) {
+                plan.overlays.forEach { add(TimedBitmapOverlay(it)) }
+                plan.textOverlays.forEach { add(TimedTextOverlay(it)) }
+            }
             val overlayEffect = OverlayEffect(ImmutableList.copyOf(textureOverlays))
             builder.setEffects(Effects(emptyList(), listOf(overlayEffect)))
         }
@@ -289,23 +292,26 @@ class Media3VideoExporter(
 }
 
 /**
- * Timed static [BitmapOverlay] for Media3 1.4.1.
- * Scales the decoded first frame to exact canvas pixel width inside [configure] so OpenGL textures
- * stay bounded and aspect ratio is preserved; hides outside `[startTimeUs, endTimeUs)` via alpha 0.
+ * Shared timed [BitmapOverlay] lifecycle for Media3 1.4.1.
+ * Builds a single output-resolution bitmap inside [configure], hides outside
+ * `[startTimeUs, endTimeUs)` via alpha 0, and recycles deterministically in [configure] & [release].
  */
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-private class TimedBitmapOverlay(
-    private val overlay: ExportOverlay,
+private abstract class TimedCanvasBitmapOverlay(
+    startTimeMs: Long,
+    endTimeMs: Long,
+    centerX: Float,
+    centerY: Float,
 ) : BitmapOverlay() {
 
-    private val startTimeUs: Long = overlay.startTimeMs * 1_000L
-    private val endTimeUs: Long = overlay.endTimeMs * 1_000L
+    private val startTimeUs: Long = startTimeMs * 1_000L
+    private val endTimeUs: Long = endTimeMs * 1_000L
 
     private val visibleSettings: OverlaySettings = OverlaySettings.Builder()
         .setAlphaScale(1f)
         .setBackgroundFrameAnchor(
-            overlay.centerX * 2f - 1f,
-            1f - overlay.centerY * 2f,
+            centerX * 2f - 1f,
+            1f - centerY * 2f,
         )
         .setOverlayFrameAnchor(0f, 0f)
         .build()
@@ -316,11 +322,12 @@ private class TimedBitmapOverlay(
 
     private var cachedBitmap: Bitmap? = null
 
+    protected abstract fun buildBitmap(videoSize: Size): Bitmap?
+
     override fun configure(videoSize: Size) {
         super.configure(videoSize)
         cachedBitmap?.let { if (!it.isRecycled) it.recycle() }
-        val targetWidthPx = (videoSize.width * overlay.widthFraction).roundToInt().coerceAtLeast(1)
-        cachedBitmap = decodeScaledOverlayBitmap(overlay.path, targetWidthPx)
+        cachedBitmap = buildBitmap(videoSize)
     }
 
     override fun getBitmap(presentationTimeUs: Long): Bitmap {
@@ -345,6 +352,41 @@ private class TimedBitmapOverlay(
         super.release()
         cachedBitmap?.let { if (!it.isRecycled) it.recycle() }
         cachedBitmap = null
+    }
+}
+
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+private class TimedBitmapOverlay(
+    private val overlay: ExportOverlay,
+) : TimedCanvasBitmapOverlay(
+    startTimeMs = overlay.startTimeMs,
+    endTimeMs = overlay.endTimeMs,
+    centerX = overlay.centerX,
+    centerY = overlay.centerY,
+) {
+    override fun buildBitmap(videoSize: Size): Bitmap? {
+        val targetWidthPx = (videoSize.width * overlay.widthFraction).roundToInt().coerceAtLeast(1)
+        return decodeScaledOverlayBitmap(overlay.path, targetWidthPx)
+    }
+}
+
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+private class TimedTextOverlay(
+    private val textOverlay: ExportTextOverlay,
+) : TimedCanvasBitmapOverlay(
+    startTimeMs = textOverlay.startTimeMs,
+    endTimeMs = textOverlay.endTimeMs,
+    centerX = textOverlay.centerX,
+    centerY = textOverlay.centerY,
+) {
+    override fun buildBitmap(videoSize: Size): Bitmap? {
+        return TextOverlayBitmapRenderer.render(
+            text = textOverlay.text,
+            style = textOverlay.style,
+            canvasWidthPx = videoSize.width,
+            canvasHeightPx = videoSize.height,
+            maxWidthFraction = textOverlay.widthFraction,
+        )
     }
 }
 
