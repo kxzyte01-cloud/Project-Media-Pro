@@ -70,7 +70,8 @@ class OfflineHeuristicTranscriptionEngine(
                 val sortedEnergies = energies.copyOf().apply { sort() }
                 val noiseIdx = (sortedEnergies.size * 0.25f).toInt().coerceIn(0, sortedEnergies.lastIndex)
                 val noiseFloor = sortedEnergies[noiseIdx]
-                val activityThreshold = max(SILENCE_FLOOR, max(noiseFloor * 2.2f, maxEnergy * 0.14f))
+                val adaptiveThreshold = min(maxEnergy * 0.55f, max(noiseFloor * 2.2f, maxEnergy * 0.14f))
+                val activityThreshold = max(SILENCE_FLOOR, adaptiveThreshold)
 
                 val segments = detectActiveRegions(energies, activityThreshold)
                 val activeFrames = energies.count { it >= activityThreshold }
