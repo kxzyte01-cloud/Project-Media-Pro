@@ -37,6 +37,11 @@ data class PreviewClip(
     val trimEndMs: Long = 0L,
 )
 
+data class PreviewSeekRequest(
+    val timelinePositionMs: Long,
+    val requestId: Long,
+)
+
 /**
  * Plays the project's resolved video clips in sequence using a single [ExoPlayer] instance,
  * fitting each clip inside the canvas on [backgroundColor] without cropping or stretching,
@@ -48,6 +53,7 @@ fun PreviewPlayer(
     previewClips: List<PreviewClip>,
     modifier: Modifier = Modifier,
     backgroundColor: Color = Color.Black,
+    seekRequest: PreviewSeekRequest? = null,
     onTimelinePositionChanged: (Long) -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -104,6 +110,18 @@ fun PreviewPlayer(
             player.setMediaItems(mediaItems)
             player.prepare()
             reportPosition()
+        }
+    }
+
+    LaunchedEffect(seekRequest?.requestId) {
+        val request = seekRequest ?: return@LaunchedEffect
+        val mapped = TimelineClock.timelineToPlayerPosition(
+            clipDurationsMs = activeClipDurations,
+            timelinePositionMs = request.timelinePositionMs,
+        ) ?: return@LaunchedEffect
+        if (mapped.first in 0 until player.mediaItemCount) {
+            player.seekTo(mapped.first, mapped.second)
+            latestOnPosition(request.timelinePositionMs.coerceAtLeast(0L))
         }
     }
 

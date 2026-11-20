@@ -24,6 +24,35 @@ import kotlinx.coroutines.withContext
 private const val TEXT_PREVIEW_MAX_SIDE_PX = 1024
 
 @Composable
+internal fun rememberRenderedTextBitmap(
+    text: String,
+    style: TextOverlayStyle,
+    canvasWidthPx: Int,
+    canvasHeightPx: Int,
+    maxWidthFraction: Float = Clip.DEFAULT_TEXT_WIDTH_FRACTION,
+): ImageBitmap? {
+    val renderKey = TextRenderKey(
+        text = text,
+        style = style,
+        renderWidthPx = canvasWidthPx,
+        renderHeightPx = canvasHeightPx,
+        widthFraction = maxWidthFraction,
+    )
+    val bitmap by produceState<ImageBitmap?>(initialValue = null, key1 = renderKey) {
+        value = withContext(Dispatchers.Default) {
+            TextOverlayBitmapRenderer.render(
+                text = text,
+                style = style,
+                canvasWidthPx = canvasWidthPx,
+                canvasHeightPx = canvasHeightPx,
+                maxWidthFraction = maxWidthFraction,
+            )?.asImageBitmap()
+        }
+    }
+    return bitmap
+}
+
+@Composable
 internal fun TextPreviewLayer(
     textClips: List<Clip>,
     timelinePositionMs: Long,
@@ -56,25 +85,14 @@ internal fun TextPreviewLayer(
                 Clip.MIN_OVERLAY_WIDTH_FRACTION,
                 Clip.MAX_OVERLAY_WIDTH_FRACTION,
             )
-            val renderKey = TextRenderKey(
+            val loaded = rememberRenderedTextBitmap(
                 text = clip.textContent,
                 style = style,
-                renderWidthPx = renderWidthPx,
-                renderHeightPx = renderHeightPx,
-                widthFraction = widthFraction,
-            )
-            val bitmap by produceState<ImageBitmap?>(initialValue = null, key1 = renderKey) {
-                value = withContext(Dispatchers.Default) {
-                    TextOverlayBitmapRenderer.render(
-                        text = clip.textContent,
-                        style = style,
-                        canvasWidthPx = renderWidthPx,
-                        canvasHeightPx = renderHeightPx,
-                        maxWidthFraction = widthFraction,
-                    )?.asImageBitmap()
-                }
-            }
-            val loaded = bitmap ?: return@forEach
+                canvasWidthPx = renderWidthPx,
+                canvasHeightPx = renderHeightPx,
+                maxWidthFraction = widthFraction,
+            ) ?: return@forEach
+
             val displayWidthPx = loaded.width / renderScale
             val displayHeightPx = loaded.height / renderScale
             val leftPx = (clip.overlayCenterX.coerceIn(0f, 1f) * canvasWidthPx) - (displayWidthPx / 2f)

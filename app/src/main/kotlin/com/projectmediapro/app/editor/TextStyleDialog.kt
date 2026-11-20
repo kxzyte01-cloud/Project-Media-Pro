@@ -22,26 +22,21 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -51,18 +46,14 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.unit.dp
 import com.projectmediapro.app.R
-import com.projectmediapro.app.data.export.TextOverlayBitmapRenderer
 import com.projectmediapro.core.designsystem.theme.MediaProShapes
 import com.projectmediapro.core.designsystem.theme.MediaProSpacing
 import com.projectmediapro.core.model.CanvasBackground
-import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.TextAlignment
 import com.projectmediapro.core.model.TextFontFamily
 import com.projectmediapro.core.model.TextOverlayStyle
 import com.projectmediapro.core.model.TextStylePreset
 import kotlin.math.roundToInt
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 private const val DIALOG_PREVIEW_WIDTH_PX = 720
 private const val DIALOG_PREVIEW_HEIGHT_PX = 405
@@ -90,7 +81,43 @@ private val BACKGROUND_COLOR_SWATCHES = listOf(
     ColorSwatchOption(TextOverlayStyle.COLOR_BG_LIGHT_FROST, R.string.cd_color_bg_light_frost),
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
+private val TextOverlayStyleSaver: Saver<TextOverlayStyle, Any> = listSaver(
+    save = { s ->
+        listOf(
+            s.fontFamily.name,
+            s.isBold,
+            s.isItalic,
+            s.textSizeFraction,
+            s.textColorArgb,
+            s.strokeColorArgb,
+            s.strokeWidthFraction,
+            s.backgroundColorArgb,
+            s.hasBackground,
+            s.hasShadow,
+            s.alignment.name,
+            s.letterSpacingEm,
+        )
+    },
+    restore = { raw ->
+        val font = runCatching { TextFontFamily.valueOf(raw[0] as String) }.getOrDefault(TextFontFamily.SANS)
+        val align = runCatching { TextAlignment.valueOf(raw[10] as String) }.getOrDefault(TextAlignment.CENTER)
+        TextOverlayStyle(
+            fontFamily = font,
+            isBold = raw[1] as Boolean,
+            isItalic = raw[2] as Boolean,
+            textSizeFraction = raw[3] as Float,
+            textColorArgb = raw[4] as Long,
+            strokeColorArgb = raw[5] as Long,
+            strokeWidthFraction = raw[6] as Float,
+            backgroundColorArgb = raw[7] as Long,
+            hasBackground = raw[8] as Boolean,
+            hasShadow = raw[9] as Boolean,
+            alignment = align,
+            letterSpacingEm = raw[11] as Float,
+        ).sanitized()
+    },
+)
+
 @Composable
 fun TextStyleDialog(
     clipId: String?,
@@ -101,79 +128,21 @@ fun TextStyleDialog(
     onConfirm: (text: String, style: TextOverlayStyle) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val safeInitial = initialStyle.sanitized()
     val stateKey = clipId ?: "new-text"
-
     var text by rememberSaveable(stateKey) { mutableStateOf(initialText) }
-    var fontFamilyName by rememberSaveable(stateKey) { mutableStateOf(safeInitial.fontFamily.name) }
-    var isBold by rememberSaveable(stateKey) { mutableStateOf(safeInitial.isBold) }
-    var isItalic by rememberSaveable(stateKey) { mutableStateOf(safeInitial.isItalic) }
-    var textSizeFraction by rememberSaveable(stateKey) { mutableFloatStateOf(safeInitial.textSizeFraction) }
-    var textColorArgb by rememberSaveable(stateKey) { mutableLongStateOf(safeInitial.textColorArgb) }
-    var strokeColorArgb by rememberSaveable(stateKey) { mutableLongStateOf(safeInitial.strokeColorArgb) }
-    var strokeWidthFraction by rememberSaveable(stateKey) {
-        mutableFloatStateOf(safeInitial.strokeWidthFraction)
-    }
-    var backgroundColorArgb by rememberSaveable(stateKey) {
-        mutableLongStateOf(safeInitial.backgroundColorArgb)
-    }
-    var hasBackground by rememberSaveable(stateKey) { mutableStateOf(safeInitial.hasBackground) }
-    var hasShadow by rememberSaveable(stateKey) { mutableStateOf(safeInitial.hasShadow) }
-    var alignmentName by rememberSaveable(stateKey) { mutableStateOf(safeInitial.alignment.name) }
-    var letterSpacingEm by rememberSaveable(stateKey) { mutableFloatStateOf(safeInitial.letterSpacingEm) }
-
-    val fontFamily = runCatching { TextFontFamily.valueOf(fontFamilyName) }.getOrDefault(TextFontFamily.SANS)
-    val alignment = runCatching { TextAlignment.valueOf(alignmentName) }.getOrDefault(TextAlignment.CENTER)
-
-    val currentStyle = TextOverlayStyle(
-        fontFamily = fontFamily,
-        isBold = isBold,
-        isItalic = isItalic,
-        textSizeFraction = textSizeFraction,
-        textColorArgb = textColorArgb,
-        strokeColorArgb = strokeColorArgb,
-        strokeWidthFraction = strokeWidthFraction,
-        backgroundColorArgb = backgroundColorArgb,
-        hasBackground = hasBackground,
-        hasShadow = hasShadow,
-        alignment = alignment,
-        letterSpacingEm = letterSpacingEm,
-    ).sanitized()
-
-    fun applyPreset(preset: TextStylePreset) {
-        val next = TextOverlayStyle.preset(preset)
-        fontFamilyName = next.fontFamily.name
-        isBold = next.isBold
-        isItalic = next.isItalic
-        textSizeFraction = next.textSizeFraction
-        textColorArgb = next.textColorArgb
-        strokeColorArgb = next.strokeColorArgb
-        strokeWidthFraction = next.strokeWidthFraction
-        backgroundColorArgb = next.backgroundColorArgb
-        hasBackground = next.hasBackground
-        hasShadow = next.hasShadow
-        alignmentName = next.alignment.name
-        letterSpacingEm = next.letterSpacingEm
+    var currentStyle by rememberSaveable(stateKey, stateSaver = TextOverlayStyleSaver) {
+        mutableStateOf(initialStyle.sanitized())
     }
 
     val sampleFallback = stringResource(R.string.editor_text_preview_sample)
     val previewString = text.trim().ifEmpty { sampleFallback }
     val previewBg = canvasBackgroundColor(canvasBackground)
-    val previewBitmap by produceState<ImageBitmap?>(
-        initialValue = null,
-        key1 = previewString,
-        key2 = currentStyle,
-    ) {
-        value = withContext(Dispatchers.Default) {
-            TextOverlayBitmapRenderer.render(
-                text = previewString,
-                style = currentStyle,
-                canvasWidthPx = DIALOG_PREVIEW_WIDTH_PX,
-                canvasHeightPx = DIALOG_PREVIEW_HEIGHT_PX,
-                maxWidthFraction = Clip.DEFAULT_TEXT_WIDTH_FRACTION,
-            )?.asImageBitmap()
-        }
-    }
+    val previewBitmap = rememberRenderedTextBitmap(
+        text = previewString,
+        style = currentStyle,
+        canvasWidthPx = DIALOG_PREVIEW_WIDTH_PX,
+        canvasHeightPx = DIALOG_PREVIEW_HEIGHT_PX,
+    )
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -205,10 +174,9 @@ fun TextStyleDialog(
                         )
                         .padding(MediaProSpacing.Small),
                 ) {
-                    val rendered = previewBitmap
-                    if (rendered != null) {
+                    if (previewBitmap != null) {
                         Image(
-                            bitmap = rendered,
+                            bitmap = previewBitmap,
                             contentDescription = stringResource(R.string.cd_text_style_preview),
                             contentScale = ContentScale.Fit,
                             modifier = Modifier.fillMaxWidth(),
@@ -225,7 +193,7 @@ fun TextStyleDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
 
-                SectionLabel(text = stringResource(R.string.editor_text_presets_label))
+                EditorDialogSectionLabel(text = stringResource(R.string.editor_text_presets_label))
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
                     modifier = Modifier
@@ -235,10 +203,9 @@ fun TextStyleDialog(
                 ) {
                     TextStylePreset.entries.forEach { preset ->
                         val presetStyle = TextOverlayStyle.preset(preset)
-                        val isMatch = currentStyle == presetStyle
                         EditorOptionCard(
-                            isSelected = isMatch,
-                            onClick = { applyPreset(preset) },
+                            isSelected = currentStyle == presetStyle,
+                            onClick = { currentStyle = presetStyle },
                         ) { contentColor ->
                             Text(
                                 text = stringResource(textPresetLabelRes(preset)),
@@ -253,7 +220,7 @@ fun TextStyleDialog(
                     }
                 }
 
-                SectionLabel(text = stringResource(R.string.editor_text_font_label))
+                EditorDialogSectionLabel(text = stringResource(R.string.editor_text_font_label))
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
                     modifier = Modifier
@@ -263,8 +230,8 @@ fun TextStyleDialog(
                 ) {
                     TextFontFamily.entries.forEach { family ->
                         EditorOptionCard(
-                            isSelected = fontFamily == family,
-                            onClick = { fontFamilyName = family.name },
+                            isSelected = currentStyle.fontFamily == family,
+                            onClick = { currentStyle = currentStyle.copy(fontFamily = family) },
                         ) { contentColor ->
                             Text(
                                 text = stringResource(fontFamilyLabelRes(family)),
@@ -284,8 +251,8 @@ fun TextStyleDialog(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     EditorOptionCard(
-                        isSelected = isBold,
-                        onClick = { isBold = !isBold },
+                        isSelected = currentStyle.isBold,
+                        onClick = { currentStyle = currentStyle.copy(isBold = !currentStyle.isBold) },
                         modifier = Modifier.weight(1f),
                     ) { contentColor ->
                         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxWidth()) {
@@ -298,8 +265,8 @@ fun TextStyleDialog(
                         }
                     }
                     EditorOptionCard(
-                        isSelected = isItalic,
-                        onClick = { isItalic = !isItalic },
+                        isSelected = currentStyle.isItalic,
+                        onClick = { currentStyle = currentStyle.copy(isItalic = !currentStyle.isItalic) },
                         modifier = Modifier.weight(1f),
                     ) { contentColor ->
                         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxWidth()) {
@@ -313,15 +280,15 @@ fun TextStyleDialog(
                     }
                 }
 
-                SectionLabel(text = stringResource(R.string.editor_text_align_label))
+                EditorDialogSectionLabel(text = stringResource(R.string.editor_text_align_label))
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     TextAlignment.entries.forEach { item ->
                         EditorOptionCard(
-                            isSelected = alignment == item,
-                            onClick = { alignmentName = item.name },
+                            isSelected = currentStyle.alignment == item,
+                            onClick = { currentStyle = currentStyle.copy(alignment = item) },
                             modifier = Modifier.weight(1f),
                         ) { contentColor ->
                             Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxWidth()) {
@@ -336,67 +303,72 @@ fun TextStyleDialog(
                     }
                 }
 
-                SectionLabel(text = stringResource(R.string.editor_text_color_label))
+                EditorDialogSectionLabel(text = stringResource(R.string.editor_text_color_label))
                 ColorSwatchRow(
                     swatches = TEXT_COLOR_SWATCHES,
-                    selectedArgb = textColorArgb,
+                    selectedArgb = currentStyle.textColorArgb,
                     onSelect = { chosenArgb ->
-                        textColorArgb = chosenArgb
-                        if (strokeColorArgb == chosenArgb) {
-                            strokeColorArgb = if (chosenArgb == TextOverlayStyle.COLOR_BLACK) {
+                        val nextStroke = if (currentStyle.strokeColorArgb == chosenArgb) {
+                            if (chosenArgb == TextOverlayStyle.COLOR_BLACK) {
                                 TextOverlayStyle.COLOR_WHITE
                             } else {
                                 TextOverlayStyle.COLOR_BLACK
                             }
+                        } else {
+                            currentStyle.strokeColorArgb
                         }
+                        currentStyle = currentStyle.copy(
+                            textColorArgb = chosenArgb,
+                            strokeColorArgb = nextStroke,
+                        )
                     },
                 )
 
-                TextStyleSliderRow(
+                EditorDialogSliderRow(
                     label = stringResource(
                         R.string.editor_text_size_value,
-                        (textSizeFraction * 1000f).roundToInt(),
+                        (currentStyle.textSizeFraction * 1000f).roundToInt(),
                     ),
-                    value = textSizeFraction,
+                    value = currentStyle.textSizeFraction,
                     valueRange = TextOverlayStyle.MIN_TEXT_SIZE_FRACTION..TextOverlayStyle.MAX_TEXT_SIZE_FRACTION,
-                    onValueChange = { textSizeFraction = it },
+                    onValueChange = { currentStyle = currentStyle.copy(textSizeFraction = it).sanitized() },
                 )
-                TextStyleSliderRow(
+                EditorDialogSliderRow(
                     label = stringResource(
                         R.string.editor_text_outline_value,
-                        (strokeWidthFraction * 100f).roundToInt(),
+                        (currentStyle.strokeWidthFraction * 100f).roundToInt(),
                     ),
-                    value = strokeWidthFraction,
+                    value = currentStyle.strokeWidthFraction,
                     valueRange = TextOverlayStyle.MIN_STROKE_WIDTH_FRACTION..TextOverlayStyle.MAX_STROKE_WIDTH_FRACTION,
-                    onValueChange = { strokeWidthFraction = it },
+                    onValueChange = { currentStyle = currentStyle.copy(strokeWidthFraction = it).sanitized() },
                 )
-                TextStyleSliderRow(
+                EditorDialogSliderRow(
                     label = stringResource(
                         R.string.editor_text_spacing_value,
-                        (letterSpacingEm * 100f).roundToInt(),
+                        (currentStyle.letterSpacingEm * 100f).roundToInt(),
                     ),
-                    value = letterSpacingEm,
+                    value = currentStyle.letterSpacingEm,
                     valueRange = TextOverlayStyle.MIN_LETTER_SPACING_EM..TextOverlayStyle.MAX_LETTER_SPACING_EM,
-                    onValueChange = { letterSpacingEm = it },
+                    onValueChange = { currentStyle = currentStyle.copy(letterSpacingEm = it).sanitized() },
                 )
 
                 ToggleOptionRow(
                     label = stringResource(R.string.editor_text_background_toggle),
-                    checked = hasBackground,
-                    onCheckedChange = { hasBackground = it },
+                    checked = currentStyle.hasBackground,
+                    onCheckedChange = { currentStyle = currentStyle.copy(hasBackground = it) },
                 )
-                if (hasBackground) {
+                if (currentStyle.hasBackground) {
                     ColorSwatchRow(
                         swatches = BACKGROUND_COLOR_SWATCHES,
-                        selectedArgb = backgroundColorArgb,
-                        onSelect = { backgroundColorArgb = it },
+                        selectedArgb = currentStyle.backgroundColorArgb,
+                        onSelect = { currentStyle = currentStyle.copy(backgroundColorArgb = it) },
                     )
                 }
 
                 ToggleOptionRow(
                     label = stringResource(R.string.editor_text_shadow_toggle),
-                    checked = hasShadow,
-                    onCheckedChange = { hasShadow = it },
+                    checked = currentStyle.hasShadow,
+                    onCheckedChange = { currentStyle = currentStyle.copy(hasShadow = it) },
                 )
             }
         },
@@ -404,7 +376,7 @@ fun TextStyleDialog(
             DialogActionButton(
                 label = stringResource(if (isEditing) R.string.editor_apply else R.string.editor_text_add_confirm),
                 enabled = text.isNotBlank(),
-                onClick = { onConfirm(text.trim(), currentStyle) },
+                onClick = { onConfirm(text.trim(), currentStyle.sanitized()) },
             )
         },
         dismissButton = {
@@ -416,14 +388,6 @@ fun TextStyleDialog(
     )
 }
 
-@Composable
-private fun SectionLabel(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-}
 
 @Composable
 private fun ColorSwatchRow(
@@ -482,7 +446,7 @@ private fun ColorSwatchRow(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun TextStyleSliderRow(
+private fun EditorDialogSliderRow(
     label: String,
     value: Float,
     valueRange: ClosedFloatingPointRange<Float>,

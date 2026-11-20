@@ -11,7 +11,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -265,4 +267,37 @@ internal fun editorErrorStringRes(error: EditorError): Int = when (error) {
     EditorError.EXPORT_NO_SPACE -> R.string.error_export_no_space
     EditorError.EXPORT_SAVE_FAILED -> R.string.error_export_save_failed
     EditorError.EXPORT_NOTHING -> R.string.error_export_nothing
+    EditorError.CAPTIONS_FAILED -> R.string.error_captions_failed
+}
+
+@Composable
+internal fun EditorDialogSectionLabel(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun EditorDialogSliderRow(
+    label: String,
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    onValueChange: (Float) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Slider(
+            value = value.coerceIn(valueRange.start, valueRange.endInclusive),
+            onValueChange = { onValueChange(it.coerceIn(valueRange.start, valueRange.endInclusive)) },
+            valueRange = valueRange,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
 }

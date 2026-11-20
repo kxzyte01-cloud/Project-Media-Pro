@@ -29,7 +29,7 @@ class ExportTextPlanTest {
     @Test
     fun plan_clampsAndDropsTextOverlaysAgainstVideoLengthAndSkipsBlankText() {
         val videoRel = storage.clipRelativePath("proj-1", "v1", "mp4")
-        val videoFile = storage.resolve(videoRel)!!
+        val videoFile = requireNotNull(storage.resolve(videoRel))
         videoFile.parentFile?.mkdirs()
         videoFile.writeText("video-bytes")
 

@@ -1,9 +1,16 @@
 package com.projectmediapro.app.editor
 
 import com.projectmediapro.core.model.Clip
+import com.projectmediapro.core.model.ProjectTimeline
+
+data class ActiveClipPosition(
+    val clip: Clip,
+    val positionInClipMs: Long,
+    val clipDurationMs: Long,
+)
 
 /**
- * Pure mapping between ExoPlayer's per-item playback position and project timeline milliseconds.
+ * Pure bidirectional mapping between ExoPlayer's per-item playback position and project timeline ms.
  */
 object TimelineClock {
 
@@ -21,6 +28,51 @@ object TimelineClock {
         val currentDurationMs = clipDurationsMs[clampedIndex].coerceAtLeast(0L)
         val clampedPositionMs = positionInItemMs.coerceIn(0L, currentDurationMs)
         return offsetMs + clampedPositionMs
+    }
+
+    fun timelineToPlayerPosition(
+        clipDurationsMs: List<Long>,
+        timelinePositionMs: Long,
+    ): Pair<Int, Long>? {
+        if (clipDurationsMs.isEmpty()) return null
+        val targetMs = timelinePositionMs.coerceAtLeast(0L)
+        var offsetMs = 0L
+        for (index in clipDurationsMs.indices) {
+            val durationMs = clipDurationsMs[index].coerceAtLeast(0L)
+            val endMs = offsetMs + durationMs
+            val isLast = index == clipDurationsMs.lastIndex
+            if (targetMs < endMs || isLast) {
+                return index to (targetMs - offsetMs).coerceIn(0L, durationMs)
+            }
+            offsetMs = endMs
+        }
+        return null
+    }
+
+    fun activeClipAt(
+        clips: List<Clip>,
+        timelinePositionMs: Long,
+    ): ActiveClipPosition? {
+        if (clips.isEmpty()) return null
+        var offsetMs = 0L
+        val clampedPos = timelinePositionMs.coerceAtLeast(0L)
+        for (index in clips.indices) {
+            val clip = clips[index]
+            val durationMs = ProjectTimeline.effectiveDurationMs(clip)
+            if (durationMs <= 0L) continue
+            val endMs = offsetMs + durationMs
+            val isLast = index == clips.lastIndex
+            if (clampedPos < endMs || isLast) {
+                val posInClip = (clampedPos - offsetMs).coerceIn(0L, durationMs)
+                return ActiveClipPosition(
+                    clip = clip,
+                    positionInClipMs = posInClip,
+                    clipDurationMs = durationMs,
+                )
+            }
+            offsetMs = endMs
+        }
+        return null
     }
 
     fun isOverlayVisibleAt(

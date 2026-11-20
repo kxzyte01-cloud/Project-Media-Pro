@@ -219,6 +219,9 @@ fun AppNavHost(
                     exportSaver = container.exportSaver,
                     cacheSpaceProvider = container.cacheSpaceProvider,
                     tempDirectory = container.exportTempDirectory,
+                    captionRepository = container.captionRepository,
+                    pcmAudioExtractor = container.pcmAudioExtractor,
+                    transcriptionEngine = container.transcriptionEngine,
                 ),
             )
             val uiState by viewModel.uiState.collectAsStateWithLifecycle()

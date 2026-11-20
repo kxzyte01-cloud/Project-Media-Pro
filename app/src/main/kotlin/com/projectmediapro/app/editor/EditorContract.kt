@@ -2,10 +2,14 @@ package com.projectmediapro.app.editor
 
 import com.projectmediapro.core.model.CanvasAspect
 import com.projectmediapro.core.model.CanvasBackground
+import com.projectmediapro.core.model.ClipVisualEffects
 import com.projectmediapro.core.model.ExportQuality
 import com.projectmediapro.core.model.Project
 import com.projectmediapro.core.model.TextOverlayStyle
 import com.projectmediapro.core.model.TrackType
+import com.projectmediapro.feature.captions.CaptionDocument
+import com.projectmediapro.feature.captions.CaptionStyle
+import com.projectmediapro.feature.captions.CaptionTemplateId
 
 enum class EditorError {
     IMPORT_FAILED,
@@ -19,6 +23,7 @@ enum class EditorError {
     EXPORT_NO_SPACE,
     EXPORT_SAVE_FAILED,
     EXPORT_NOTHING,
+    CAPTIONS_FAILED,
 }
 
 sealed interface ExportUiState {
@@ -31,11 +36,13 @@ sealed interface EditorDialog {
     data class Trim(val clipId: String) : EditorDialog
     data class Split(val clipId: String) : EditorDialog
     data class Volume(val clipId: String) : EditorDialog
+    data class ClipEffects(val clipId: String) : EditorDialog
     data class OverlayPosition(val clipId: String) : EditorDialog
     data class OverlayTiming(val clipId: String) : EditorDialog
     data class TextEdit(val clipId: String?) : EditorDialog
     data class TextPosition(val clipId: String) : EditorDialog
     data class TextTiming(val clipId: String) : EditorDialog
+    data object Captions : EditorDialog
     data object Canvas : EditorDialog
     data object Quality : EditorDialog
 }
@@ -63,6 +70,8 @@ sealed interface EditorUiState {
         val importingTrack: TrackType? = null,
         val audioPreview: AudioPreviewState? = null,
         val pendingRemoveClipId: String? = null,
+        val captionDocument: CaptionDocument? = null,
+        val isTranscribingCaptions: Boolean = false,
         val export: ExportUiState = ExportUiState.Idle,
         val error: EditorError? = null,
     ) : EditorUiState {
@@ -85,18 +94,21 @@ sealed interface EditorEvent {
     data object OpenTrim : EditorEvent
     data object OpenSplit : EditorEvent
     data object OpenVolume : EditorEvent
+    data object OpenClipEffects : EditorEvent
     data object OpenOverlayPosition : EditorEvent
     data object OpenOverlayTiming : EditorEvent
     data object OpenAddText : EditorEvent
     data object OpenEditText : EditorEvent
     data object OpenTextPosition : EditorEvent
     data object OpenTextTiming : EditorEvent
+    data object OpenCaptions : EditorEvent
     data object OpenCanvas : EditorEvent
     data object OpenExportQuality : EditorEvent
     data object DismissDialog : EditorEvent
     data class ApplyTrim(val startMs: Long, val endMs: Long) : EditorEvent
     data class ApplySplit(val offsetMs: Long) : EditorEvent
     data class ApplyVolume(val volume: Float) : EditorEvent
+    data class ApplyClipEffects(val effects: ClipVisualEffects) : EditorEvent
     data class ApplyOverlayPosition(
         val centerX: Float,
         val centerY: Float,
@@ -119,6 +131,15 @@ sealed interface EditorEvent {
         val startTimeMs: Long,
         val durationMs: Long,
     ) : EditorEvent
+    data class GenerateCaptions(val providedScript: String? = null) : EditorEvent
+    data class SelectCaptionPreset(val presetId: String) : EditorEvent
+    data class SelectCaptionTemplate(val templateId: CaptionTemplateId) : EditorEvent
+    data class UpdateCaptionOffsetUs(val offsetUs: Long) : EditorEvent
+    data class UpdateCaptionStyle(val style: CaptionStyle) : EditorEvent
+    data class UpdateCaptionWordText(val wordId: String, val newText: String) : EditorEvent
+    data class ImportSrtCaptions(val srtText: String) : EditorEvent
+    data object ClearCaptions : EditorEvent
+    data object ReportCaptionError : EditorEvent
     data class ApplyCanvas(
         val aspect: CanvasAspect,
         val background: CanvasBackground,

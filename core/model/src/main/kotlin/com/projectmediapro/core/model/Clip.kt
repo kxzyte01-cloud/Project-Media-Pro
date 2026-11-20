@@ -18,6 +18,8 @@ import kotlinx.serialization.Serializable
  *   [overlayWidthFraction] define placement as fractions of the project canvas frame.
  * - For [TrackType.TEXT] clips, [textContent] holds the lyric/title string and [textStyle] holds
  *   the styling configuration (falling back to [TextOverlayStyle] defaults when null).
+ * - For [TrackType.VIDEO] clips, [visualEffects] holds optional non-destructive filter, color
+ *   adjustments, and fade/transition settings (`null` means identity / no effects).
  */
 @Serializable
 data class Clip(
@@ -35,6 +37,7 @@ data class Clip(
     val overlayWidthFraction: Float = DEFAULT_OVERLAY_WIDTH_FRACTION,
     val textContent: String = "",
     val textStyle: TextOverlayStyle? = null,
+    val visualEffects: ClipVisualEffects? = null,
 ) {
     companion object {
         const val DEFAULT_OVERLAY_CENTER_X: Float = 0.8f

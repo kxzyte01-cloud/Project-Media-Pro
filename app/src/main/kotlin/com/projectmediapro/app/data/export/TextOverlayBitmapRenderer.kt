@@ -16,12 +16,9 @@ import kotlin.math.ceil
 import kotlin.math.roundToInt
 
 /**
- * Shared WYSIWYG text & lyric bitmap renderer used by both the live Compose preview
- * ([com.projectmediapro.app.editor.TextPreviewLayer]) and Media3 Transformer export
- * ([Media3VideoExporter]).
- *
- * Uses standard Android [Typeface] families and [StaticLayout.Builder] (API 23+, minSdk 26)
- * so rendering is 100% offline with zero extra font assets or dependencies.
+ * Shared WYSIWYG text & lyric bitmap renderer used by live preview and Media3 export.
+ * Uses Android [Typeface] families and [StaticLayout.Builder] (API 23+, minSdk 26)
+ * so rendering stays 100% offline with zero bundled font assets.
  */
 object TextOverlayBitmapRenderer {
 
@@ -123,8 +120,8 @@ object TextOverlayBitmapRenderer {
 
         if (safeStyle.hasBackground) {
             val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = safeStyle.backgroundColorArgb.toInt()
-                style = Paint.Style.FILL
+                this.color = safeStyle.backgroundColorArgb.toInt()
+                this.style = Paint.Style.FILL
             }
             val bgRect = RectF(
                 extraMarginPx.toFloat(),

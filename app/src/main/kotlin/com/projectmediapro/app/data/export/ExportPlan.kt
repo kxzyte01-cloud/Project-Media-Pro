@@ -2,6 +2,7 @@ package com.projectmediapro.app.data.export
 
 import com.projectmediapro.core.model.CanvasAspect
 import com.projectmediapro.core.model.Clip
+import com.projectmediapro.core.model.ClipVisualEffects
 import com.projectmediapro.core.model.ExportQuality
 import com.projectmediapro.core.model.Project
 import com.projectmediapro.core.model.ProjectTimeline
@@ -10,6 +11,7 @@ import com.projectmediapro.core.model.audioClips as modelAudioClips
 import com.projectmediapro.core.model.overlayClips as modelOverlayClips
 import com.projectmediapro.core.model.textClips as modelTextClips
 import com.projectmediapro.core.model.videoClips as modelVideoClips
+import com.projectmediapro.feature.captions.CaptionDocument
 import java.io.File
 
 fun Project.videoClips(): List<Clip> = modelVideoClips()
@@ -21,6 +23,8 @@ data class ExportClip(
     val path: String,
     val trimStartMs: Long,
     val trimEndMs: Long,
+    val durationMs: Long = 0L,
+    val visualEffects: ClipVisualEffects? = null,
 )
 
 /**
@@ -66,6 +70,7 @@ data class ExportPlan(
     val textOverlays: List<ExportTextOverlay> = emptyList(),
     val canvasAspect: CanvasAspect = CanvasAspect.ORIGINAL,
     val exportQuality: ExportQuality = ExportQuality.FULL_HD_1080P,
+    val captionDocument: CaptionDocument? = null,
 )
 
 object ExportPlanner {
@@ -73,7 +78,11 @@ object ExportPlanner {
     const val MIN_ESTIMATED_BYTES: Long = 50L * 1024L * 1024L
     const val MAX_LONG_SIDE_PX: Int = ExportGeometry.FULL_HD_LONG_SIDE_PX
 
-    fun plan(project: Project, resolve: (String) -> File?): ExportPlan {
+    fun plan(
+        project: Project,
+        captionDocument: CaptionDocument? = null,
+        resolve: (String) -> File?,
+    ): ExportPlan {
         val clips = project.modelVideoClips()
         if (clips.isEmpty()) {
             throw IllegalStateException("No video clips to export")
@@ -89,11 +98,16 @@ object ExportPlanner {
             if (clipDurationMs <= 0L) continue
 
             val (trimStartMs, trimEndMs) = ProjectTimeline.resolvedTrimBounds(clip)
+            val sanitizedEffects = clip.visualEffects
+                ?.sanitized(clipDurationMs)
+                ?.takeUnless { it.isIdentity }
             exportClips.add(
                 ExportClip(
                     path = file.absolutePath,
                     trimStartMs = trimStartMs,
                     trimEndMs = trimEndMs,
+                    durationMs = clipDurationMs,
+                    visualEffects = sanitizedEffects,
                 ),
             )
             totalDurationMs += clipDurationMs
@@ -126,6 +140,7 @@ object ExportPlanner {
             textOverlays = exportTextOverlays,
             canvasAspect = project.canvasAspect,
             exportQuality = project.exportQuality,
+            captionDocument = captionDocument?.takeIf { it.lines.isNotEmpty() },
         )
     }
 

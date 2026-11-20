@@ -30,6 +30,7 @@ import androidx.media3.transformer.Transformer
 import com.google.common.collect.ImmutableList
 import com.projectmediapro.app.data.export.VideoExportException.Reason
 import com.projectmediapro.core.model.CanvasAspect
+import com.projectmediapro.feature.captions.CaptionOverlayEffectFactory
 import java.io.File
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -40,8 +41,9 @@ import kotlinx.coroutines.withContext
 
 /**
  * [VideoExporter] built on Media3 Transformer: H.264 video and AAC audio, mixing the video track's
- * audio with an optional second [EditedMediaItemSequence] for music clips and a single
- * composition-level [OverlayEffect] for timed picture and styled text/lyric overlays.
+ * audio with an optional second [EditedMediaItemSequence] for music clips, per-clip GPU filters,
+ * color adjustments, and fades via [VideoEffectFactory], and a single composition-level
+ * [OverlayEffect] for timed picture and styled text/lyric overlays.
  * Transformer must be created, started and queried on the main thread.
  * Media3 1.4.1 [Presentation.LAYOUT_SCALE_TO_FIT] renders letterbox/pillarbox bars in black.
  */
@@ -118,7 +120,7 @@ class Media3VideoExporter(
     }
 
     private fun buildComposition(plan: ExportPlan, targetSize: Pair<Int, Int>?): Composition {
-        val videoEffects: List<Effect> = if (targetSize != null) {
+        val presentationEffects: List<Effect> = if (targetSize != null) {
             listOf(
                 Presentation.createForWidthAndHeight(
                     targetSize.first,
@@ -132,8 +134,10 @@ class Media3VideoExporter(
 
         val editedVideoItems = plan.clips.map { clip ->
             val mediaItem = buildClippedMediaItem(clip.path, clip.trimStartMs, clip.trimEndMs)
+            val clipEffects = VideoEffectFactory.buildClipEffects(clip.visualEffects, clip.durationMs)
+            val allVideoEffects = presentationEffects + clipEffects
             EditedMediaItem.Builder(mediaItem)
-                .setEffects(Effects(emptyList(), videoEffects))
+                .setEffects(Effects(emptyList(), allVideoEffects))
                 .build()
         }
 
@@ -156,13 +160,18 @@ class Media3VideoExporter(
 
         val builder = Composition.Builder(sequences)
             .experimentalSetForceAudioTrack(true)
-        if (plan.overlays.isNotEmpty() || plan.textOverlays.isNotEmpty()) {
-            val textureOverlays: List<TextureOverlay> = buildList(plan.overlays.size + plan.textOverlays.size) {
-                plan.overlays.forEach { add(TimedBitmapOverlay(it)) }
-                plan.textOverlays.forEach { add(TimedTextOverlay(it)) }
+        val compositionVideoEffects = buildList<Effect> {
+            if (plan.overlays.isNotEmpty() || plan.textOverlays.isNotEmpty()) {
+                val textureOverlays: List<TextureOverlay> = buildList(plan.overlays.size + plan.textOverlays.size) {
+                    plan.overlays.forEach { add(TimedBitmapOverlay(it)) }
+                    plan.textOverlays.forEach { add(TimedTextOverlay(it)) }
+                }
+                add(OverlayEffect(ImmutableList.copyOf(textureOverlays)))
             }
-            val overlayEffect = OverlayEffect(ImmutableList.copyOf(textureOverlays))
-            builder.setEffects(Effects(emptyList(), listOf(overlayEffect)))
+            CaptionOverlayEffectFactory.create(plan.captionDocument)?.let { add(it) }
+        }
+        if (compositionVideoEffects.isNotEmpty()) {
+            builder.setEffects(Effects(emptyList(), compositionVideoEffects))
         }
         return builder.build()
     }

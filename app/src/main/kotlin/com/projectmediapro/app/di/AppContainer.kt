@@ -23,6 +23,12 @@ import com.projectmediapro.app.settings.DataStoreThemePreferencesStore
 import com.projectmediapro.app.settings.PrivacyPolicyDataSource
 import com.projectmediapro.app.settings.RawResourcePrivacyPolicyDataSource
 import com.projectmediapro.app.settings.ThemePreferencesStore
+import com.projectmediapro.feature.captions.CaptionRepository
+import com.projectmediapro.feature.captions.FileCaptionRepository
+import com.projectmediapro.feature.captions.MediaCodecPcmAudioExtractor
+import com.projectmediapro.feature.captions.OfflineHeuristicTranscriptionEngine
+import com.projectmediapro.feature.captions.PcmAudioExtractor
+import com.projectmediapro.feature.captions.TranscriptionEngine
 import java.io.File
 
 class AppContainer(appContext: Context) {
@@ -78,5 +84,10 @@ class AppContainer(appContext: Context) {
     val exportSaver: ExportSaver = AndroidExportSaver(context = appContext)
     val exportTempDirectory: File = File(appContext.cacheDir, "exports")
     val cacheSpaceProvider: () -> Long = { usableBytesNear(exportTempDirectory) }
+    val captionRepository: CaptionRepository = FileCaptionRepository(
+        directory = File(appContext.filesDir, "captions"),
+    )
+    val pcmAudioExtractor: PcmAudioExtractor = MediaCodecPcmAudioExtractor()
+    val transcriptionEngine: TranscriptionEngine = OfflineHeuristicTranscriptionEngine()
     val appVersionName: String = BuildConfig.VERSION_NAME
 }

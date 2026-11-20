@@ -33,12 +33,15 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -48,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import com.projectmediapro.app.R
 import com.projectmediapro.app.data.export.ExportGeometry
 import com.projectmediapro.app.data.export.sanitizeExportName
+import com.projectmediapro.app.data.media.SubtitleFileIo
 import com.projectmediapro.core.designsystem.component.MediaProTopBar
 import com.projectmediapro.core.designsystem.theme.MediaProShapes
 import com.projectmediapro.core.designsystem.theme.MediaProSpacing
@@ -61,6 +65,15 @@ import com.projectmediapro.core.model.audioClips
 import com.projectmediapro.core.model.overlayClips
 import com.projectmediapro.core.model.textClips
 import com.projectmediapro.core.model.videoClips
+import com.projectmediapro.feature.captions.CaptionDocument
+import com.projectmediapro.feature.captions.CaptionPreviewOverlay
+import com.projectmediapro.feature.captions.CaptionSheetCallbacks
+import com.projectmediapro.feature.captions.CaptionTime
+import com.projectmediapro.feature.captions.CaptionsEditorSheet
+import com.projectmediapro.feature.captions.SrtCaptionCodec
+import java.io.IOException
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 
 @Composable
 fun EditorScreen(
@@ -189,6 +202,46 @@ private fun LoadedEditorContent(
     onEvent: (EditorEvent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val importSrtLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            try {
+                val srtText = SubtitleFileIo.readSrtText(context, uri)
+                onEvent(EditorEvent.ImportSrtCaptions(srtText))
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: IOException) {
+                onEvent(EditorEvent.ReportCaptionError)
+            } catch (_: SecurityException) {
+                onEvent(EditorEvent.ReportCaptionError)
+            }
+        }
+    }
+    val exportSrtLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/x-subrip"),
+    ) { uri ->
+        val doc = state.captionDocument ?: return@rememberLauncherForActivityResult
+        if (uri == null || doc.lines.isEmpty()) return@rememberLauncherForActivityResult
+        val srt = SrtCaptionCodec.exportSrt(doc)
+        if (srt.isEmpty()) return@rememberLauncherForActivityResult
+        scope.launch {
+            try {
+                SubtitleFileIo.writeSrtText(context, uri, srt)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: IOException) {
+                onEvent(EditorEvent.ReportCaptionError)
+            } catch (_: SecurityException) {
+                onEvent(EditorEvent.ReportCaptionError)
+            }
+        }
+    }
+    var seekRequest by remember(state.project.id) { mutableStateOf<PreviewSeekRequest?>(null) }
+    var seekRequestCounter by remember(state.project.id) { mutableLongStateOf(0L) }
     val clips = state.project.videoClips()
     val audioClips = state.project.audioClips()
     val overlayClips = state.project.overlayClips()
@@ -217,11 +270,13 @@ private fun LoadedEditorContent(
         Spacer(modifier = Modifier.height(MediaProSpacing.Medium))
         EditorPreviewStage(
             projectId = state.project.id,
-            hasVideoClips = clips.isNotEmpty(),
+            videoClips = clips,
             previewClips = state.previewClips,
             overlayClips = overlayClips,
             overlayFilePaths = state.overlayFilePaths,
             textClips = textClips,
+            captionDocument = state.captionDocument,
+            seekRequest = seekRequest,
             previewAspectRatio = previewAspectRatio,
             previewBackground = previewBackground,
             emptyPreviewTextColor = emptyPreviewTextColor,
@@ -255,10 +310,13 @@ private fun LoadedEditorContent(
                     isAudioClip = selectedLocation.isAudio,
                     isOverlayClip = selectedLocation.isOverlay,
                     isTextClip = selectedLocation.isText,
+                    hasActiveEffects = selectedLocation.isVideo &&
+                        selectedClip.visualEffects?.isIdentity == false,
                     canEditOverlayTiming = videoDurationMs >= ProjectTimeline.MIN_CLIP_DURATION_MS,
                     isAudioPlaying = state.audioPreview?.clipId == selectedClip.id,
                     onTrimClick = { onEvent(EditorEvent.OpenTrim) },
                     onSplitClick = { onEvent(EditorEvent.OpenSplit) },
+                    onEffectsClick = { onEvent(EditorEvent.OpenClipEffects) },
                     onVolumeClick = { onEvent(EditorEvent.OpenVolume) },
                     onOverlayPositionClick = { onEvent(EditorEvent.OpenOverlayPosition) },
                     onOverlayTimingClick = { onEvent(EditorEvent.OpenOverlayTiming) },
@@ -364,12 +422,23 @@ private fun LoadedEditorContent(
         }
 
         Spacer(modifier = Modifier.height(MediaProSpacing.Small))
-        EditorOutlinedButton(
-            label = stringResource(R.string.editor_canvas_button),
-            enabled = editsEnabled,
-            onClick = { onEvent(EditorEvent.OpenCanvas) },
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
             modifier = Modifier.fillMaxWidth(),
-        )
+        ) {
+            EditorOutlinedButton(
+                label = stringResource(R.string.editor_canvas_button),
+                enabled = editsEnabled,
+                onClick = { onEvent(EditorEvent.OpenCanvas) },
+                modifier = Modifier.weight(1f),
+            )
+            EditorOutlinedButton(
+                label = stringResource(R.string.editor_captions_button),
+                enabled = editsEnabled,
+                onClick = { onEvent(EditorEvent.OpenCaptions) },
+                modifier = Modifier.weight(1f),
+            )
+        }
 
         Spacer(modifier = Modifier.height(MediaProSpacing.Small))
         ExportSection(
@@ -451,6 +520,18 @@ private fun LoadedEditorContent(
                     clip = location.clip,
                     onConfirm = { volume ->
                         onEvent(EditorEvent.ApplyVolume(volume = volume))
+                    },
+                    onDismiss = { onEvent(EditorEvent.DismissDialog) },
+                )
+            }
+        }
+        is EditorDialog.ClipEffects -> {
+            val location = state.project.findClipLocation(dialog.clipId)
+            if (location != null && location.isVideo) {
+                ClipEffectsDialog(
+                    clip = location.clip,
+                    onConfirm = { effects ->
+                        onEvent(EditorEvent.ApplyClipEffects(effects))
                     },
                     onDismiss = { onEvent(EditorEvent.DismissDialog) },
                 )
@@ -555,6 +636,37 @@ private fun LoadedEditorContent(
                 )
             }
         }
+        EditorDialog.Captions -> {
+            CaptionsEditorSheet(
+                document = state.captionDocument,
+                isTranscribing = state.isTranscribingCaptions,
+                hasClips = clips.isNotEmpty() || audioClips.isNotEmpty(),
+                callbacks = CaptionSheetCallbacks(
+                    onGenerateCaptions = { onEvent(EditorEvent.GenerateCaptions()) },
+                    onSelectPreset = { presetId -> onEvent(EditorEvent.SelectCaptionPreset(presetId)) },
+                    onSelectTemplate = { templateId -> onEvent(EditorEvent.SelectCaptionTemplate(templateId)) },
+                    onUpdateOffsetUs = { offsetUs -> onEvent(EditorEvent.UpdateCaptionOffsetUs(offsetUs)) },
+                    onUpdateStyle = { style -> onEvent(EditorEvent.UpdateCaptionStyle(style)) },
+                    onUpdateWordText = { wordId, newText ->
+                        onEvent(EditorEvent.UpdateCaptionWordText(wordId, newText))
+                    },
+                    onSeekToUs = { positionUs ->
+                        seekRequestCounter += 1L
+                        seekRequest = PreviewSeekRequest(
+                            timelinePositionMs = (positionUs / CaptionTime.MICROS_PER_MS).coerceAtLeast(0L),
+                            requestId = seekRequestCounter,
+                        )
+                    },
+                    onClearCaptions = { onEvent(EditorEvent.ClearCaptions) },
+                    onGenerateWithScript = { script -> onEvent(EditorEvent.GenerateCaptions(script)) },
+                    onImportSrt = { importSrtLauncher.launch(arrayOf("*/*")) },
+                    onExportSrt = {
+                        exportSrtLauncher.launch("${sanitizeExportName(state.project.title)}.srt")
+                    },
+                ),
+                onDismiss = { onEvent(EditorEvent.DismissDialog) },
+            )
+        }
         EditorDialog.Canvas -> {
             CanvasDialog(
                 initialAspect = state.project.canvasAspect,
@@ -604,15 +716,18 @@ private fun CenteredEditorStatus(
 @Composable
 private fun EditorPreviewStage(
     projectId: String,
-    hasVideoClips: Boolean,
+    videoClips: List<Clip>,
     previewClips: List<PreviewClip>,
     overlayClips: List<Clip>,
     overlayFilePaths: Map<String, String>,
     textClips: List<Clip>,
+    captionDocument: CaptionDocument?,
+    seekRequest: PreviewSeekRequest?,
     previewAspectRatio: Float,
     previewBackground: Color,
     emptyPreviewTextColor: Color,
 ) {
+    val hasVideoClips = videoClips.isNotEmpty()
     var timelinePositionMs by remember(projectId) { mutableLongStateOf(0L) }
 
     Box(
@@ -643,7 +758,13 @@ private fun EditorPreviewStage(
                     PreviewPlayer(
                         previewClips = previewClips,
                         backgroundColor = previewBackground,
+                        seekRequest = seekRequest,
                         onTimelinePositionChanged = { timelinePositionMs = it },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    PreviewEffectsOverlay(
+                        videoClips = videoClips,
+                        timelinePositionMs = timelinePositionMs,
                         modifier = Modifier.fillMaxSize(),
                     )
                     OverlayPreviewLayer(
@@ -657,6 +778,13 @@ private fun EditorPreviewStage(
                     textClips = textClips,
                     timelinePositionMs = timelinePositionMs,
                     modifier = Modifier.fillMaxSize(),
+                )
+                CaptionPreviewOverlay(
+                    document = captionDocument,
+                    currentPositionUs = timelinePositionMs * CaptionTime.MICROS_PER_MS,
+                    videoWidth = 0,
+                    videoHeight = 0,
+                    modifier = Modifier.matchParentSize(),
                 )
             }
         }

@@ -150,13 +150,14 @@ object ProjectTimeline {
         } else {
             startTimeMs.coerceAtLeast(0L) to durationMs.coerceAtLeast(MIN_CLIP_DURATION_MS)
         }
-        val clampedX = if (centerX.isNaN()) Clip.DEFAULT_TEXT_CENTER_X else centerX.coerceIn(0f, 1f)
-        val clampedY = if (centerY.isNaN()) Clip.DEFAULT_TEXT_CENTER_Y else centerY.coerceIn(0f, 1f)
-        val clampedWidth = if (widthFraction.isNaN()) {
-            Clip.DEFAULT_TEXT_WIDTH_FRACTION
-        } else {
-            widthFraction.coerceIn(Clip.MIN_OVERLAY_WIDTH_FRACTION, Clip.MAX_OVERLAY_WIDTH_FRACTION)
-        }
+        val (clampedX, clampedY, clampedWidth) = sanitizeOverlayTransform(
+            centerX = centerX,
+            centerY = centerY,
+            widthFraction = widthFraction,
+            defaultCenterX = Clip.DEFAULT_TEXT_CENTER_X,
+            defaultCenterY = Clip.DEFAULT_TEXT_CENTER_Y,
+            defaultWidthFraction = Clip.DEFAULT_TEXT_WIDTH_FRACTION,
+        )
         val textClip = Clip(
             id = clipId,
             mediaUri = "",
@@ -199,6 +200,20 @@ object ProjectTimeline {
                     ),
                 )
             }
+        }
+    }
+
+    fun updateClipVisualEffects(
+        project: Project,
+        clipId: String,
+        effects: ClipVisualEffects,
+    ): Project = modifyClipTrack(project, clipId, requiredTrackType = TrackType.VIDEO) { clips, clipIndex ->
+        val clip = clips[clipIndex]
+        val sanitized = effects.sanitized(effectiveDurationMs(clip))
+        val normalized: ClipVisualEffects? = if (sanitized.isIdentity) null else sanitized
+        if (clip.visualEffects == normalized) return@modifyClipTrack null
+        clips.toMutableList().apply {
+            set(clipIndex, clip.copy(visualEffects = normalized))
         }
     }
 
@@ -288,11 +303,13 @@ object ProjectTimeline {
             return@modifyClipTrack null
         }
 
+        val updatedEffects = clip.visualEffects?.sanitized(trimmedDurationMs)?.takeUnless { it.isIdentity }
         val updatedClip = clip.copy(
             durationMs = trimmedDurationMs,
             trimStartMs = newStartMs,
             trimEndMs = newEndMs,
             sourceDurationMs = sourceDurationMs,
+            visualEffects = updatedEffects,
         )
         clips.toMutableList().apply { set(clipIndex, updatedClip) }
     }
@@ -323,6 +340,7 @@ object ProjectTimeline {
                 trimStartMs = currentStartMs,
                 trimEndMs = splitPointMs,
                 sourceDurationMs = sourceDurationMs,
+                visualEffects = clip.visualEffects?.sanitized(offsetMs)?.takeUnless { it.isIdentity },
             )
             val secondPart = clip.copy(
                 id = newClipId,
@@ -330,6 +348,7 @@ object ProjectTimeline {
                 trimStartMs = splitPointMs,
                 trimEndMs = currentEndMs,
                 sourceDurationMs = sourceDurationMs,
+                visualEffects = clip.visualEffects?.sanitized(secondDurationMs)?.takeUnless { it.isIdentity },
             )
 
             buildList(clips.size + 1) {
@@ -400,13 +419,14 @@ object ProjectTimeline {
         defaultCenterY: Float,
         defaultWidthFraction: Float,
     ): Project {
-        val clampedX = if (centerX.isNaN()) defaultCenterX else centerX.coerceIn(0f, 1f)
-        val clampedY = if (centerY.isNaN()) defaultCenterY else centerY.coerceIn(0f, 1f)
-        val clampedWidth = if (widthFraction.isNaN()) {
-            defaultWidthFraction
-        } else {
-            widthFraction.coerceIn(Clip.MIN_OVERLAY_WIDTH_FRACTION, Clip.MAX_OVERLAY_WIDTH_FRACTION)
-        }
+        val (clampedX, clampedY, clampedWidth) = sanitizeOverlayTransform(
+            centerX = centerX,
+            centerY = centerY,
+            widthFraction = widthFraction,
+            defaultCenterX = defaultCenterX,
+            defaultCenterY = defaultCenterY,
+            defaultWidthFraction = defaultWidthFraction,
+        )
         return modifyClipTrack(project, clipId, requiredTrackType = trackType) { clips, clipIndex ->
             val clip = clips[clipIndex]
             if (clip.overlayCenterX == clampedX &&
@@ -454,6 +474,24 @@ object ProjectTimeline {
                 )
             }
         }
+    }
+
+    private fun sanitizeOverlayTransform(
+        centerX: Float,
+        centerY: Float,
+        widthFraction: Float,
+        defaultCenterX: Float,
+        defaultCenterY: Float,
+        defaultWidthFraction: Float,
+    ): Triple<Float, Float, Float> {
+        val clampedX = if (centerX.isNaN()) defaultCenterX else centerX.coerceIn(0f, 1f)
+        val clampedY = if (centerY.isNaN()) defaultCenterY else centerY.coerceIn(0f, 1f)
+        val clampedWidth = if (widthFraction.isNaN()) {
+            defaultWidthFraction
+        } else {
+            widthFraction.coerceIn(Clip.MIN_OVERLAY_WIDTH_FRACTION, Clip.MAX_OVERLAY_WIDTH_FRACTION)
+        }
+        return Triple(clampedX, clampedY, clampedWidth)
     }
 
     private fun clampTimedRange(

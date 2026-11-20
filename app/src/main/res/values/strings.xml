@@ -14,6 +14,7 @@
     <string name="cd_overlay_position_preview">Overlay preview at X %1$d%%, Y %2$d%%, size %3$d%%</string>
     <string name="cd_text_position_preview">Text preview at X %1$d%%, Y %2$d%%, width %3$d%%</string>
     <string name="cd_text_style_preview">Styled text preview</string>
+    <string name="cd_effects_preview">Color grade preview for %1$s</string>
     <string name="cd_color_white">White</string>
     <string name="cd_color_cream">Warm cream</string>
     <string name="cd_color_amber">Amber gold</string>
@@ -88,6 +89,7 @@
     <string name="editor_lane_text">Text &amp; lyrics</string>
     <string name="editor_tool_trim">Trim</string>
     <string name="editor_tool_split">Split</string>
+    <string name="editor_tool_effects">Effects</string>
     <string name="editor_tool_volume">Volume</string>
     <string name="editor_tool_position">Position</string>
     <string name="editor_tool_timing">Timing</string>
@@ -102,6 +104,29 @@
     <string name="editor_split_at">Split at %1$s</string>
     <string name="editor_volume_title">Clip volume</string>
     <string name="editor_volume_value">%1$d%%</string>
+    <string name="editor_effects_title">Filters &amp; fades</string>
+    <string name="editor_effects_reset">Reset</string>
+    <string name="editor_effects_filters_label">Filter</string>
+    <string name="editor_effects_color_label">Color adjust</string>
+    <string name="editor_effects_brightness_value">Brightness: %1$s</string>
+    <string name="editor_effects_contrast_value">Contrast: %1$s</string>
+    <string name="editor_effects_saturation_value">Saturation: %1$s</string>
+    <string name="editor_effects_warmth_value">Warmth: %1$s</string>
+    <string name="editor_effects_fade_in_label">Fade / transition in</string>
+    <string name="editor_effects_fade_out_label">Fade / transition out</string>
+    <string name="editor_effects_duration_seconds">Duration: %1$s</string>
+    <string name="editor_effects_badge_adjusted">Color adjusted</string>
+    <string name="editor_filter_none">Original</string>
+    <string name="editor_filter_vivid">Vivid</string>
+    <string name="editor_filter_warm">Warm</string>
+    <string name="editor_filter_cool">Cool</string>
+    <string name="editor_filter_cinema">Cinema</string>
+    <string name="editor_filter_vintage">Vintage</string>
+    <string name="editor_filter_bw">B&amp;W</string>
+    <string name="editor_filter_fade_film">Fade film</string>
+    <string name="editor_transition_none">Cut</string>
+    <string name="editor_transition_fade_black">Fade black</string>
+    <string name="editor_transition_fade_white">Flash white</string>
     <string name="editor_overlay_position_title">Overlay position &amp; size</string>
     <string name="editor_overlay_x_value">X: %1$d%%</string>
     <string name="editor_overlay_y_value">Y: %1$d%%</string>
@@ -220,4 +245,6 @@
     <string name="settings_about_version_label">Version</string>
     <string name="settings_about_license_label">License</string>
     <string name="settings_about_license_value">Apache License 2.0</string>
+    <string name="editor_captions_button">Captions</string>
+    <string name="error_captions_failed">Could not process captions. Check the clip audio or subtitle file.</string>
 </resources>

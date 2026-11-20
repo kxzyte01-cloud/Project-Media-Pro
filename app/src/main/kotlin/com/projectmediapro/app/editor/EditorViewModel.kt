@@ -23,6 +23,16 @@ import com.projectmediapro.core.model.audioClips
 import com.projectmediapro.core.model.overlayClips
 import com.projectmediapro.core.model.textClips
 import com.projectmediapro.core.model.videoClips
+import com.projectmediapro.feature.captions.CaptionDocument
+import com.projectmediapro.feature.captions.CaptionRepository
+import com.projectmediapro.feature.captions.CaptionStyle
+import com.projectmediapro.feature.captions.LyricsPacingEngine
+import com.projectmediapro.feature.captions.LyricsPresetRegistry
+import com.projectmediapro.feature.captions.PcmAudioExtractor
+import com.projectmediapro.feature.captions.SrtCaptionCodec
+import com.projectmediapro.feature.captions.TimelineAudioAssembler
+import com.projectmediapro.feature.captions.TranscriptionEngine
+import com.projectmediapro.feature.captions.TranscriptionRequest
 import java.io.File
 import java.io.IOException
 import java.util.UUID
@@ -47,6 +57,9 @@ class EditorViewModel(
     private val cacheSpaceProvider: () -> Long = { Long.MAX_VALUE },
     private val tempDirectory: File = File(System.getProperty("java.io.tmpdir") ?: ".", "exports"),
     private val idProvider: () -> String = { UUID.randomUUID().toString() },
+    private val captionRepository: CaptionRepository? = null,
+    private val pcmAudioExtractor: PcmAudioExtractor? = null,
+    private val transcriptionEngine: TranscriptionEngine? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<EditorUiState>(EditorUiState.Loading)
@@ -55,6 +68,7 @@ class EditorViewModel(
     private val changeMutex = Mutex()
     private val exportMutex = Mutex()
     private var exportJob: Job? = null
+    private var captionJob: Job? = null
     private val history = UndoRedoManager(Project(id = projectId, title = ""))
 
     init {
@@ -64,6 +78,7 @@ class EditorViewModel(
                     val project = repository.getProject(projectId)
                     if (project != null) {
                         history.reset(project)
+                        val savedCaptions = runCatching { captionRepository?.loadCaptions(projectId) }.getOrNull()
                         EditorUiState.Loaded(
                             project = project,
                             previewClips = resolvePreviewClips(project, mediaStorage),
@@ -72,6 +87,7 @@ class EditorViewModel(
                                 ?: project.audioClips().firstOrNull()?.id
                                 ?: project.overlayClips().firstOrNull()?.id
                                 ?: project.textClips().firstOrNull()?.id,
+                            captionDocument = savedCaptions,
                         )
                     } else {
                         EditorUiState.NotFound
@@ -100,6 +116,10 @@ class EditorViewModel(
             EditorEvent.OpenVolume -> openSelectedClipDialog(
                 predicate = { it.isAudio },
                 dialogFactory = EditorDialog::Volume,
+            )
+            EditorEvent.OpenClipEffects -> openSelectedClipDialog(
+                predicate = { it.isVideo },
+                dialogFactory = EditorDialog::ClipEffects,
             )
             EditorEvent.OpenOverlayPosition -> openSelectedClipDialog(
                 predicate = { it.isOverlay },
@@ -140,6 +160,11 @@ class EditorViewModel(
                     predicate = { it.isText },
                     dialogFactory = EditorDialog::TextTiming,
                 )
+            }
+            EditorEvent.OpenCaptions -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                if (current.isBusy) return
+                _uiState.value = current.copy(activeDialog = EditorDialog.Captions, audioPreview = null)
             }
             EditorEvent.OpenCanvas -> {
                 val current = _uiState.value as? EditorUiState.Loaded ?: return
@@ -183,6 +208,16 @@ class EditorViewModel(
                 if (current.project.findClipLocation(targetId)?.isAudio != true) return
                 commitUndoableEdit(targetId) { project ->
                     ProjectTimeline.setClipVolume(project, targetId, event.volume)
+                }
+            }
+            is EditorEvent.ApplyClipEffects -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                val targetId = (current.activeDialog as? EditorDialog.ClipEffects)?.clipId
+                    ?: current.selectedClipId
+                    ?: return
+                if (current.project.findClipLocation(targetId)?.isVideo != true) return
+                commitUndoableEdit(targetId) { project ->
+                    ProjectTimeline.updateClipVisualEffects(project, targetId, event.effects)
                 }
             }
             is EditorEvent.ApplyOverlayPosition -> {
@@ -273,6 +308,41 @@ class EditorViewModel(
                         durationMs = event.durationMs,
                     )
                 }
+            }
+            is EditorEvent.GenerateCaptions -> handleGenerateCaptions(event.providedScript)
+            is EditorEvent.SelectCaptionPreset -> updateCaptions { doc ->
+                val preset = LyricsPresetRegistry.byId(event.presetId)
+                doc.copy(
+                    presetId = preset.id,
+                    lines = LyricsPacingEngine.buildLines(doc.rawWords, preset),
+                )
+            }
+            is EditorEvent.SelectCaptionTemplate -> updateCaptions { doc ->
+                doc.copy(style = doc.style.withTemplate(event.templateId))
+            }
+            is EditorEvent.UpdateCaptionOffsetUs -> updateCaptions { doc ->
+                doc.copy(globalOffsetUs = event.offsetUs)
+            }
+            is EditorEvent.UpdateCaptionStyle -> updateCaptions { doc ->
+                doc.copy(style = event.style)
+            }
+            is EditorEvent.UpdateCaptionWordText -> updateCaptions { doc ->
+                val cleaned = event.newText.trim()
+                if (cleaned.isEmpty()) return@updateCaptions doc
+                val updatedWords = doc.rawWords.map { w ->
+                    if (w.id == event.wordId) w.copy(text = cleaned, isPlaceholder = false) else w
+                }
+                val preset = LyricsPresetRegistry.byId(doc.presetId)
+                doc.copy(
+                    rawWords = updatedWords,
+                    lines = LyricsPacingEngine.buildLines(updatedWords, preset),
+                )
+            }
+            is EditorEvent.ImportSrtCaptions -> handleImportSrt(event.srtText)
+            EditorEvent.ClearCaptions -> handleClearCaptions()
+            EditorEvent.ReportCaptionError -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                _uiState.value = current.copy(error = EditorError.CAPTIONS_FAILED)
             }
             is EditorEvent.ApplyCanvas -> {
                 val current = _uiState.value as? EditorUiState.Loaded ?: return
@@ -708,7 +778,104 @@ class EditorViewModel(
         _uiState.value = current.copy(export = export, error = error)
     }
 
+    private fun handleGenerateCaptions(providedScript: String?) {
+        val extractor = pcmAudioExtractor ?: return
+        val engine = transcriptionEngine ?: return
+        val current = _uiState.value as? EditorUiState.Loaded ?: return
+        if (current.isBusy || current.isTranscribingCaptions) return
+        val videoClips = current.project.videoClips()
+        val audioClips = current.project.audioClips()
+        if (videoClips.isEmpty() && audioClips.isEmpty()) return
+
+        captionJob?.cancel()
+        _uiState.value = current.copy(isTranscribingCaptions = true, error = null)
+        captionJob = viewModelScope.launch {
+            try {
+                val mergedPcm = TimelineAudioAssembler.assemble(
+                    videoClips = videoClips,
+                    audioClips = audioClips,
+                    extractor = extractor,
+                    resolveFile = mediaStorage::resolve,
+                )
+                val result = engine.transcribe(
+                    TranscriptionRequest(
+                        pcmAudio = mergedPcm,
+                        clipId = projectId,
+                        providedScript = providedScript?.trim()?.takeIf { it.isNotEmpty() },
+                    ),
+                )
+                val loadedNow = _uiState.value as? EditorUiState.Loaded ?: return@launch
+                val existingDoc = loadedNow.captionDocument
+                val preset = LyricsPresetRegistry.byId(existingDoc?.presetId ?: LyricsPresetRegistry.SPEECH_ID)
+                val style = existingDoc?.style ?: CaptionStyle.default()
+                val newDoc = CaptionDocument(
+                    projectId = projectId,
+                    rawWords = result.words,
+                    lines = LyricsPacingEngine.buildLines(result.words, preset),
+                    presetId = preset.id,
+                    globalOffsetUs = existingDoc?.globalOffsetUs ?: 0L,
+                    style = style,
+                )
+                runCatching { captionRepository?.saveCaptions(newDoc) }
+                val latest = _uiState.value as? EditorUiState.Loaded ?: return@launch
+                _uiState.value = latest.copy(
+                    captionDocument = newDoc,
+                    isTranscribingCaptions = false,
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                val latest = _uiState.value as? EditorUiState.Loaded
+                if (latest != null) {
+                    _uiState.value = latest.copy(
+                        isTranscribingCaptions = false,
+                        error = EditorError.CAPTIONS_FAILED,
+                    )
+                }
+            }
+        }
+    }
+
+    private fun updateCaptions(transform: (CaptionDocument) -> CaptionDocument) {
+        val current = _uiState.value as? EditorUiState.Loaded ?: return
+        val existing = current.captionDocument ?: return
+        val updated = transform(existing)
+        if (updated == existing) return
+        _uiState.value = current.copy(captionDocument = updated)
+        viewModelScope.launch {
+            runCatching { captionRepository?.saveCaptions(updated) }
+        }
+    }
+
+    private fun handleImportSrt(srtText: String) {
+        val current = _uiState.value as? EditorUiState.Loaded ?: return
+        val existing = current.captionDocument
+        val preset = LyricsPresetRegistry.byId(existing?.presetId ?: LyricsPresetRegistry.SPEECH_ID)
+        val style = existing?.style ?: CaptionStyle.default()
+        val parsed = SrtCaptionCodec.parseSrt(
+            srtText = srtText,
+            projectId = projectId,
+            preset = preset,
+            style = style,
+        )
+        if (parsed.lines.isEmpty()) return
+        _uiState.value = current.copy(captionDocument = parsed)
+        viewModelScope.launch {
+            runCatching { captionRepository?.saveCaptions(parsed) }
+        }
+    }
+
+    private fun handleClearCaptions() {
+        val current = _uiState.value as? EditorUiState.Loaded ?: return
+        captionJob?.cancel()
+        _uiState.value = current.copy(captionDocument = null, isTranscribingCaptions = false)
+        viewModelScope.launch {
+            runCatching { captionRepository?.deleteCaptions(projectId) }
+        }
+    }
+
     override fun onCleared() {
+        captionJob?.cancel()
         exportJob?.cancel()
         exportTempFile().delete()
         super.onCleared()
@@ -728,6 +895,9 @@ class EditorViewModel(
             exportSaver: ExportSaver? = null,
             cacheSpaceProvider: () -> Long = { Long.MAX_VALUE },
             tempDirectory: File = File(System.getProperty("java.io.tmpdir") ?: ".", "exports"),
+            captionRepository: CaptionRepository? = null,
+            pcmAudioExtractor: PcmAudioExtractor? = null,
+            transcriptionEngine: TranscriptionEngine? = null,
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -742,6 +912,9 @@ class EditorViewModel(
                     exportSaver = exportSaver,
                     cacheSpaceProvider = cacheSpaceProvider,
                     tempDirectory = tempDirectory,
+                    captionRepository = captionRepository,
+                    pcmAudioExtractor = pcmAudioExtractor,
+                    transcriptionEngine = transcriptionEngine,
                 ) as T
             }
         }

@@ -27,8 +27,10 @@ fun ClipTools(
     isAudioClip: Boolean = false,
     isOverlayClip: Boolean = false,
     isTextClip: Boolean = false,
+    hasActiveEffects: Boolean = false,
     canEditOverlayTiming: Boolean = false,
     isAudioPlaying: Boolean = false,
+    onEffectsClick: () -> Unit = {},
     onVolumeClick: () -> Unit = {},
     onTogglePlayClick: () -> Unit = {},
     onOverlayPositionClick: () -> Unit = {},
@@ -85,6 +87,14 @@ fun ClipTools(
                     enabled = isEnabled && !isAudioClip && canSplit,
                     onClick = onSplitClick,
                 )
+                if (!isAudioClip) {
+                    EditorOutlinedButton(
+                        label = stringResource(R.string.editor_tool_effects),
+                        enabled = isEnabled,
+                        tone = if (hasActiveEffects) EditorButtonTone.Primary else EditorButtonTone.Default,
+                        onClick = onEffectsClick,
+                    )
+                }
                 if (isAudioClip) {
                     EditorOutlinedButton(
                         label = stringResource(R.string.editor_tool_volume),
