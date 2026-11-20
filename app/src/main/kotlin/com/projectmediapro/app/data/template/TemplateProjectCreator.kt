@@ -127,7 +127,7 @@ class TemplateProjectCreator(
             ?: throw TemplateSlotImportException(trackType, Reason.FAILED)
         val partFile = File(targetFile.parentFile, "${targetFile.name}.part")
         try {
-            FileInputStream(sourceFile).use { input ->
+         sourceFile.inputStream().use { input ->
                 copyStreamAtomically(
                     input = input,
                     partFile = partFile,
