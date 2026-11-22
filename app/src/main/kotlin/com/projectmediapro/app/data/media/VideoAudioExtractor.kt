@@ -111,7 +111,8 @@ class AndroidVideoAudioExtractor : VideoAudioExtractor {
                     lastSampleUs = sampleTimeUs
                     bufferInfo.size = sampleSize
                     bufferInfo.presentationTimeUs = (sampleTimeUs - firstSampleUs).coerceAtLeast(0L)
-                    bufferInfo.flags = extractor.sampleFlags and MediaCodec.BUFFER_FLAG_KEY_FRAME
+                    val isSyncFrame = (extractor.sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC) != 0
+                    bufferInfo.flags = if (isSyncFrame) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0
                     activeMuxer.writeSampleData(muxerTrackIndex, buffer, bufferInfo)
                     sampleCount++
                 }
