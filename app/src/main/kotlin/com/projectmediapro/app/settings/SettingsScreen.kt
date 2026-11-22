@@ -12,12 +12,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import com.projectmediapro.feature.captions.WhisperModelState
+import com.projectmediapro.feature.captions.WhisperModelVariant
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
@@ -73,6 +76,9 @@ fun SettingsScreen(
             SectionHeader(title = stringResource(R.string.settings_section_whisper))
             WhisperModelCard(
                 state = uiState.whisperModelState,
+                selectedVariant = uiState.selectedWhisperVariant,
+                installedVariants = uiState.installedWhisperVariants,
+                onSelectVariant = { onEvent(SettingsEvent.SelectWhisperVariant(it)) },
                 onDownload = { onEvent(SettingsEvent.DownloadWhisperModel) },
                 onCancel = { onEvent(SettingsEvent.CancelWhisperDownload) },
                 onDelete = { onEvent(SettingsEvent.DeleteWhisperModel) },
@@ -153,10 +159,14 @@ private fun AppearanceSelector(
 @Composable
 private fun WhisperModelCard(
     state: WhisperModelState,
+    selectedVariant: WhisperModelVariant,
+    installedVariants: Set<WhisperModelVariant>,
+    onSelectVariant: (WhisperModelVariant) -> Unit,
     onDownload: () -> Unit,
     onCancel: () -> Unit,
     onDelete: () -> Unit,
 ) {
+    val isDownloading = state is WhisperModelState.Downloading
     Surface(
         shape = MediaProShapes.Medium,
         color = MaterialTheme.colorScheme.surfaceVariant,
@@ -178,6 +188,65 @@ private fun WhisperModelCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                WhisperModelVariant.entries.forEach { variant ->
+                    val isSelected = variant == selectedVariant
+                    val isReady = variant in installedVariants
+                    Surface(
+                        shape = MediaProShapes.Small,
+                        color = if (isSelected) {
+                            MaterialTheme.colorScheme.primaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surface
+                        },
+                        border = BorderStroke(
+                            width = MediaProSpacing.BorderThin,
+                            color = if (isSelected) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.outlineVariant
+                            },
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable(enabled = !isDownloading) { onSelectVariant(variant) },
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(
+                                horizontal = MediaProSpacing.ExtraSmall,
+                                vertical = MediaProSpacing.Small,
+                            ),
+                        ) {
+                            Text(
+                                text = stringResource(whisperVariantNameRes(variant)),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = if (isSelected) {
+                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                },
+                            )
+                            Text(
+                                text = if (isReady) {
+                                    stringResource(R.string.settings_whisper_variant_ready)
+                                } else {
+                                    stringResource(R.string.settings_whisper_variant_size, variant.approxMb)
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (isReady) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            )
+                        }
+                    }
+                }
+            }
             when (state) {
                 WhisperModelState.NotInstalled -> {
                     Button(
@@ -185,7 +254,13 @@ private fun WhisperModelCard(
                         shape = MediaProShapes.Small,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(text = stringResource(R.string.settings_whisper_download))
+                        Text(
+                            text = stringResource(
+                                R.string.settings_whisper_download_variant,
+                                stringResource(whisperVariantNameRes(selectedVariant)),
+                                selectedVariant.approxMb,
+                            ),
+                        )
                     }
                 }
                 is WhisperModelState.Downloading -> {
@@ -267,4 +342,11 @@ private fun AboutRow(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+}
+
+
+private fun whisperVariantNameRes(variant: WhisperModelVariant): Int = when (variant) {
+    WhisperModelVariant.TINY -> R.string.settings_whisper_variant_tiny
+    WhisperModelVariant.BASE -> R.string.settings_whisper_variant_base
+    WhisperModelVariant.SMALL -> R.string.settings_whisper_variant_small
 }

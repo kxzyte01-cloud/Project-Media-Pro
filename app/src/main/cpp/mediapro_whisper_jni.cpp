@@ -66,7 +66,8 @@ Java_com_projectmediapro_feature_captions_WhisperNativeBridge_nativeFullTranscri
     params.language = "auto";
     params.no_context = true;
     params.single_segment = false;
-    params.token_timestamps = true;
+    params.token_timestamps = false;
+    params.greedy.best_of = 1;
 
     const int result = whisper_full(ctx, params, samples, static_cast<int>(length));
     env->ReleaseFloatArrayElements(audioData, samples, JNI_ABORT);

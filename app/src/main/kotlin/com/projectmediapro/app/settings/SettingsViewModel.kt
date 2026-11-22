@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.projectmediapro.feature.captions.WhisperModelManager
 import com.projectmediapro.feature.captions.WhisperModelState
+import com.projectmediapro.feature.captions.WhisperModelVariant
 import java.io.IOException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,6 +24,8 @@ data class SettingsUiState(
     val privacyPolicyText: String = "",
     val appVersionName: String = "",
     val whisperModelState: WhisperModelState = WhisperModelState.NotInstalled,
+    val selectedWhisperVariant: WhisperModelVariant = WhisperModelVariant.TINY,
+    val installedWhisperVariants: Set<WhisperModelVariant> = emptySet(),
 )
 
 /**
@@ -30,6 +33,7 @@ data class SettingsUiState(
  */
 sealed interface SettingsEvent {
     data class SelectTheme(val preference: ThemePreference) : SettingsEvent
+    data class SelectWhisperVariant(val variant: WhisperModelVariant) : SettingsEvent
     data object DownloadWhisperModel : SettingsEvent
     data object CancelWhisperDownload : SettingsEvent
     data object DeleteWhisperModel : SettingsEvent
@@ -37,7 +41,7 @@ sealed interface SettingsEvent {
 
 /**
  * Unidirectional ViewModel for Settings. Loads the offline privacy policy via [PrivacyPolicyDataSource]
- * and manages the optional on-device Open Whisper model.
+ * and manages optional on-device Open Whisper models (`Tiny`, `Base`, `Small`).
  */
 class SettingsViewModel(
     private val themePreferencesStore: ThemePreferencesStore,
@@ -48,18 +52,24 @@ class SettingsViewModel(
 
     private val privacyPolicyFlow = MutableStateFlow("")
     private val fallbackWhisperFlow = MutableStateFlow<WhisperModelState>(WhisperModelState.NotInstalled)
+    private val fallbackVariantFlow = MutableStateFlow(WhisperModelVariant.TINY)
+    private val fallbackInstalledFlow = MutableStateFlow<Set<WhisperModelVariant>>(emptySet())
     private var whisperDownloadJob: Job? = null
 
     val uiState: StateFlow<SettingsUiState> = combine(
         themePreferencesStore.themePreference,
         privacyPolicyFlow,
         whisperModelManager?.state ?: fallbackWhisperFlow,
-    ) { preference, policyText, whisperState ->
+        whisperModelManager?.selectedVariant ?: fallbackVariantFlow,
+        whisperModelManager?.installedVariants ?: fallbackInstalledFlow,
+    ) { preference, policyText, whisperState, selectedVariant, installedVariants ->
         SettingsUiState(
             themePreference = preference,
             privacyPolicyText = policyText,
             appVersionName = appVersionName,
             whisperModelState = whisperState,
+            selectedWhisperVariant = selectedVariant,
+            installedWhisperVariants = installedVariants,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -69,6 +79,8 @@ class SettingsViewModel(
             privacyPolicyText = "",
             appVersionName = appVersionName,
             whisperModelState = whisperModelManager?.state?.value ?: WhisperModelState.NotInstalled,
+            selectedWhisperVariant = whisperModelManager?.selectedVariant?.value ?: WhisperModelVariant.TINY,
+            installedWhisperVariants = whisperModelManager?.installedVariants?.value ?: emptySet(),
         ),
     )
 
@@ -96,6 +108,9 @@ class SettingsViewModel(
                     }
                 }
             }
+            is SettingsEvent.SelectWhisperVariant -> {
+                whisperModelManager?.selectVariant(event.variant)
+            }
             SettingsEvent.DownloadWhisperModel -> {
                 val manager = whisperModelManager ?: return
                 if (whisperDownloadJob?.isActive == true) return
@@ -104,6 +119,7 @@ class SettingsViewModel(
                 }
             }
             SettingsEvent.CancelWhisperDownload -> {
+                whisperModelManager?.cancelActiveDownload()
                 whisperDownloadJob?.cancel()
                 whisperDownloadJob = null
             }

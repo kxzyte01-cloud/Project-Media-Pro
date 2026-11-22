@@ -1,6 +1,7 @@
 package com.projectmediapro.feature.captions
 
 import java.io.File
+import java.io.RandomAccessFile
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -57,7 +58,7 @@ class WhisperTranscriptionEngineTest {
 
         // Create a valid-sized dummy model file -> invokes Whisper
         val fakeModel = File(modelsDir, WhisperModelManager.MODEL_FILE_NAME)
-        fakeModel.writeBytes(ByteArray(WhisperModelManager.MIN_VALID_MODEL_BYTES.toInt() + 16))
+        RandomAccessFile(fakeModel, "rw").use { it.setLength(WhisperModelManager.MIN_VALID_MODEL_BYTES + 16L) }
         manager.refreshState()
         assertTrue(manager.state.value is WhisperModelState.Installed)
 
@@ -70,5 +71,34 @@ class WhisperTranscriptionEngineTest {
         manager.deleteModel()
         assertEquals(WhisperModelState.NotInstalled, manager.state.value)
         assertFalse(fakeModel.exists())
+    }
+
+    @Test
+    fun `switching between tiny, base, and small selects only the active installed model`() {
+        val modelsDir = tempFolder.newFolder("whisper_multi_models")
+        val manager = WhisperModelManager(modelsDir)
+
+        assertEquals(WhisperModelVariant.TINY, manager.selectedVariant.value)
+        assertTrue(manager.installedVariants.value.isEmpty())
+
+        // Install Base model only
+        val baseFile = File(modelsDir, WhisperModelVariant.BASE.fileName)
+        RandomAccessFile(baseFile, "rw").use { it.setLength(WhisperModelVariant.BASE.minValidBytes + 16L) }
+        manager.selectVariant(WhisperModelVariant.BASE)
+
+        assertEquals(WhisperModelVariant.BASE, manager.selectedVariant.value)
+        assertEquals(setOf(WhisperModelVariant.BASE), manager.installedVariants.value)
+        assertTrue(manager.state.value is WhisperModelState.Installed)
+        assertEquals(baseFile.absolutePath, manager.installedModelFileOrNull()?.absolutePath)
+
+        // Switching to Small shows NotInstalled for Small, while Base stays installed
+        manager.selectVariant(WhisperModelVariant.SMALL)
+        assertEquals(WhisperModelState.NotInstalled, manager.state.value)
+        assertEquals(baseFile.absolutePath, manager.installedModelFileOrNull()?.absolutePath)
+
+        // Deleting Base clears Base cleanly
+        manager.deleteModel(WhisperModelVariant.BASE)
+        assertTrue(manager.installedVariants.value.isEmpty())
+        assertEquals(null, manager.installedModelFileOrNull())
     }
 }
