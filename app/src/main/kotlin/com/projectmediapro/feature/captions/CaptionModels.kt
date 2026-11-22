@@ -125,6 +125,10 @@ enum class CaptionTemplateId {
     POP_IN,
     TYPEWRITER,
     CLEAN_SUBTITLE,
+    KINETIC_GRUNGE,
+    EDITORIAL_SCRATCH,
+    NEON_GLOW_STACK,
+    MUSIC_PLAYER,
 }
 
 data class CaptionTemplate(
@@ -152,6 +156,38 @@ object CaptionTemplateRegistry {
             popScaleFactor = 1.16f,
             entranceDurationUs = 140_000L,
             activeWordScaleBoost = 0.10f,
+            defaultBackgroundBox = false,
+        ),
+        CaptionTemplate(
+            id = CaptionTemplateId.KINETIC_GRUNGE,
+            displayName = "Kinetic Pop",
+            popScaleFactor = 1.24f,
+            entranceDurationUs = 120_000L,
+            activeWordScaleBoost = 0.14f,
+            defaultBackgroundBox = false,
+        ),
+        CaptionTemplate(
+            id = CaptionTemplateId.NEON_GLOW_STACK,
+            displayName = "Neon Glow",
+            popScaleFactor = 1.18f,
+            entranceDurationUs = 130_000L,
+            activeWordScaleBoost = 0.12f,
+            defaultBackgroundBox = false,
+        ),
+        CaptionTemplate(
+            id = CaptionTemplateId.EDITORIAL_SCRATCH,
+            displayName = "Editorial Film",
+            popScaleFactor = 1.06f,
+            entranceDurationUs = 110_000L,
+            activeWordScaleBoost = 0.07f,
+            defaultBackgroundBox = false,
+        ),
+        CaptionTemplate(
+            id = CaptionTemplateId.MUSIC_PLAYER,
+            displayName = "Music Player",
+            popScaleFactor = 1.0f,
+            entranceDurationUs = 100_000L,
+            activeWordScaleBoost = 0.06f,
             defaultBackgroundBox = false,
         ),
         CaptionTemplate(

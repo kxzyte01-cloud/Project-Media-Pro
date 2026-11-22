@@ -33,6 +33,22 @@ object ProjectTimeline {
         return if (volume.isNaN() || volume.isInfinite()) 1.0f else volume.coerceIn(0f, 1f)
     }
 
+    fun sanitizeAudioBoost(boost: Float): Float {
+        return if (boost.isNaN() || boost.isInfinite()) {
+            Clip.DEFAULT_AUDIO_BOOST
+        } else {
+            boost.coerceIn(Clip.DEFAULT_AUDIO_BOOST, Clip.MAX_AUDIO_BOOST)
+        }
+    }
+
+    fun sanitizeAudioFadeMs(fadeMs: Long, clipDurationMs: Long): Long {
+        val maxFade = (clipDurationMs / 2L).coerceIn(0L, Clip.MAX_AUDIO_FADE_MS)
+        return fadeMs.coerceIn(0L, maxFade)
+    }
+
+    fun setSoundReactiveEnabled(project: Project, enabled: Boolean): Project =
+        if (project.soundReactiveEnabled == enabled) project else project.copy(soundReactiveEnabled = enabled)
+
     fun sanitizeSpeed(speed: Float): Float {
         if (speed.isNaN() || speed.isInfinite() || speed <= 0f) {
             return Clip.DEFAULT_PLAYBACK_SPEED
@@ -466,6 +482,51 @@ object ProjectTimeline {
         }
     }
 
+    fun setClipAudioMix(
+        project: Project,
+        clipId: String,
+        volume: Float,
+        audioBoost: Float = Clip.DEFAULT_AUDIO_BOOST,
+        fadeInMs: Long = 0L,
+        fadeOutMs: Long = 0L,
+    ): Project {
+        val clampedVolume = sanitizeVolume(volume)
+        val clampedBoost = if (clampedVolume < 1.0f) Clip.DEFAULT_AUDIO_BOOST else sanitizeAudioBoost(audioBoost)
+        var changed = false
+        val updatedTracks = project.tracks.map { track ->
+            if (track.type != TrackType.VIDEO && track.type != TrackType.AUDIO) {
+                track
+            } else {
+                val updatedClips = track.clips.map { clip ->
+                    if (clip.id != clipId) {
+                        clip
+                    } else {
+                        val durMs = effectiveDurationMs(clip)
+                        val cleanIn = sanitizeAudioFadeMs(fadeInMs, durMs)
+                        val cleanOut = sanitizeAudioFadeMs(fadeOutMs, durMs)
+                        if (clip.volume == clampedVolume &&
+                            clip.audioBoost == clampedBoost &&
+                            clip.audioFadeInMs == cleanIn &&
+                            clip.audioFadeOutMs == cleanOut
+                        ) {
+                            clip
+                        } else {
+                            changed = true
+                            clip.copy(
+                                volume = clampedVolume,
+                                audioBoost = clampedBoost,
+                                audioFadeInMs = cleanIn,
+                                audioFadeOutMs = cleanOut,
+                            )
+                        }
+                    }
+                }
+                if (updatedClips == track.clips) track else track.copy(clips = updatedClips)
+            }
+        }
+        return if (!changed) project else project.copy(tracks = updatedTracks)
+    }
+
     fun setClipVolume(
         project: Project,
         clipId: String,
@@ -561,6 +622,120 @@ object ProjectTimeline {
                 set(clipIndex, clip.copy(crop = normalized))
             }
         }
+    }
+
+    /**
+     * Appends an extracted audio clip to the Audio track and mutes the source video clip in one
+     * atomic, undoable edit so users can trim, speed-ramp, or replace the video's sound separately.
+     */
+    /**
+     * Adds or updates a [BeatMarker] on the project timeline, deduplicating markers within 120 ms
+     * so live-performed FX pads snap cleanly onto existing detected beats.
+     */
+    fun addBeatMarker(project: Project, marker: BeatMarker): Project {
+        val safe = marker.sanitized()
+        val dedupWindowMs = 120L
+        val existingIndex = project.beatMarkers.indexOfFirst {
+            kotlin.math.abs(it.timeMs - safe.timeMs) <= dedupWindowMs
+        }
+        val updated = if (existingIndex >= 0) {
+            val existing = project.beatMarkers[existingIndex]
+            val merged = existing.copy(
+                effect = if (safe.effect != BeatEffectKind.NONE) safe.effect else existing.effect,
+                durationMs = safe.durationMs,
+                intensity = safe.intensity,
+            )
+            project.beatMarkers.toMutableList().apply { set(existingIndex, merged) }
+        } else {
+            (project.beatMarkers + safe).sortedBy { it.timeMs }
+        }
+        return project.copy(beatMarkers = updated)
+    }
+
+    fun replaceBeatMarkers(project: Project, markers: List<BeatMarker>): Project {
+        val cleaned = markers
+            .map { it.sanitized() }
+            .sortedBy { it.timeMs }
+        return project.copy(beatMarkers = cleaned)
+    }
+
+    fun removeBeatMarker(project: Project, markerId: String): Project {
+        val filtered = project.beatMarkers.filterNot { it.id == markerId }
+        return if (filtered.size == project.beatMarkers.size) project else project.copy(beatMarkers = filtered)
+    }
+
+    fun clearBeatMarkers(project: Project): Project =
+        if (project.beatMarkers.isEmpty()) project else project.copy(beatMarkers = emptyList())
+
+    /**
+     * Splits video clips at each [Project.beatMarkers] timestamp in ascending order, skipping any
+     * beat too close to an existing clip boundary (< [MIN_CLIP_DURATION_MS]).
+     */
+    fun autoSplitVideoOnBeats(
+        project: Project,
+        idProvider: () -> String,
+    ): Project {
+        if (project.beatMarkers.isEmpty()) return project
+        var working = project
+        val sortedTimes = project.beatMarkers.map { it.timeMs }.distinct().sorted()
+        for (beatMs in sortedTimes) {
+            val clips = working.videoClips()
+            var cursorMs = 0L
+            for (clip in clips) {
+                val clipDurMs = effectiveDurationMs(clip)
+                val clipEndMs = cursorMs + clipDurMs
+                if (beatMs > cursorMs && beatMs < clipEndMs && !clip.isStillImage) {
+                    val offsetTimelineMs = beatMs - cursorMs
+                    val sourceOffsetMs = (offsetTimelineMs * effectiveSpeed(clip)).roundToLong()
+                    val candidate = splitClip(
+                        project = working,
+                        clipId = clip.id,
+                        offsetMs = sourceOffsetMs,
+                        newClipId = idProvider(),
+                    )
+                    if (candidate != working) {
+                        working = candidate
+                    }
+                    break
+                }
+                cursorMs = clipEndMs
+            }
+        }
+        return working
+    }
+
+    fun extractAudioFromVideoClip(
+        project: Project,
+        sourceClipId: String,
+        newAudioClipId: String,
+        audioMediaUri: String,
+        audioDurationMs: Long,
+        newAudioTrackId: String,
+    ): Project {
+        if (audioMediaUri.isBlank() || audioDurationMs <= 0L) return project
+        val videoTrack = project.tracks.firstOrNull { it.type == TrackType.VIDEO } ?: return project
+        val sourceClip = videoTrack.clips.firstOrNull { it.id == sourceClipId } ?: return project
+        if (sourceClip.isStillImage) return project
+
+        val mutedProject = setClipVolume(project, sourceClipId, 0f)
+        val preservedVolume = sanitizeVolume(sourceClip.volume).let { if (it <= 0f) 1.0f else it }
+        val extractedClip = Clip(
+            id = newAudioClipId,
+            mediaUri = audioMediaUri,
+            startTimeMs = 0L,
+            durationMs = audioDurationMs,
+            sourceDurationMs = audioDurationMs,
+            trimStartMs = 0L,
+            trimEndMs = audioDurationMs,
+            volume = preservedVolume,
+            playbackSpeed = effectiveSpeed(sourceClip),
+        )
+        return appendClip(
+            project = mutedProject,
+            clip = extractedClip,
+            newTrackId = newAudioTrackId,
+            trackType = TrackType.AUDIO,
+        )
     }
 
     fun insertFreezeFrameClip(

@@ -9,11 +9,14 @@ import com.projectmediapro.app.data.export.VideoExportException
 import com.projectmediapro.app.data.export.VideoExporter
 import com.projectmediapro.app.data.media.AudioImporter
 import com.projectmediapro.app.data.media.FreezeFrameExtractor
+import com.projectmediapro.app.data.media.VideoAudioExtractor
 import com.projectmediapro.app.data.media.OverlayImporter
 import com.projectmediapro.app.data.media.ProjectMediaStorage
 import com.projectmediapro.app.data.media.VideoImportException
 import com.projectmediapro.app.data.media.VideoImporter
 import com.projectmediapro.app.data.project.ProjectRepository
+import com.projectmediapro.core.model.BeatEffectKind
+import com.projectmediapro.core.model.BeatMarker
 import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.ExportBitrate
 import com.projectmediapro.core.model.ExportFrameRate
@@ -64,6 +67,7 @@ class EditorViewModel(
     private val pcmAudioExtractor: PcmAudioExtractor? = null,
     private val transcriptionEngine: TranscriptionEngine? = null,
     private val freezeFrameExtractor: FreezeFrameExtractor? = null,
+    private val videoAudioExtractor: VideoAudioExtractor? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<EditorUiState>(EditorUiState.Loading)
@@ -74,6 +78,8 @@ class EditorViewModel(
     private var exportJob: Job? = null
     private var captionJob: Job? = null
     private var freezeJob: Job? = null
+    private var extractAudioJob: Job? = null
+    private var beatJob: Job? = null
     private val history = UndoRedoManager(Project(id = projectId, title = ""))
 
     init {
@@ -189,6 +195,26 @@ class EditorViewModel(
                 predicate = { it.isOverlay || it.isText },
                 dialogFactory = EditorDialog::Keyframes,
             )
+            EditorEvent.OpenBeats -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                if (!current.isBusy) {
+                    _uiState.value = current.copy(
+                        activeDialog = EditorDialog.Beats,
+                        audioPreview = null,
+                        error = null,
+                    )
+                }
+            }
+            EditorEvent.AutoDetectBeats -> handleAutoDetectBeats()
+            is EditorEvent.TapBeatMarker -> handleTapBeatMarker(event.timeMs, event.effect)
+            is EditorEvent.RemoveBeatMarker -> handleRemoveBeatMarker(event.markerId)
+            EditorEvent.ClearBeatMarkers -> handleClearBeatMarkers()
+            EditorEvent.AutoCutOnBeats -> handleAutoCutOnBeats()
+            is EditorEvent.ToggleSoundReactive -> commitUndoableEdit(
+                preferredSelectedClipId = null,
+                keepActiveDialog = true,
+                transform = { project -> ProjectTimeline.setSoundReactiveEnabled(project, event.enabled) },
+            )
             EditorEvent.OpenCaptions -> {
                 val current = _uiState.value as? EditorUiState.Loaded ?: return
                 if (current.isBusy) return
@@ -247,7 +273,14 @@ class EditorViewModel(
                 val location = current.project.findClipLocation(targetId) ?: return
                 if (!location.isAudio && !(location.isVideo && !location.clip.isStillImage)) return
                 commitUndoableEdit(targetId) { project ->
-                    ProjectTimeline.setClipVolume(project, targetId, event.volume)
+                    ProjectTimeline.setClipAudioMix(
+                        project = project,
+                        clipId = targetId,
+                        volume = event.volume,
+                        audioBoost = event.audioBoost,
+                        fadeInMs = event.fadeInMs,
+                        fadeOutMs = event.fadeOutMs,
+                    )
                 }
             }
             is EditorEvent.ApplyTransform -> {
@@ -335,6 +368,7 @@ class EditorViewModel(
                     ProjectTimeline.setClipCrop(project, targetId, event.crop)
                 }
             }
+            EditorEvent.ExtractAudioFromSelected -> handleExtractAudioFromSelected()
             is EditorEvent.ApplyFreezeFrame -> {
                 val current = _uiState.value as? EditorUiState.Loaded ?: return
                 val targetId = (current.activeDialog as? EditorDialog.FreezeFrame)?.clipId
@@ -586,39 +620,41 @@ class EditorViewModel(
                 newDurationMs = newDurationMs,
             )
             if (updatedProject == previousProject) {
-                withContext(ioDispatcher) { mediaStorage.deleteRelativeFile(newMediaUri) }
+                mediaStorage.deleteClipFile(newMediaUri)
                 _uiState.value = latest.copy(importingTrack = null)
                 return@launch
             }
 
-            history.push(updatedProject)
-            _uiState.value = latest.withSyncedProject(
-                previousProject = previousProject,
-                targetProject = updatedProject,
-                preferredSelectedId = targetClipId,
-                mediaStorage = mediaStorage,
-                history = history,
-            )
-
-            try {
-                projectRepository.saveProject(updatedProject)
-                if (oldMediaUri.isNotBlank() &&
-                    oldMediaUri != newMediaUri &&
-                    !ProjectTimeline.isMediaReferenced(updatedProject, oldMediaUri)
-                ) {
-                    withContext(ioDispatcher) { mediaStorage.deleteRelativeFile(oldMediaUri) }
+            changeMutex.withLock {
+                try {
+                    repository.saveProject(updatedProject)
+                    history.pushState(updatedProject)
+                    val currentAfterSave = _uiState.value as? EditorUiState.Loaded ?: latest
+                    _uiState.value = currentAfterSave.withSyncedProject(
+                        previousProject = previousProject,
+                        targetProject = updatedProject,
+                        preferredSelectedId = targetClipId,
+                        mediaStorage = mediaStorage,
+                        history = history,
+                    )
+                    if (oldMediaUri.isNotBlank() &&
+                        oldMediaUri != newMediaUri &&
+                        !ProjectTimeline.isMediaReferenced(updatedProject, oldMediaUri)
+                    ) {
+                        mediaStorage.deleteClipFile(oldMediaUri)
+                    }
+                } catch (cancelled: CancellationException) {
+                    mediaStorage.deleteClipFile(newMediaUri)
+                    throw cancelled
+                } catch (_: IOException) {
+                    mediaStorage.deleteClipFile(newMediaUri)
+                    val afterFailure = _uiState.value as? EditorUiState.Loaded ?: return@withLock
+                    _uiState.value = afterFailure.withSaveFailedRollback(
+                        previousProject = previousProject,
+                        mediaStorage = mediaStorage,
+                        history = history,
+                    )
                 }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: IOException) {
-                history.undo()
-                withContext(ioDispatcher) { mediaStorage.deleteRelativeFile(newMediaUri) }
-                val afterFailure = _uiState.value as? EditorUiState.Loaded ?: return@launch
-                _uiState.value = afterFailure.withSaveFailedRollback(
-                    previousProject = previousProject,
-                    mediaStorage = mediaStorage,
-                    history = history,
-                )
             }
         }
     }
@@ -699,10 +735,12 @@ class EditorViewModel(
 
     private fun commitUndoableEdit(
         preferredSelectedClipId: String?,
+        keepActiveDialog: Boolean = false,
         transform: (Project) -> Project,
     ) {
         persistProjectTransition(
             preferredSelectedClipId = preferredSelectedClipId,
+            keepActiveDialog = keepActiveDialog,
             prepareTarget = { previous ->
                 val updated = transform(previous)
                 if (updated == previous) null else updated
@@ -730,6 +768,7 @@ class EditorViewModel(
 
     private fun persistProjectTransition(
         preferredSelectedClipId: String?,
+        keepActiveDialog: Boolean = false,
         prepareTarget: (Project) -> Project?,
         onSaveSuccess: (Project) -> Unit = {},
         onSaveFailure: () -> Unit = {},
@@ -744,7 +783,7 @@ class EditorViewModel(
                 val previousProject = latest.project
                 val targetProject = prepareTarget(previousProject)
                 if (targetProject == null) {
-                    if (latest.activeDialog != null) {
+                    if (!keepActiveDialog && latest.activeDialog != null) {
                         _uiState.value = latest.copy(activeDialog = null)
                     }
                     return@withLock
@@ -759,6 +798,7 @@ class EditorViewModel(
                         preferredSelectedId = preferredSelectedClipId ?: latest.selectedClipId,
                         mediaStorage = mediaStorage,
                         history = history,
+                        keepActiveDialog = keepActiveDialog,
                     )
                 } catch (_: IOException) {
                     onSaveFailure()
@@ -1283,7 +1323,239 @@ class EditorViewModel(
         }
     }
 
+    private fun handleExtractAudioFromSelected() {
+        val initial = _uiState.value as? EditorUiState.Loaded ?: return
+        if (initial.isBusy) return
+        val location = initial.project.findClipLocation(initial.selectedClipId) ?: return
+        if (!location.isVideo || location.clip.isStillImage) return
+        val extractor = videoAudioExtractor
+        if (extractor == null) {
+            _uiState.value = initial.copy(error = EditorError.EXTRACT_AUDIO_FAILED)
+            return
+        }
+        val sourceFile = mediaStorage.resolve(location.clip.mediaUri)
+        if (sourceFile == null || !sourceFile.isFile) {
+            _uiState.value = initial.copy(error = EditorError.EXTRACT_AUDIO_FAILED)
+            return
+        }
+
+        val sourceClipId = location.clip.id
+        val (trimStartMs, trimEndMs) = ProjectTimeline.resolvedTrimBounds(location.clip)
+        _uiState.value = initial.copy(
+            importingTrack = TrackType.AUDIO,
+            activeDialog = null,
+            audioPreview = null,
+            error = null,
+        )
+
+        extractAudioJob?.cancel()
+        extractAudioJob = viewModelScope.launch {
+            val newAudioClipId = idProvider()
+            val audioRelPath = try {
+                mediaStorage.clipRelativePath(projectId, newAudioClipId, "m4a")
+            } catch (_: IllegalArgumentException) {
+                val latest = _uiState.value as? EditorUiState.Loaded ?: return@launch
+                _uiState.value = latest.copy(
+                    importingTrack = null,
+                    error = EditorError.EXTRACT_AUDIO_FAILED,
+                )
+                return@launch
+            }
+            val outputFile = mediaStorage.resolve(audioRelPath)
+            if (outputFile == null) {
+                val latest = _uiState.value as? EditorUiState.Loaded ?: return@launch
+                _uiState.value = latest.copy(
+                    importingTrack = null,
+                    error = EditorError.EXTRACT_AUDIO_FAILED,
+                )
+                return@launch
+            }
+
+            val extracted = try {
+                extractor.extractAudio(
+                    videoFile = sourceFile,
+                    trimStartMs = trimStartMs,
+                    trimEndMs = trimEndMs,
+                    outputFile = outputFile,
+                )
+            } catch (cancelled: CancellationException) {
+                mediaStorage.deleteClipFile(audioRelPath)
+                throw cancelled
+            } catch (_: IOException) {
+                mediaStorage.deleteClipFile(audioRelPath)
+                val latest = _uiState.value as? EditorUiState.Loaded ?: return@launch
+                _uiState.value = latest.copy(
+                    importingTrack = null,
+                    error = EditorError.EXTRACT_AUDIO_FAILED,
+                )
+                return@launch
+            }
+
+            var saved = false
+            try {
+                changeMutex.withLock {
+                    val latest = _uiState.value as? EditorUiState.Loaded ?: return@withLock
+                    val previousProject = latest.project
+                    val updatedProject = ProjectTimeline.extractAudioFromVideoClip(
+                        project = previousProject,
+                        sourceClipId = sourceClipId,
+                        newAudioClipId = newAudioClipId,
+                        audioMediaUri = audioRelPath,
+                        audioDurationMs = extracted.durationMs,
+                        newAudioTrackId = idProvider(),
+                    )
+                    if (updatedProject == previousProject) {
+                        _uiState.value = latest.copy(importingTrack = null)
+                        return@withLock
+                    }
+                    try {
+                        repository.saveProject(updatedProject)
+                        saved = true
+                        history.pushState(updatedProject)
+                        _uiState.value = latest.withSyncedProject(
+                            previousProject = previousProject,
+                            targetProject = updatedProject,
+                            preferredSelectedId = newAudioClipId,
+                            mediaStorage = mediaStorage,
+                            history = history,
+                        )
+                    } catch (_: IOException) {
+                        _uiState.value = latest.withSaveFailedRollback(
+                            previousProject = previousProject,
+                            mediaStorage = mediaStorage,
+                            history = history,
+                        )
+                    }
+                }
+            } finally {
+                if (!saved) {
+                    mediaStorage.deleteClipFile(audioRelPath)
+                }
+            }
+        }
+    }
+
+    private fun handleTapBeatMarker(timeMs: Long, effect: BeatEffectKind) {
+        commitUndoableEdit(
+            preferredSelectedClipId = null,
+            keepActiveDialog = true,
+            transform = { project ->
+                ProjectTimeline.addBeatMarker(
+                    project = project,
+                    marker = BeatMarker(
+                        id = idProvider(),
+                        timeMs = timeMs.coerceAtLeast(0L),
+                        effect = effect,
+                    ),
+                )
+            },
+        )
+    }
+
+    private fun handleRemoveBeatMarker(markerId: String) {
+        commitUndoableEdit(
+            preferredSelectedClipId = null,
+            keepActiveDialog = true,
+            transform = { project -> ProjectTimeline.removeBeatMarker(project, markerId) },
+        )
+    }
+
+    private fun handleClearBeatMarkers() {
+        commitUndoableEdit(
+            preferredSelectedClipId = null,
+            keepActiveDialog = true,
+            transform = { project -> ProjectTimeline.clearBeatMarkers(project) },
+        )
+    }
+
+    private fun handleAutoCutOnBeats() {
+        commitUndoableEdit(
+            preferredSelectedClipId = null,
+            keepActiveDialog = false,
+            transform = { project -> ProjectTimeline.autoSplitVideoOnBeats(project, idProvider) },
+        )
+    }
+
+    private fun handleAutoDetectBeats() {
+        val current = _uiState.value as? EditorUiState.Loaded ?: return
+        if (current.isBusy || current.isDetectingBeats) return
+        val extractor = pcmAudioExtractor
+        if (extractor == null) {
+            _uiState.value = current.copy(error = EditorError.BEATS_DETECT_FAILED)
+            return
+        }
+        val projectSnapshot = current.project
+        if (projectSnapshot.videoClips().isEmpty() && projectSnapshot.audioClips().isEmpty()) {
+            _uiState.value = current.copy(error = EditorError.BEATS_DETECT_FAILED)
+            return
+        }
+
+        _uiState.value = current.copy(isDetectingBeats = true, error = null)
+        beatJob?.cancel()
+        beatJob = viewModelScope.launch {
+            val detectedMs = try {
+                val assembled = TimelineAudioAssembler.assemble(
+                    project = projectSnapshot,
+                    mediaStorage = mediaStorage,
+                    extractor = extractor,
+                )
+                OfflineBeatDetector.detectBeatsMs(assembled.audio)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                val latest = _uiState.value as? EditorUiState.Loaded ?: return@launch
+                _uiState.value = latest.copy(
+                    isDetectingBeats = false,
+                    error = EditorError.BEATS_DETECT_FAILED,
+                )
+                return@launch
+            }
+
+            if (detectedMs.isEmpty()) {
+                val latest = _uiState.value as? EditorUiState.Loaded ?: return@launch
+                _uiState.value = latest.copy(
+                    isDetectingBeats = false,
+                    error = EditorError.BEATS_DETECT_FAILED,
+                )
+                return@launch
+            }
+
+            changeMutex.withLock {
+                val latest = _uiState.value as? EditorUiState.Loaded ?: return@withLock
+                val previousProject = latest.project
+                val markers = detectedMs.map { ms ->
+                    BeatMarker(
+                        id = idProvider(),
+                        timeMs = ms,
+                        effect = BeatEffectKind.NONE,
+                    )
+                }
+                val updatedProject = ProjectTimeline.replaceBeatMarkers(previousProject, markers)
+                try {
+                    repository.saveProject(updatedProject)
+                    history.pushState(updatedProject)
+                    _uiState.value = latest.copy(isDetectingBeats = false).withSyncedProject(
+                        previousProject = previousProject,
+                        targetProject = updatedProject,
+                        preferredSelectedId = latest.selectedClipId,
+                        mediaStorage = mediaStorage,
+                        history = history,
+                        keepActiveDialog = true,
+                    )
+                } catch (_: IOException) {
+                    _uiState.value = latest.copy(isDetectingBeats = false).withSaveFailedRollback(
+                        previousProject = previousProject,
+                        mediaStorage = mediaStorage,
+                        history = history,
+                    )
+                }
+            }
+        }
+    }
+
     override fun onCleared() {
+        beatJob?.cancel()
+        extractAudioJob?.cancel()
         freezeJob?.cancel()
         captionJob?.cancel()
         exportJob?.cancel()
@@ -1309,6 +1581,7 @@ class EditorViewModel(
             pcmAudioExtractor: PcmAudioExtractor? = null,
             transcriptionEngine: TranscriptionEngine? = null,
             freezeFrameExtractor: FreezeFrameExtractor? = null,
+            videoAudioExtractor: VideoAudioExtractor? = null,
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -1327,6 +1600,7 @@ class EditorViewModel(
                     pcmAudioExtractor = pcmAudioExtractor,
                     transcriptionEngine = transcriptionEngine,
                     freezeFrameExtractor = freezeFrameExtractor,
+                    videoAudioExtractor = videoAudioExtractor,
                 ) as T
             }
         }

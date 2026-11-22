@@ -9,10 +9,12 @@ import com.projectmediapro.app.data.export.VideoExporter
 import com.projectmediapro.app.data.export.usableBytesNear
 import com.projectmediapro.app.data.media.AndroidAudioImporter
 import com.projectmediapro.app.data.media.AndroidFreezeFrameExtractor
+import com.projectmediapro.app.data.media.AndroidVideoAudioExtractor
 import com.projectmediapro.app.data.media.AndroidOverlayImporter
 import com.projectmediapro.app.data.media.AndroidVideoImporter
 import com.projectmediapro.app.data.media.AudioImporter
 import com.projectmediapro.app.data.media.FreezeFrameExtractor
+import com.projectmediapro.app.data.media.VideoAudioExtractor
 import com.projectmediapro.app.data.media.OverlayImporter
 import com.projectmediapro.app.data.media.ProjectMediaStorage
 import com.projectmediapro.app.data.media.VideoImporter
@@ -88,6 +90,7 @@ class AppContainer(appContext: Context) {
     )
     val videoExporter: VideoExporter = Media3VideoExporter(context = appContext)
     val freezeFrameExtractor: FreezeFrameExtractor = AndroidFreezeFrameExtractor()
+    val videoAudioExtractor: VideoAudioExtractor = AndroidVideoAudioExtractor()
     val exportSaver: ExportSaver = AndroidExportSaver(context = appContext)
     val exportTempDirectory: File = File(appContext.cacheDir, "exports")
     val cacheSpaceProvider: () -> Long = { usableBytesNear(exportTempDirectory) }

@@ -2,10 +2,6 @@ package com.projectmediapro.core.model
 
 import kotlinx.serialization.Serializable
 
-/**
- * Output and preview frame aspect ratio for a [Project].
- * Later features (overlays, text) place elements as fractions (`0..1`) of this canvas.
- */
 @Serializable
 enum class CanvasAspect {
     ORIGINAL,
@@ -15,9 +11,6 @@ enum class CanvasAspect {
     RATIO_4_5,
 }
 
-/**
- * Background fill shown behind fitted clips when the clip aspect ratio differs from [CanvasAspect].
- */
 @Serializable
 enum class CanvasBackground {
     BLACK,
@@ -25,9 +18,6 @@ enum class CanvasBackground {
     GREY,
 }
 
-/**
- * Target export resolution remembered per [Project].
- */
 @Serializable
 enum class ExportQuality {
     HD_720P,
@@ -36,9 +26,6 @@ enum class ExportQuality {
     UHD_4K,
 }
 
-/**
- * Target export frame rate remembered per [Project].
- */
 @Serializable
 enum class ExportFrameRate {
     AUTO,
@@ -46,9 +33,6 @@ enum class ExportFrameRate {
     FPS_60,
 }
 
-/**
- * Target export bitrate / speed balance remembered per [Project].
- */
 @Serializable
 enum class ExportBitrate {
     FAST_SMALL,
@@ -56,9 +40,6 @@ enum class ExportBitrate {
     HIGH,
 }
 
-/**
- * Root project model persisted as JSON.
- */
 @Serializable
 data class Project(
     val id: String,
@@ -73,6 +54,8 @@ data class Project(
     val exportQuality: ExportQuality = ExportQuality.FULL_HD_1080P,
     val exportFrameRate: ExportFrameRate = ExportFrameRate.AUTO,
     val exportBitrate: ExportBitrate = ExportBitrate.STANDARD,
+    val beatMarkers: List<BeatMarker> = emptyList(),
+    val soundReactiveEnabled: Boolean = false,
 ) {
     companion object {
         const val CURRENT_SCHEMA_VERSION = 1

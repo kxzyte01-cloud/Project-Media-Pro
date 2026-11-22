@@ -63,6 +63,8 @@ import androidx.compose.ui.unit.dp
 import com.projectmediapro.app.R
 import com.projectmediapro.core.designsystem.theme.MediaProShapes
 import com.projectmediapro.core.designsystem.theme.MediaProSpacing
+import androidx.compose.ui.graphics.Path
+import com.projectmediapro.core.model.BeatMarker
 import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.ProjectTimeline
 import java.util.Locale
@@ -89,6 +91,7 @@ fun TimelineStrip(
     audioClips: List<Clip> = emptyList(),
     overlayClips: List<Clip> = emptyList(),
     textClips: List<Clip> = emptyList(),
+    beatMarkers: List<BeatMarker> = emptyList(),
     clipFilePaths: Map<String, String> = emptyMap(),
     timelinePositionMs: Long = 0L,
     totalDurationMs: Long = 0L,
@@ -215,6 +218,7 @@ fun TimelineStrip(
                         totalDurationMs = effectiveTotalMs,
                         dpPerSecond = dpPerSecond,
                         isEnabled = isEnabled,
+                        beatMarkers = beatMarkers,
                         onSeekTimeline = onSeekTimeline,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -386,6 +390,7 @@ private fun TimelineRuler(
     totalDurationMs: Long,
     dpPerSecond: Float,
     isEnabled: Boolean,
+    beatMarkers: List<BeatMarker> = emptyList(),
     onSeekTimeline: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -394,6 +399,7 @@ private fun TimelineRuler(
     val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
     val stepMs = remember(dpPerSecond, totalDurationMs) { TimelineScale.rulerStepMs(dpPerSecond, totalDurationMs) }
     val latestOnSeek by rememberUpdatedState(onSeekTimeline)
+    val diamondPath = remember { Path() }
 
     fun seekForPx(xPx: Float) {
         val xDp = with(density) { xPx.toDp().value }
@@ -430,6 +436,21 @@ private fun TimelineRuler(
                     strokeWidth = if (isMajor) 2f else 1f,
                 )
                 tMs += minorStepMs
+            }
+
+            val diamondRadius = 5.dp.toPx()
+            val diamondY = size.height - diamondRadius - 2f
+            beatMarkers.forEach { marker ->
+                val bx = with(density) { TimelineScale.msToDp(marker.timeMs, dpPerSecond).dp.toPx() }
+                if (bx in 0f..size.width) {
+                    diamondPath.reset()
+                    diamondPath.moveTo(bx, diamondY - diamondRadius)
+                    diamondPath.lineTo(bx + diamondRadius, diamondY)
+                    diamondPath.lineTo(bx, diamondY + diamondRadius)
+                    diamondPath.lineTo(bx - diamondRadius, diamondY)
+                    diamondPath.close()
+                    drawPath(diamondPath, color = beatMarkerColor(marker.effect))
+                }
             }
         }
 
@@ -532,7 +553,7 @@ private fun TimelineRichClipBlock(
     }
 
     if (!isAudioLane && filePath != null) {
-        val frameCount = TimelineScale.desiredThumbnailCount(blockWidth.value)
+        val frameCount = TimelineScale.desiredThumbnailCount(blockWidth.value, maxFrames = 20)
         LaunchedEffect(filePath, clip.isStillImage, clip.trimStartMs, clip.trimEndMs, frameCount) {
             filmstrip = TimelineMediaCache.loadVideoFilmstrip(
                 filePath = filePath,
@@ -595,7 +616,7 @@ private fun TimelineRichClipBlock(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Black.copy(alpha = if (isSelected) 0.28f else 0.42f)),
+                        .background(Color.Black.copy(alpha = if (isSelected) 0.14f else 0.22f)),
                 )
             }
 

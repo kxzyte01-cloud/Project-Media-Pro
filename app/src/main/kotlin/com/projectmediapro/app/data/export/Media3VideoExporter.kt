@@ -210,6 +210,10 @@ class Media3VideoExporter(
                 val allVideoEffects = cropEffects + transformEffects + presentationEffects + clipEffects + speedVideoEffects + frameRateEffects
                 val audioProcessors = buildAudioProcessors(
                     volume = clip.volume,
+                    audioBoost = clip.audioBoost,
+                    fadeInMs = clip.audioFadeInMs,
+                    fadeOutMs = clip.audioFadeOutMs,
+                    clipDurationMs = clip.durationMs,
                     playbackSpeed = clip.playbackSpeed,
                 )
                 EditedMediaItem.Builder(mediaItem)
@@ -228,6 +232,10 @@ class Media3VideoExporter(
                 )
                 val audioProcessors = buildAudioProcessors(
                     volume = audioClip.volume,
+                    audioBoost = audioClip.audioBoost,
+                    fadeInMs = audioClip.audioFadeInMs,
+                    fadeOutMs = audioClip.audioFadeOutMs,
+                    clipDurationMs = audioClip.durationMs,
                     playbackSpeed = audioClip.playbackSpeed,
                 )
                 EditedMediaItem.Builder(mediaItem)
@@ -241,6 +249,9 @@ class Media3VideoExporter(
         val builder = Composition.Builder(sequences)
             .experimentalSetForceAudioTrack(true)
         val compositionVideoEffects = buildList<Effect> {
+            if (!useTransmuxFastPath && plan.beatMarkers.isNotEmpty()) {
+                addAll(VideoEffectFactory.buildBeatDropEffects(plan.beatMarkers, plan.soundReactiveEnabled))
+            }
             if (plan.overlays.isNotEmpty() || plan.textOverlays.isNotEmpty()) {
                 val textureOverlays: List<TextureOverlay> = buildList(plan.overlays.size + plan.textOverlays.size) {
                     plan.overlays.forEach { add(TimedBitmapOverlay(it)) }
@@ -275,6 +286,10 @@ class Media3VideoExporter(
 
     private fun buildAudioProcessors(
         volume: Float,
+        audioBoost: Float = Clip.DEFAULT_AUDIO_BOOST,
+        fadeInMs: Long = 0L,
+        fadeOutMs: Long = 0L,
+        clipDurationMs: Long = 0L,
         playbackSpeed: Float,
     ): List<AudioProcessor> = buildList {
         val safeSpeed = ProjectTimeline.sanitizeSpeed(playbackSpeed)
@@ -282,7 +297,19 @@ class Media3VideoExporter(
             add(SonicAudioProcessor().apply { setSpeed(safeSpeed) })
         }
         val clampedVolume = ProjectTimeline.sanitizeVolume(volume)
-        if (clampedVolume < 1.0f) {
+        val clampedBoost = ProjectTimeline.sanitizeAudioBoost(audioBoost)
+        val effectiveGain = (clampedVolume * clampedBoost).coerceIn(0f, Clip.MAX_AUDIO_BOOST)
+        val hasFades = fadeInMs > 0L || fadeOutMs > 0L
+        if (effectiveGain > 1.0f || hasFades) {
+            add(
+                SoftClipAudioProcessor(
+                    gain = effectiveGain,
+                    fadeInMs = fadeInMs,
+                    fadeOutMs = fadeOutMs,
+                    clipDurationMs = clipDurationMs,
+                ),
+            )
+        } else if (clampedVolume < 1.0f) {
             // Scaling to 0f via ChannelMixingAudioProcessor mutes cleanly while keeping a valid
             // audio track for Transformer's Composition audio mixer across multi-clip sequences.
             add(

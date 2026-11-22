@@ -6,12 +6,17 @@ import androidx.media3.common.audio.SpeedProvider
 import androidx.media3.effect.Brightness
 import androidx.media3.effect.Contrast
 import androidx.media3.effect.Crop
+import android.graphics.Matrix
 import androidx.media3.effect.HslAdjustment
+import androidx.media3.effect.MatrixTransformation
 import androidx.media3.effect.RgbAdjustment
 import androidx.media3.effect.RgbFilter
 import androidx.media3.effect.RgbMatrix
 import androidx.media3.effect.ScaleAndRotateTransformation
 import androidx.media3.effect.SpeedChangeEffect
+import com.projectmediapro.core.model.BeatEffectEvaluator
+import com.projectmediapro.core.model.BeatEffectKind
+import com.projectmediapro.core.model.BeatMarker
 import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.ClipCrop
 import com.projectmediapro.core.model.ClipTransition
@@ -74,6 +79,23 @@ object VideoEffectFactory {
                 .setRotationDegrees(ccwDegrees)
                 .build(),
         )
+    }
+
+    fun buildBeatDropEffects(
+        beatMarkers: List<BeatMarker>,
+        soundReactiveEnabled: Boolean = false,
+    ): List<Effect> {
+        if (beatMarkers.isEmpty()) return emptyList()
+        val active = if (soundReactiveEnabled) beatMarkers else beatMarkers.filter { it.effect != BeatEffectKind.NONE }
+        if (active.isEmpty()) return emptyList()
+        return buildList {
+            if (soundReactiveEnabled || active.any { it.effect == BeatEffectKind.ZOOM_PUNCH || it.effect == BeatEffectKind.SHAKE || it.effect == BeatEffectKind.GLITCH }) {
+                add(BeatDropMatrixTransformation(active, soundReactiveEnabled))
+            }
+            if (soundReactiveEnabled || active.any { it.effect == BeatEffectKind.FLASH || it.effect == BeatEffectKind.GLITCH }) {
+                add(BeatDropRgbMatrix(active, soundReactiveEnabled))
+            }
+        }
     }
 
     fun buildSpeedEffects(playbackSpeed: Float): List<Effect> {
@@ -146,6 +168,62 @@ object VideoEffectFactory {
         }
         if (spec.brightnessDelta != 0f) {
             add(Brightness(spec.brightnessDelta))
+        }
+    }
+
+    private class BeatDropMatrixTransformation(
+        private val markers: List<BeatMarker>,
+        private val soundReactiveEnabled: Boolean,
+    ) : MatrixTransformation {
+        private val matrixLocal = object : ThreadLocal<Matrix>() {
+            override fun initialValue(): Matrix = Matrix()
+        }
+
+        override fun getMatrix(presentationTimeUs: Long): Matrix {
+            val matrix = matrixLocal.get() ?: Matrix()
+            matrix.reset()
+            val sample = BeatEffectEvaluator.evaluate(markers, presentationTimeUs / 1_000L, soundReactiveEnabled)
+            if (!sample.isIdentity) {
+                if (sample.scale != 1f) {
+                    matrix.postScale(sample.scale, sample.scale)
+                }
+                if (sample.translationXFraction != 0f || sample.translationYFraction != 0f) {
+                    matrix.postTranslate(
+                        sample.translationXFraction * 2f,
+                        -sample.translationYFraction * 2f,
+                    )
+                }
+            }
+            return matrix
+        }
+    }
+
+    private class BeatDropRgbMatrix(
+        private val markers: List<BeatMarker>,
+        private val soundReactiveEnabled: Boolean,
+    ) : RgbMatrix {
+        private val matrixLocal = object : ThreadLocal<FloatArray>() {
+            override fun initialValue(): FloatArray = FloatArray(16)
+        }
+
+        override fun getMatrix(presentationTimeUs: Long, useHdr: Boolean): FloatArray {
+            val sample = BeatEffectEvaluator.evaluate(markers, presentationTimeUs / 1_000L, soundReactiveEnabled)
+            if (sample.flashAlpha <= 0.001f && sample.glitchAmount <= 0.001f && sample.reactiveGlow <= 0.001f) {
+                return IDENTITY_MATRIX
+            }
+            val out = matrixLocal.get() ?: FloatArray(16)
+            val flash = (sample.flashAlpha + sample.reactiveGlow * 0.08f).coerceIn(0f, 0.9f)
+            val glitch = sample.glitchAmount.coerceIn(0f, 1f)
+            val keep = 1f - flash
+            val rBoost = keep * (1f + glitch * 0.25f)
+            val gBoost = keep * (1f - glitch * 0.12f)
+            val bBoost = keep * (1f + glitch * 0.30f + sample.reactiveGlow * 0.10f)
+            // Column-major 4x4 RGB matrix
+            out[0] = rBoost; out[1] = 0f;     out[2] = 0f;     out[3] = 0f
+            out[4] = 0f;     out[5] = gBoost; out[6] = 0f;     out[7] = 0f
+            out[8] = 0f;     out[9] = 0f;     out[10] = bBoost; out[11] = 0f
+            out[12] = flash; out[13] = flash; out[14] = flash; out[15] = 1f
+            return out
         }
     }
 

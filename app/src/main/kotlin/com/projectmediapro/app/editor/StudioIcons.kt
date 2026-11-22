@@ -22,6 +22,7 @@ internal enum class StudioToolIconKind {
     OVERLAY,
     TEXT,
     CAPTIONS,
+    BEATS,
     CANVAS,
     TRIM,
     SPLIT,
@@ -30,6 +31,7 @@ internal enum class StudioToolIconKind {
     TRANSFORM,
     CROP,
     FREEZE,
+    EXTRACT_AUDIO,
     EFFECTS,
     POSITION,
     TIMING,
@@ -114,6 +116,18 @@ internal fun StudioToolIcon(
                 drawLine(tint, Offset(w * 0.26f, h * 0.54f), Offset(w * 0.56f, h * 0.54f), strokePx, StrokeCap.Round)
                 drawLine(tint, Offset(w * 0.64f, h * 0.54f), Offset(w * 0.74f, h * 0.54f), strokePx, StrokeCap.Round)
                 drawLine(tint, Offset(w * 0.26f, h * 0.66f), Offset(w * 0.74f, h * 0.66f), strokePx, StrokeCap.Round)
+            }
+            StudioToolIconKind.BEATS -> {
+                val diamond = Path().apply {
+                    moveTo(w * 0.50f, h * 0.16f)
+                    lineTo(w * 0.78f, h * 0.50f)
+                    lineTo(w * 0.50f, h * 0.84f)
+                    lineTo(w * 0.22f, h * 0.50f)
+                    close()
+                }
+                drawPath(diamond, color = tint, style = stroke)
+                drawLine(tint, Offset(w * 0.36f, h * 0.50f), Offset(w * 0.64f, h * 0.50f), strokePx, StrokeCap.Round)
+                drawLine(tint, Offset(w * 0.50f, h * 0.36f), Offset(w * 0.50f, h * 0.64f), strokePx, StrokeCap.Round)
             }
             StudioToolIconKind.CANVAS -> {
                 drawRoundRect(
@@ -321,6 +335,18 @@ internal fun StudioToolIcon(
                     cornerRadius = CornerRadius(w * 0.06f, w * 0.06f),
                     style = stroke,
                 )
+            }
+            StudioToolIconKind.EXTRACT_AUDIO -> {
+                // Downward arrow from film bar into mini waveform bars
+                drawLine(tint, Offset(w * 0.22f, h * 0.20f), Offset(w * 0.78f, h * 0.20f), strokePx, StrokeCap.Round)
+                drawLine(tint, Offset(w * 0.50f, h * 0.20f), Offset(w * 0.50f, h * 0.50f), strokePx, StrokeCap.Round)
+                drawLine(tint, Offset(w * 0.36f, h * 0.38f), Offset(w * 0.50f, h * 0.52f), strokePx, StrokeCap.Round)
+                drawLine(tint, Offset(w * 0.64f, h * 0.38f), Offset(w * 0.50f, h * 0.52f), strokePx, StrokeCap.Round)
+                val wave = listOf(0.18f, 0.34f, 0.24f, 0.36f, 0.18f)
+                wave.forEachIndexed { idx, amp ->
+                    val x = w * 0.22f + (w * 0.56f) * (idx.toFloat() / wave.lastIndex.toFloat())
+                    drawLine(tint, Offset(x, h * 0.74f - h * amp * 0.5f), Offset(x, h * 0.74f + h * amp * 0.5f), strokePx, StrokeCap.Round)
+                }
             }
             StudioToolIconKind.BACK -> {
                 drawLine(tint, Offset(w * 0.64f, h * 0.24f), Offset(w * 0.34f, h * 0.50f), strokePx, StrokeCap.Round)

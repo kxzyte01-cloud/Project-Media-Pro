@@ -147,6 +147,14 @@ private fun MainStudioDockItems(
         onClick = { onEvent(EditorEvent.OpenCaptions) },
     )
     StudioDockTile(
+        icon = StudioToolIconKind.BEATS,
+        label = stringResource(R.string.editor_studio_dock_beats),
+        enabled = editsEnabled,
+        isActive = state.project.beatMarkers.isNotEmpty(),
+        isLoading = state.isDetectingBeats,
+        onClick = { onEvent(EditorEvent.OpenBeats) },
+    )
+    StudioDockTile(
         icon = StudioToolIconKind.CANVAS,
         label = stringResource(R.string.editor_studio_dock_canvas),
         enabled = editsEnabled,
@@ -287,7 +295,7 @@ private fun SelectedClipDockItems(
                 icon = StudioToolIconKind.VOLUME,
                 label = stringResource(R.string.editor_tool_volume),
                 enabled = editsEnabled,
-                isActive = clip.volume < 1.0f,
+                isActive = clip.hasCustomAudioMix,
                 onClick = { onEvent(EditorEvent.OpenVolume) },
             )
             StudioDockTile(
@@ -333,8 +341,14 @@ private fun SelectedClipDockItems(
                 icon = StudioToolIconKind.VOLUME,
                 label = stringResource(R.string.editor_tool_volume),
                 enabled = editsEnabled && !clip.isStillImage,
-                isActive = clip.volume < 1.0f,
+                isActive = clip.hasCustomAudioMix,
                 onClick = { onEvent(EditorEvent.OpenVolume) },
+            )
+            StudioDockTile(
+                icon = StudioToolIconKind.EXTRACT_AUDIO,
+                label = stringResource(R.string.editor_tool_extract_audio),
+                enabled = editsEnabled && !clip.isStillImage,
+                onClick = { onEvent(EditorEvent.ExtractAudioFromSelected) },
             )
             StudioDockTile(
                 icon = StudioToolIconKind.TRANSFORM,

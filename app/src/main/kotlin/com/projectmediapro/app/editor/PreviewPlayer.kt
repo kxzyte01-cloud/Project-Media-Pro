@@ -33,7 +33,7 @@ import java.io.File
 import kotlin.math.roundToLong
 import kotlinx.coroutines.delay
 
-private const val POSITION_POLL_INTERVAL_MS = 100L
+private const val POSITION_POLL_INTERVAL_MS = 25L
 
 /**
  * One resolved clip for preview playback. A [trimEndMs] of 0 means play the whole file.

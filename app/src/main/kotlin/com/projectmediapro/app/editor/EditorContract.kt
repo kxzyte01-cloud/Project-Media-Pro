@@ -1,5 +1,6 @@
 package com.projectmediapro.app.editor
 
+import com.projectmediapro.core.model.BeatEffectKind
 import com.projectmediapro.core.model.CanvasAspect
 import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.CanvasBackground
@@ -31,6 +32,8 @@ enum class EditorError {
     CAPTIONS_FAILED,
     CAPTIONS_TRUNCATED,
     FREEZE_FRAME_FAILED,
+    EXTRACT_AUDIO_FAILED,
+    BEATS_DETECT_FAILED,
 }
 
 sealed interface ExportUiState {
@@ -55,6 +58,7 @@ sealed interface EditorDialog {
     data class TextTiming(val clipId: String) : EditorDialog
     data class Keyframes(val clipId: String) : EditorDialog
     data object Captions : EditorDialog
+    data object Beats : EditorDialog
     data object Canvas : EditorDialog
     data object Quality : EditorDialog
 }
@@ -87,6 +91,7 @@ sealed interface EditorUiState {
         val pendingRemoveClipId: String? = null,
         val captionDocument: CaptionDocument? = null,
         val isTranscribingCaptions: Boolean = false,
+        val isDetectingBeats: Boolean = false,
         val export: ExportUiState = ExportUiState.Idle,
         val error: EditorError? = null,
     ) : EditorUiState {
@@ -123,13 +128,25 @@ sealed interface EditorEvent {
     data object OpenTextTiming : EditorEvent
     data object OpenKeyframes : EditorEvent
     data object OpenCaptions : EditorEvent
+    data object OpenBeats : EditorEvent
+    data object AutoDetectBeats : EditorEvent
+    data class TapBeatMarker(val timeMs: Long, val effect: BeatEffectKind = BeatEffectKind.NONE) : EditorEvent
+    data class RemoveBeatMarker(val markerId: String) : EditorEvent
+    data object ClearBeatMarkers : EditorEvent
+    data object AutoCutOnBeats : EditorEvent
+    data class ToggleSoundReactive(val enabled: Boolean) : EditorEvent
     data object OpenCanvas : EditorEvent
     data object OpenExportQuality : EditorEvent
     data object DismissDialog : EditorEvent
     data class ApplyTrim(val startMs: Long, val endMs: Long) : EditorEvent
     data class ApplySplit(val offsetMs: Long) : EditorEvent
     data class ApplySpeed(val speed: Float) : EditorEvent
-    data class ApplyVolume(val volume: Float) : EditorEvent
+    data class ApplyVolume(
+        val volume: Float,
+        val audioBoost: Float = Clip.DEFAULT_AUDIO_BOOST,
+        val fadeInMs: Long = 0L,
+        val fadeOutMs: Long = 0L,
+    ) : EditorEvent
     data class ApplyTransform(
         val rotationDegrees: Int,
         val flipHorizontal: Boolean,
@@ -138,6 +155,7 @@ sealed interface EditorEvent {
     data class ApplyClipEffects(val effects: ClipVisualEffects) : EditorEvent
     data class ApplyCrop(val crop: ClipCrop?) : EditorEvent
     data class ApplyFreezeFrame(val sourceTimeMs: Long, val durationMs: Long) : EditorEvent
+    data object ExtractAudioFromSelected : EditorEvent
     data object DuplicateSelected : EditorEvent
     data class ReplaceClipPicked(val sourceUri: String?) : EditorEvent
     data class CopyFromHere(val playheadMs: Long) : EditorEvent

@@ -190,6 +190,7 @@ internal fun EditorUiState.Loaded.withSyncedProject(
     preferredSelectedId: String?,
     mediaStorage: ProjectMediaStorage,
     history: UndoRedoManager<Project>,
+    keepActiveDialog: Boolean = false,
 ): EditorUiState.Loaded = copy(
     project = targetProject,
     previewClips = resolvePreviewClips(targetProject, mediaStorage),
@@ -203,7 +204,7 @@ internal fun EditorUiState.Loaded.withSyncedProject(
     ),
     canUndo = history.canUndo,
     canRedo = history.canRedo,
-    activeDialog = null,
+    activeDialog = if (keepActiveDialog) activeDialog else null,
     importingTrack = null,
     audioPreview = null,
     error = null,

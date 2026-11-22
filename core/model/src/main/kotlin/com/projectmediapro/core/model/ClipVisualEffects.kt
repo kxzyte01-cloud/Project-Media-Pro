@@ -12,6 +12,10 @@ enum class VideoFilterPreset {
     VINTAGE,
     BW,
     FADE_FILM,
+    DREAMY_GLOW,
+    RETRO_FILM,
+    CYBER_NEON,
+    NOIR_PUNCH,
 }
 
 @Serializable
@@ -89,14 +93,36 @@ fun VideoFilterPreset.gradeSpec(): FilterGradeSpec = when (this) {
         contrastDelta = -0.14f,
         brightnessDelta = 0.06f,
     )
+    VideoFilterPreset.DREAMY_GLOW -> FilterGradeSpec(
+        redScale = 1.08f,
+        greenScale = 1.03f,
+        blueScale = 1.06f,
+        saturationDelta = 14f,
+        contrastDelta = -0.10f,
+        brightnessDelta = 0.10f,
+    )
+    VideoFilterPreset.RETRO_FILM -> FilterGradeSpec(
+        redScale = 1.10f,
+        greenScale = 1.02f,
+        blueScale = 0.84f,
+        saturationDelta = -12f,
+        contrastDelta = 0.12f,
+        brightnessDelta = 0.03f,
+    )
+    VideoFilterPreset.CYBER_NEON -> FilterGradeSpec(
+        redScale = 1.12f,
+        greenScale = 0.90f,
+        blueScale = 1.22f,
+        saturationDelta = 38f,
+        contrastDelta = 0.22f,
+    )
+    VideoFilterPreset.NOIR_PUNCH -> FilterGradeSpec(
+        contrastDelta = 0.34f,
+        brightnessDelta = -0.04f,
+        isGrayscale = true,
+    )
 }
 
-/**
- * Non-destructive per-clip visual effects for [TrackType.VIDEO] clips.
- *
- * Parameter ranges match Media3 1.4.1 effect contracts (`Brightness`/`Contrast` in `-0.5..0.5`,
- * `HslAdjustment.adjustSaturation` in `-100..100`, fade durations clamped to half clip length).
- */
 @Serializable
 data class ClipVisualEffects(
     val filter: VideoFilterPreset = VideoFilterPreset.NONE,
@@ -156,10 +182,6 @@ data class ClipVisualEffects(
         )
     }
 
-    /**
-     * Computes the active fade/transition overlay (`transition` + `overlayAlpha` in `0f..1f`, where
-     * `1f` = fully black/white and `0f` = fully visible video) at [positionInClipMs].
-     */
     fun fadeOverlayAt(
         positionInClipMs: Long,
         clipDurationMs: Long,

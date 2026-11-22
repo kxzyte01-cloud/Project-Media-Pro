@@ -60,6 +60,9 @@ import com.projectmediapro.app.data.media.SubtitleFileIo
 import com.projectmediapro.core.designsystem.theme.MediaProShapes
 import com.projectmediapro.core.designsystem.theme.MediaProSpacing
 import com.projectmediapro.core.model.CanvasBackground
+import androidx.compose.ui.graphics.graphicsLayer
+import com.projectmediapro.core.model.BeatEffectEvaluator
+import com.projectmediapro.core.model.BeatMarker
 import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.ExportBitrate
 import com.projectmediapro.core.model.ExportFrameRate
@@ -425,6 +428,8 @@ private fun LoadedStudioWorkspace(
                 overlayFilePaths = state.overlayFilePaths,
                 textClips = textClips,
                 captionDocument = state.captionDocument,
+                beatMarkers = state.project.beatMarkers,
+                soundReactiveEnabled = state.project.soundReactiveEnabled,
                 selectedClipId = state.selectedClipId,
                 isInteractive = editsEnabled,
                 timelinePositionMs = timelinePositionMs,
@@ -471,6 +476,7 @@ private fun LoadedStudioWorkspace(
                         audioClips = audioClips,
                         overlayClips = overlayClips,
                         textClips = textClips,
+                        beatMarkers = state.project.beatMarkers,
                         clipFilePaths = state.clipFilePaths,
                         timelinePositionMs = timelinePositionMs,
                         totalDurationMs = state.project.durationMs,
@@ -577,8 +583,15 @@ private fun LoadedStudioWorkspace(
             if (location != null && (location.isAudio || location.isVideo)) {
                 VolumeDialog(
                     clip = location.clip,
-                    onConfirm = { volume ->
-                        onEvent(EditorEvent.ApplyVolume(volume = volume))
+                    onConfirm = { volume, audioBoost, fadeInMs, fadeOutMs ->
+                        onEvent(
+                            EditorEvent.ApplyVolume(
+                                volume = volume,
+                                audioBoost = audioBoost,
+                                fadeInMs = fadeInMs,
+                                fadeOutMs = fadeOutMs,
+                            ),
+                        )
                     },
                     onDismiss = { onEvent(EditorEvent.DismissDialog) },
                 )
@@ -753,6 +766,31 @@ private fun LoadedStudioWorkspace(
                     onDismiss = { onEvent(EditorEvent.DismissDialog) },
                 )
             }
+        }
+        EditorDialog.Beats -> {
+            BeatSyncSheet(
+                beatMarkers = state.project.beatMarkers,
+                soundReactiveEnabled = state.project.soundReactiveEnabled,
+                timelinePositionMs = timelinePositionMs,
+                hasClips = clips.isNotEmpty() || audioClips.isNotEmpty(),
+                isDetectingBeats = state.isDetectingBeats,
+                onToggleSoundReactive = { enabled -> onEvent(EditorEvent.ToggleSoundReactive(enabled)) },
+                onAutoDetectBeats = { onEvent(EditorEvent.AutoDetectBeats) },
+                onTapBeat = { effect ->
+                    onEvent(EditorEvent.TapBeatMarker(timeMs = timelinePositionMs, effect = effect))
+                },
+                onAutoCutOnBeats = { onEvent(EditorEvent.AutoCutOnBeats) },
+                onSeekToBeat = { targetMs ->
+                    seekRequestCounter += 1L
+                    seekRequest = PreviewSeekRequest(
+                        timelinePositionMs = targetMs.coerceAtLeast(0L),
+                        requestId = seekRequestCounter,
+                    )
+                },
+                onRemoveBeat = { markerId -> onEvent(EditorEvent.RemoveBeatMarker(markerId)) },
+                onClearBeats = { onEvent(EditorEvent.ClearBeatMarkers) },
+                onDismiss = { onEvent(EditorEvent.DismissDialog) },
+            )
         }
         EditorDialog.Captions -> {
             CaptionsEditorSheet(
@@ -941,6 +979,8 @@ private fun EditorPreviewStage(
     overlayFilePaths: Map<String, String>,
     textClips: List<Clip>,
     captionDocument: CaptionDocument?,
+    beatMarkers: List<BeatMarker> = emptyList(),
+    soundReactiveEnabled: Boolean = false,
     selectedClipId: String?,
     isInteractive: Boolean,
     timelinePositionMs: Long,
@@ -967,10 +1007,17 @@ private fun EditorPreviewStage(
         } else {
             Modifier.size(width = availWidth, height = availWidth / safeAspect)
         }
+        val beatSample = BeatEffectEvaluator.evaluate(beatMarkers, timelinePositionMs, soundReactiveEnabled)
         Box(
             contentAlignment = Alignment.Center,
             modifier = stageModifier
                 .clip(MediaProShapes.Medium)
+                .graphicsLayer {
+                    scaleX = beatSample.scale
+                    scaleY = beatSample.scale
+                    translationX = size.width * beatSample.translationXFraction
+                    translationY = size.height * beatSample.translationYFraction
+                }
                 .background(previewBackground)
                 .border(
                     width = MediaProSpacing.BorderThin,
@@ -997,6 +1044,8 @@ private fun EditorPreviewStage(
                 PreviewEffectsOverlay(
                     videoClips = videoClips,
                     timelinePositionMs = timelinePositionMs,
+                    beatMarkers = beatMarkers,
+                    soundReactiveEnabled = soundReactiveEnabled,
                     modifier = Modifier.fillMaxSize(),
                 )
                 OverlayPreviewLayer(

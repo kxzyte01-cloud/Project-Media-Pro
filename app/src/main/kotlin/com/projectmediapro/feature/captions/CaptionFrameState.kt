@@ -25,6 +25,11 @@ data class CaptionFrameState(
     val lineAlpha: Float,
     val showCursor: Boolean,
     val style: CaptionStyle,
+    val activeLineIndex: Int = 0,
+    val totalLines: Int = 0,
+    val previousLineText: String? = null,
+    val nextLineText: String? = null,
+    val songProgressFraction: Float = 0f,
 ) {
     val hasVisibleContent: Boolean
         get() = activeLineId != null && words.isNotEmpty() && lineAlpha > 0.001f
@@ -60,19 +65,25 @@ object CaptionFrameEvaluator {
 
         // Positive globalOffsetUs shifts captions later in timeline time.
         val adjustedTimeUs = presentationTimeUs - document.globalOffsetUs
-        val activeLine = findActiveLine(document.lines, adjustedTimeUs)
-            ?: return CaptionFrameState.empty(presentationTimeUs, adjustedTimeUs, document.style)
+        val activeIndex = findActiveLineIndex(document.lines, adjustedTimeUs)
+        if (activeIndex < 0) {
+            return CaptionFrameState.empty(presentationTimeUs, adjustedTimeUs, document.style)
+        }
+        val activeLine = document.lines[activeIndex]
 
         val template = CaptionTemplateRegistry.byId(document.style.templateId)
         val lineAlpha = computeLineAlpha(activeLine, adjustedTimeUs)
         var anyActiveWord = false
+
+        val forceUppercase = document.style.uppercase ||
+            document.style.templateId == CaptionTemplateId.KINETIC_GRUNGE
 
         val wordStates = activeLine.words.map { word ->
             val state = evaluateWord(
                 word = word,
                 adjustedTimeUs = adjustedTimeUs,
                 template = template,
-                uppercase = document.style.uppercase,
+                uppercase = forceUppercase,
             )
             if (state.isActive) {
                 anyActiveWord = true
@@ -81,6 +92,18 @@ object CaptionFrameEvaluator {
         }
 
         val showCursor = document.style.templateId == CaptionTemplateId.TYPEWRITER && anyActiveWord
+        val prevText = document.lines.getOrNull(activeIndex - 1)?.let { line ->
+            formatLinePreview(line, forceUppercase)
+        }
+        val nextText = document.lines.getOrNull(activeIndex + 1)?.let { line ->
+            formatLinePreview(line, forceUppercase)
+        }
+        val songStartUs = document.lines.first().startUs
+        val songEndUs = document.lines.last().endUs
+        val songSpanUs = max(1L, songEndUs - songStartUs)
+        val songProgress = ((adjustedTimeUs - songStartUs).toFloat() / songSpanUs.toFloat())
+            .coerceIn(0f, 1f)
+
         return CaptionFrameState(
             presentationTimeUs = presentationTimeUs,
             adjustedTimeUs = adjustedTimeUs,
@@ -89,12 +112,22 @@ object CaptionFrameEvaluator {
             lineAlpha = lineAlpha,
             showCursor = showCursor,
             style = document.style,
+            activeLineIndex = activeIndex,
+            totalLines = document.lines.size,
+            previousLineText = prevText,
+            nextLineText = nextText,
+            songProgressFraction = songProgress,
         )
     }
 
     internal fun findActiveLine(lines: List<CaptionLine>, timeUs: Long): CaptionLine? {
+        val index = findActiveLineIndex(lines, timeUs)
+        return if (index >= 0) lines[index] else null
+    }
+
+    internal fun findActiveLineIndex(lines: List<CaptionLine>, timeUs: Long): Int {
         if (lines.isEmpty() || timeUs < lines.first().startUs || timeUs >= lines.last().endUs) {
-            return null
+            return -1
         }
         var low = 0
         var high = lines.lastIndex
@@ -104,11 +137,16 @@ object CaptionFrameEvaluator {
             when {
                 timeUs < candidate.startUs -> high = mid - 1
                 timeUs >= candidate.endUs -> low = mid + 1
-                else -> return candidate
+                else -> return mid
             }
         }
-        return null
+        return -1
     }
+
+    private fun formatLinePreview(line: CaptionLine, uppercase: Boolean): String =
+        line.words.joinToString(" ") { word ->
+            if (uppercase) word.text.uppercase(Locale.US) else word.text
+        }
 
     private fun evaluateWord(
         word: WordTiming,
@@ -124,7 +162,9 @@ object CaptionFrameEvaluator {
         val isActive = adjustedTimeUs in word.startUs until word.endUs
 
         return when (template.id) {
-            CaptionTemplateId.KARAOKE_HIGHLIGHT -> WordRenderState(
+            CaptionTemplateId.KARAOKE_HIGHLIGHT,
+            CaptionTemplateId.MUSIC_PLAYER,
+            -> WordRenderState(
                 wordId = word.id,
                 displayText = displayText,
                 visibleCharCount = displayText.length,
@@ -135,7 +175,10 @@ object CaptionFrameEvaluator {
                 isSpoken = isSpoken,
             )
 
-            CaptionTemplateId.POP_IN -> {
+            CaptionTemplateId.POP_IN,
+            CaptionTemplateId.KINETIC_GRUNGE,
+            CaptionTemplateId.NEON_GLOW_STACK,
+            -> {
                 if (adjustedTimeUs < word.startUs) {
                     WordRenderState(
                         wordId = word.id,
@@ -158,11 +201,36 @@ object CaptionFrameEvaluator {
                         visibleCharCount = displayText.length,
                         fillProgress = if (isActive || isSpoken) 1f else 0f,
                         scale = popScale + activePulse(isActive, rawProgress, template.activeWordScaleBoost),
-                        alpha = min(1f, t * 2.2f),
+                        alpha = min(1f, t * 2.4f),
                         isActive = isActive,
                         isSpoken = isSpoken,
                     )
                 }
+            }
+
+            CaptionTemplateId.EDITORIAL_SCRATCH -> {
+                val entranceUs = min(template.entranceDurationUs, durationUs)
+                val t = if (adjustedTimeUs < word.startUs) {
+                    0f
+                } else {
+                    ((adjustedTimeUs - word.startUs).toFloat() / max(1L, entranceUs).toFloat())
+                        .coerceIn(0f, 1f)
+                }
+                val settleScale = if (adjustedTimeUs < word.startUs) {
+                    0.94f
+                } else {
+                    0.94f + 0.06f * easeOutBack(t, overshoot = template.popScaleFactor)
+                }
+                WordRenderState(
+                    wordId = word.id,
+                    displayText = displayText,
+                    visibleCharCount = displayText.length,
+                    fillProgress = if (isActive) 1f else 0f,
+                    scale = settleScale + activePulse(isActive, rawProgress, template.activeWordScaleBoost),
+                    alpha = if (adjustedTimeUs < word.startUs) 0.58f else 1f,
+                    isActive = isActive,
+                    isSpoken = isSpoken,
+                )
             }
 
             CaptionTemplateId.TYPEWRITER -> {

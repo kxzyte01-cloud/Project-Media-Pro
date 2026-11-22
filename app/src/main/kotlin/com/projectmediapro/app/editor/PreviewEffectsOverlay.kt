@@ -15,6 +15,8 @@ import androidx.compose.ui.res.stringResource
 import com.projectmediapro.app.R
 import com.projectmediapro.core.designsystem.theme.MediaProShapes
 import com.projectmediapro.core.designsystem.theme.MediaProSpacing
+import com.projectmediapro.core.model.BeatEffectEvaluator
+import com.projectmediapro.core.model.BeatMarker
 import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.ClipTransition
 import com.projectmediapro.core.model.VideoFilterPreset
@@ -27,13 +29,20 @@ import com.projectmediapro.core.model.VideoFilterPreset
 internal fun PreviewEffectsOverlay(
     videoClips: List<Clip>,
     timelinePositionMs: Long,
+    beatMarkers: List<BeatMarker> = emptyList(),
+    soundReactiveEnabled: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    val active = TimelineClock.activeClipAt(videoClips, timelinePositionMs) ?: return
-    val effects = active.clip.visualEffects ?: return
-    if (effects.isIdentity) return
+    val beatSample = BeatEffectEvaluator.evaluate(beatMarkers, timelinePositionMs, soundReactiveEnabled)
+    val active = TimelineClock.activeClipAt(videoClips, timelinePositionMs)
+    val effects = active?.clip?.visualEffects?.takeUnless { it.isIdentity }
+    if (effects == null && beatSample.flashAlpha <= 0.001f && beatSample.glitchAmount <= 0.001f && beatSample.reactiveGlow <= 0.001f) return
 
-    val fade = effects.fadeOverlayAt(active.positionInClipMs, active.clipDurationMs)
+    val fade = if (effects != null && active != null) {
+        effects.fadeOverlayAt(active.positionInClipMs, active.clipDurationMs)
+    } else {
+        null
+    }
 
     Box(modifier = modifier.fillMaxSize()) {
         if (fade != null) {
@@ -52,27 +61,53 @@ internal fun PreviewEffectsOverlay(
             }
         }
 
-        val badgeLabel = if (effects.filter != VideoFilterPreset.NONE) {
-            stringResource(filterPresetLabelRes(effects.filter))
-        } else {
-            stringResource(R.string.editor_effects_badge_adjusted)
-        }
-        Surface(
-            shape = MediaProShapes.Small,
-            color = Color.Black.copy(alpha = 0.62f),
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(MediaProSpacing.Small),
-        ) {
-            Text(
-                text = badgeLabel,
-                style = MaterialTheme.typography.labelSmall,
-                color = Color.White,
-                modifier = Modifier.padding(
-                    horizontal = MediaProSpacing.Small,
-                    vertical = MediaProSpacing.ExtraSmall,
-                ),
+        if (beatSample.flashAlpha > 0.001f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.White.copy(alpha = beatSample.flashAlpha.coerceIn(0f, 0.9f))),
             )
+        }
+        if (beatSample.glitchAmount > 0.001f) {
+            val glitchAlpha = (beatSample.glitchAmount * 0.34f).coerceIn(0f, 0.4f)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFFC084FC).copy(alpha = glitchAlpha)),
+            )
+        }
+        if (beatSample.reactiveGlow > 0.001f) {
+            val glowAlpha = (beatSample.reactiveGlow * 0.16f).coerceIn(0f, 0.22f)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFF38BDF8).copy(alpha = glowAlpha)),
+            )
+        }
+
+        if (effects != null) {
+            val badgeLabel = if (effects.filter != VideoFilterPreset.NONE) {
+                stringResource(filterPresetLabelRes(effects.filter))
+            } else {
+                stringResource(R.string.editor_effects_badge_adjusted)
+            }
+            Surface(
+                shape = MediaProShapes.Small,
+                color = Color.Black.copy(alpha = 0.62f),
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(MediaProSpacing.Small),
+            ) {
+                Text(
+                    text = badgeLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White,
+                    modifier = Modifier.padding(
+                        horizontal = MediaProSpacing.Small,
+                        vertical = MediaProSpacing.ExtraSmall,
+                    ),
+                )
+            }
         }
     }
 }

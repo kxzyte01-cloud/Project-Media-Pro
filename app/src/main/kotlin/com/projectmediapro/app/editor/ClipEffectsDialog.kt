@@ -421,6 +421,10 @@ internal fun filterPresetLabelRes(preset: VideoFilterPreset): Int = when (preset
     VideoFilterPreset.VINTAGE -> R.string.editor_filter_vintage
     VideoFilterPreset.BW -> R.string.editor_filter_bw
     VideoFilterPreset.FADE_FILM -> R.string.editor_filter_fade_film
+    VideoFilterPreset.DREAMY_GLOW -> R.string.editor_filter_dreamy_glow
+    VideoFilterPreset.RETRO_FILM -> R.string.editor_filter_retro_film
+    VideoFilterPreset.CYBER_NEON -> R.string.editor_filter_cyber_neon
+    VideoFilterPreset.NOIR_PUNCH -> R.string.editor_filter_noir_punch
 }
 
 @StringRes

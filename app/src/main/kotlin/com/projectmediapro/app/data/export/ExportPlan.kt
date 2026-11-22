@@ -1,5 +1,7 @@
 package com.projectmediapro.app.data.export
 
+import com.projectmediapro.core.model.BeatEffectKind
+import com.projectmediapro.core.model.BeatMarker
 import com.projectmediapro.core.model.CanvasAspect
 import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.ClipCrop
@@ -32,6 +34,9 @@ data class ExportClip(
     val durationMs: Long = 0L,
     val visualEffects: ClipVisualEffects? = null,
     val volume: Float = 1.0f,
+    val audioBoost: Float = Clip.DEFAULT_AUDIO_BOOST,
+    val audioFadeInMs: Long = 0L,
+    val audioFadeOutMs: Long = 0L,
     val playbackSpeed: Float = Clip.DEFAULT_PLAYBACK_SPEED,
     val rotationDegrees: Int = 0,
     val flipHorizontal: Boolean = false,
@@ -47,7 +52,11 @@ data class ExportAudioClip(
     val path: String,
     val trimStartMs: Long,
     val trimEndMs: Long,
+    val durationMs: Long = 0L,
     val volume: Float = 1.0f,
+    val audioBoost: Float = Clip.DEFAULT_AUDIO_BOOST,
+    val audioFadeInMs: Long = 0L,
+    val audioFadeOutMs: Long = 0L,
     val playbackSpeed: Float = Clip.DEFAULT_PLAYBACK_SPEED,
 )
 
@@ -91,6 +100,8 @@ data class ExportPlan(
     val exportFrameRate: ExportFrameRate = ExportFrameRate.AUTO,
     val exportBitrate: ExportBitrate = ExportBitrate.STANDARD,
     val captionDocument: CaptionDocument? = null,
+    val beatMarkers: List<BeatMarker> = emptyList(),
+    val soundReactiveEnabled: Boolean = false,
 )
 
 object ExportPlanner {
@@ -129,6 +140,9 @@ object ExportPlanner {
                     durationMs = clipDurationMs,
                     visualEffects = sanitizedEffects,
                     volume = ProjectTimeline.sanitizeVolume(clip.volume),
+                    audioBoost = ProjectTimeline.sanitizeAudioBoost(clip.audioBoost),
+                    audioFadeInMs = ProjectTimeline.sanitizeAudioFadeMs(clip.audioFadeInMs, clipDurationMs),
+                    audioFadeOutMs = ProjectTimeline.sanitizeAudioFadeMs(clip.audioFadeOutMs, clipDurationMs),
                     playbackSpeed = ProjectTimeline.effectiveSpeed(clip),
                     rotationDegrees = ProjectTimeline.normalizeRotationDegrees(clip.rotationDegrees),
                     flipHorizontal = clip.flipHorizontal,
@@ -170,6 +184,8 @@ object ExportPlanner {
             exportFrameRate = project.exportFrameRate,
             exportBitrate = project.exportBitrate,
             captionDocument = captionDocument?.takeIf { it.lines.isNotEmpty() },
+            beatMarkers = project.beatMarkers.map { it.sanitized() },
+            soundReactiveEnabled = project.soundReactiveEnabled,
         )
     }
 
@@ -215,7 +231,11 @@ object ExportPlanner {
                     path = file.absolutePath,
                     trimStartMs = if (shouldSpecifyBounds) clipStartMs else 0L,
                     trimEndMs = if (shouldSpecifyBounds) clipStartMs + exportedSourceMs else 0L,
+                    durationMs = exportedTimelineMs,
                     volume = ProjectTimeline.sanitizeVolume(clip.volume),
+                    audioBoost = ProjectTimeline.sanitizeAudioBoost(clip.audioBoost),
+                    audioFadeInMs = ProjectTimeline.sanitizeAudioFadeMs(clip.audioFadeInMs, exportedTimelineMs),
+                    audioFadeOutMs = ProjectTimeline.sanitizeAudioFadeMs(clip.audioFadeOutMs, exportedTimelineMs),
                     playbackSpeed = speed,
                 ),
             )
@@ -341,6 +361,8 @@ object ExportPlanner {
         if (plan.clips.size != 1) return false
         if (plan.canvasAspect != CanvasAspect.ORIGINAL) return false
         if (plan.overlays.isNotEmpty() || plan.textOverlays.isNotEmpty() || plan.captionDocument != null) return false
+        if (plan.beatMarkers.any { it.effect != BeatEffectKind.NONE }) return false
+        if (plan.soundReactiveEnabled && plan.beatMarkers.isNotEmpty()) return false
         if (plan.exportFrameRate != ExportFrameRate.AUTO || plan.exportBitrate != ExportBitrate.STANDARD) return false
         val longSide = sourceLongSidePx ?: return false
         if (longSide <= 0 || longSide > ExportGeometry.longSideCapFor(plan.exportQuality)) return false

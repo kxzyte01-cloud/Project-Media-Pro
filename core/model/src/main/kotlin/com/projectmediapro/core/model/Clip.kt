@@ -4,25 +4,6 @@ import kotlinx.serialization.Serializable
 
 /**
  * A single media or text segment on a [Track].
- *
- * Conventions:
- * - [mediaUri] is a RELATIVE path inside app-private storage, written "<projectId>/<clipId>.<ext>" and
- *   resolved against the media storage root (filesDir/media). It is never a content:// URI, and is
- *   empty (`""`) for [TrackType.TEXT] clips.
- * - [durationMs] is the clip's duration on the timeline in milliseconds (scaled by [playbackSpeed]
- *   for sequential video/audio clips, or free display duration for overlay/text clips).
- * - [startTimeMs] is the clip's start time on the timeline in milliseconds.
- * - At import, [trimStartMs] is 0L, [trimEndMs] equals the source media duration, and [sourceDurationMs]
- *   equals the full length of the imported media file (`0L` means unknown, resolved via `max(trimEndMs, durationMs)`).
- * - For [TrackType.OVERLAY] and [TrackType.TEXT] clips, [overlayCenterX], [overlayCenterY], and
- *   [overlayWidthFraction] define placement as fractions of the project canvas frame.
- * - For [TrackType.TEXT] clips, [textContent] holds the lyric/title string and [textStyle] holds
- *   the styling configuration (falling back to [TextOverlayStyle] defaults when null).
- * - For [TrackType.VIDEO] clips, [visualEffects] holds optional non-destructive filter, color
- *   adjustments, and fade/transition settings (`null` means identity / no effects),
- *   [rotationDegrees] / [flipHorizontal] / [flipVertical] define clockwise rotation (`0/90/180/270`)
- *   and mirror flips, [crop] defines an optional normalized crop box (`null` = full frame), and
- *   [isStillImage] marks extracted freeze-frame image clips.
  */
 @Serializable
 data class Clip(
@@ -47,6 +28,9 @@ data class Clip(
     val crop: ClipCrop? = null,
     val isStillImage: Boolean = false,
     val keyframes: List<OverlayKeyframe> = emptyList(),
+    val audioBoost: Float = DEFAULT_AUDIO_BOOST,
+    val audioFadeInMs: Long = 0L,
+    val audioFadeOutMs: Long = 0L,
 ) {
     val hasActiveTransform: Boolean
         get() = (rotationDegrees % 360) != 0 || flipHorizontal || flipVertical
@@ -57,10 +41,17 @@ data class Clip(
     val hasKeyframes: Boolean
         get() = keyframes.isNotEmpty()
 
+    val hasCustomAudioMix: Boolean
+        get() = volume < 1.0f || audioBoost > DEFAULT_AUDIO_BOOST || audioFadeInMs > 0L || audioFadeOutMs > 0L
+
     companion object {
         const val MIN_PLAYBACK_SPEED: Float = 0.25f
         const val MAX_PLAYBACK_SPEED: Float = 4.0f
         const val DEFAULT_PLAYBACK_SPEED: Float = 1.0f
+
+        const val DEFAULT_AUDIO_BOOST: Float = 1.0f
+        const val MAX_AUDIO_BOOST: Float = 2.0f
+        const val MAX_AUDIO_FADE_MS: Long = 5_000L
 
         const val DEFAULT_OVERLAY_CENTER_X: Float = 0.8f
         const val DEFAULT_OVERLAY_CENTER_Y: Float = 0.2f
