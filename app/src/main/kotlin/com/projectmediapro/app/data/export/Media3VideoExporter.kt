@@ -32,7 +32,10 @@ import com.google.common.collect.ImmutableList
 import com.projectmediapro.app.data.export.VideoExportException.Reason
 import com.projectmediapro.core.model.CanvasAspect
 import com.projectmediapro.core.model.Clip
+import com.projectmediapro.core.model.KeyframeInterpolator
+import com.projectmediapro.core.model.OverlayKeyframe
 import com.projectmediapro.core.model.ProjectTimeline
+import com.projectmediapro.core.model.ResolvedOverlayTransform
 import com.projectmediapro.feature.captions.CaptionOverlayEffectFactory
 import java.io.File
 import kotlin.coroutines.resume
@@ -369,26 +372,34 @@ class Media3VideoExporter(
  * Shared timed [BitmapOverlay] lifecycle for Media3 1.4.1.
  * Builds a single output-resolution bitmap inside [configure], hides outside
  * `[startTimeUs, endTimeUs)` via alpha 0, and recycles deterministically in [configure] & [release].
+ * Media3 OverlaySettings.setRotationDegrees is counter-clockwise, so clockwise model degrees are negated.
  */
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 private abstract class TimedCanvasBitmapOverlay(
     startTimeMs: Long,
     endTimeMs: Long,
-    centerX: Float,
-    centerY: Float,
+    animationDurationMs: Long,
+    private val baseCenterX: Float,
+    private val baseCenterY: Float,
+    keyframes: List<OverlayKeyframe>,
 ) : BitmapOverlay() {
 
     private val startTimeUs: Long = startTimeMs * 1_000L
     private val endTimeUs: Long = endTimeMs * 1_000L
+    private val animationDurationUs: Long = animationDurationMs
+        .coerceAtLeast(endTimeMs - startTimeMs)
+        .coerceAtLeast(1L) * 1_000L
+    private val sanitizedKeyframes: List<OverlayKeyframe> =
+        KeyframeInterpolator.sanitizeList(keyframes, baseCenterX, baseCenterY)
 
-    private val visibleSettings: OverlaySettings = OverlaySettings.Builder()
-        .setAlphaScale(1f)
-        .setBackgroundFrameAnchor(
-            centerX * 2f - 1f,
-            1f - centerY * 2f,
-        )
-        .setOverlayFrameAnchor(0f, 0f)
-        .build()
+    private val staticVisibleSettings: OverlaySettings = buildOverlaySettings(
+        KeyframeInterpolator.evaluateSanitized(
+            baseCenterX = baseCenterX,
+            baseCenterY = baseCenterY,
+            sanitizedKeyframes = sanitizedKeyframes,
+            progress = 0f,
+        ),
+    )
 
     private val hiddenSettings: OverlaySettings = OverlaySettings.Builder()
         .setAlphaScale(0f)
@@ -415,11 +426,20 @@ private abstract class TimedCanvasBitmapOverlay(
     }
 
     override fun getOverlaySettings(presentationTimeUs: Long): OverlaySettings {
-        return if (presentationTimeUs in startTimeUs until endTimeUs) {
-            visibleSettings
-        } else {
-            hiddenSettings
+        if (presentationTimeUs !in startTimeUs until endTimeUs) {
+            return hiddenSettings
         }
+        if (sanitizedKeyframes.size <= 1) {
+            return staticVisibleSettings
+        }
+        val resolved = KeyframeInterpolator.evaluateSanitizedAtTime(
+            baseCenterX = baseCenterX,
+            baseCenterY = baseCenterY,
+            sanitizedKeyframes = sanitizedKeyframes,
+            elapsedTime = presentationTimeUs - startTimeUs,
+            totalDuration = animationDurationUs,
+        )
+        return buildOverlaySettings(resolved)
     }
 
     override fun release() {
@@ -427,6 +447,18 @@ private abstract class TimedCanvasBitmapOverlay(
         cachedBitmap?.let { if (!it.isRecycled) it.recycle() }
         cachedBitmap = null
     }
+
+    private fun buildOverlaySettings(resolved: ResolvedOverlayTransform): OverlaySettings =
+        OverlaySettings.Builder()
+            .setAlphaScale(resolved.opacity)
+            .setBackgroundFrameAnchor(
+                resolved.centerX * 2f - 1f,
+                1f - resolved.centerY * 2f,
+            )
+            .setOverlayFrameAnchor(0f, 0f)
+            .setScale(resolved.scale, resolved.scale)
+            .setRotationDegrees(-resolved.rotationDegrees)
+            .build()
 }
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
@@ -435,8 +467,10 @@ private class TimedBitmapOverlay(
 ) : TimedCanvasBitmapOverlay(
     startTimeMs = overlay.startTimeMs,
     endTimeMs = overlay.endTimeMs,
-    centerX = overlay.centerX,
-    centerY = overlay.centerY,
+    animationDurationMs = overlay.animationDurationMs,
+    baseCenterX = overlay.centerX,
+    baseCenterY = overlay.centerY,
+    keyframes = overlay.keyframes,
 ) {
     override fun buildBitmap(videoSize: Size): Bitmap? {
         val targetWidthPx = (videoSize.width * overlay.widthFraction).roundToInt().coerceAtLeast(1)
@@ -450,8 +484,10 @@ private class TimedTextOverlay(
 ) : TimedCanvasBitmapOverlay(
     startTimeMs = textOverlay.startTimeMs,
     endTimeMs = textOverlay.endTimeMs,
-    centerX = textOverlay.centerX,
-    centerY = textOverlay.centerY,
+    animationDurationMs = textOverlay.animationDurationMs,
+    baseCenterX = textOverlay.centerX,
+    baseCenterY = textOverlay.centerY,
+    keyframes = textOverlay.keyframes,
 ) {
     override fun buildBitmap(videoSize: Size): Bitmap? {
         return TextOverlayBitmapRenderer.render(

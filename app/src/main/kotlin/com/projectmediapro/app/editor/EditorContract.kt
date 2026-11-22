@@ -1,11 +1,11 @@
 package com.projectmediapro.app.editor
 
 import com.projectmediapro.core.model.CanvasAspect
-import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.CanvasBackground
 import com.projectmediapro.core.model.ClipCrop
 import com.projectmediapro.core.model.ClipVisualEffects
 import com.projectmediapro.core.model.ExportQuality
+import com.projectmediapro.core.model.OverlayKeyframe
 import com.projectmediapro.core.model.Project
 import com.projectmediapro.core.model.TextOverlayStyle
 import com.projectmediapro.core.model.TrackType
@@ -50,6 +50,7 @@ sealed interface EditorDialog {
     data class TextEdit(val clipId: String?) : EditorDialog
     data class TextPosition(val clipId: String) : EditorDialog
     data class TextTiming(val clipId: String) : EditorDialog
+    data class Keyframes(val clipId: String) : EditorDialog
     data object Captions : EditorDialog
     data object Canvas : EditorDialog
     data object Quality : EditorDialog
@@ -61,7 +62,6 @@ data class AudioPreviewState(
     val trimStartMs: Long = 0L,
     val trimEndMs: Long = 0L,
     val volume: Float = 1.0f,
-    val playbackSpeed: Float = Clip.DEFAULT_PLAYBACK_SPEED,
 )
 
 sealed interface EditorUiState {
@@ -116,6 +116,7 @@ sealed interface EditorEvent {
     data object OpenEditText : EditorEvent
     data object OpenTextPosition : EditorEvent
     data object OpenTextTiming : EditorEvent
+    data object OpenKeyframes : EditorEvent
     data object OpenCaptions : EditorEvent
     data object OpenCanvas : EditorEvent
     data object OpenExportQuality : EditorEvent
@@ -155,6 +156,7 @@ sealed interface EditorEvent {
         val startTimeMs: Long,
         val durationMs: Long,
     ) : EditorEvent
+    data class ApplyKeyframes(val keyframes: List<OverlayKeyframe>) : EditorEvent
     data class GenerateCaptions(val providedScript: String? = null) : EditorEvent
     data class SelectCaptionPreset(val presetId: String) : EditorEvent
     data class SelectCaptionTemplate(val templateId: CaptionTemplateId) : EditorEvent

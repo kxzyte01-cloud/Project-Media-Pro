@@ -5,6 +5,8 @@ import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.ClipCrop
 import com.projectmediapro.core.model.ClipVisualEffects
 import com.projectmediapro.core.model.ExportQuality
+import com.projectmediapro.core.model.KeyframeInterpolator
+import com.projectmediapro.core.model.OverlayKeyframe
 import com.projectmediapro.core.model.Project
 import com.projectmediapro.core.model.ProjectTimeline
 import com.projectmediapro.core.model.TextOverlayStyle
@@ -57,6 +59,8 @@ data class ExportOverlay(
     val centerX: Float,
     val centerY: Float,
     val widthFraction: Float,
+    val keyframes: List<OverlayKeyframe> = emptyList(),
+    val animationDurationMs: Long = (endTimeMs - startTimeMs).coerceAtLeast(0L),
 )
 
 /**
@@ -70,6 +74,8 @@ data class ExportTextOverlay(
     val centerX: Float,
     val centerY: Float,
     val widthFraction: Float,
+    val keyframes: List<OverlayKeyframe> = emptyList(),
+    val animationDurationMs: Long = (endTimeMs - startTimeMs).coerceAtLeast(0L),
 )
 
 data class ExportPlan(
@@ -240,6 +246,8 @@ object ExportPlanner {
                     centerX = centerX,
                     centerY = centerY,
                     widthFraction = widthFraction,
+                    keyframes = KeyframeInterpolator.sanitizeList(clip.keyframes, centerX, centerY),
+                    animationDurationMs = clip.durationMs.coerceAtLeast(endMs - startMs),
                 ),
             )
         }
@@ -273,6 +281,8 @@ object ExportPlanner {
                     centerX = centerX,
                     centerY = centerY,
                     widthFraction = widthFraction,
+                    keyframes = KeyframeInterpolator.sanitizeList(clip.keyframes, centerX, centerY),
+                    animationDurationMs = clip.durationMs.coerceAtLeast(endMs - startMs),
                 ),
             )
         }
@@ -297,16 +307,10 @@ object ExportPlanner {
         defaultY: Float,
         defaultWidth: Float,
     ): Triple<Float, Float, Float> {
-        val centerX = if (clip.overlayCenterX.isNaN() || clip.overlayCenterX.isInfinite()) defaultX else clip.overlayCenterX.coerceIn(0f, 1f)
-        val centerY = if (clip.overlayCenterY.isNaN() || clip.overlayCenterY.isInfinite()) defaultY else clip.overlayCenterY.coerceIn(0f, 1f)
-        val widthFraction = if (clip.overlayWidthFraction.isNaN() || clip.overlayWidthFraction.isInfinite()) {
-            defaultWidth
-        } else {
-            clip.overlayWidthFraction.coerceIn(
-                Clip.MIN_OVERLAY_WIDTH_FRACTION,
-                Clip.MAX_OVERLAY_WIDTH_FRACTION,
-            )
-        }
+        val centerX = OverlayKeyframe.sanitizeCoordinate(clip.overlayCenterX, defaultX)
+        val centerY = OverlayKeyframe.sanitizeCoordinate(clip.overlayCenterY, defaultY)
+        val widthFraction = OverlayKeyframe.sanitizeFinite(clip.overlayWidthFraction, defaultWidth)
+            .coerceIn(Clip.MIN_OVERLAY_WIDTH_FRACTION, Clip.MAX_OVERLAY_WIDTH_FRACTION)
         return Triple(centerX, centerY, widthFraction)
     }
 

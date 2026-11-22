@@ -12,11 +12,13 @@ import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import com.projectmediapro.app.data.export.TextOverlayBitmapRenderer
 import com.projectmediapro.core.model.Clip
+import com.projectmediapro.core.model.KeyframeInterpolator
 import com.projectmediapro.core.model.TextOverlayStyle
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
@@ -93,25 +95,38 @@ internal fun TextPreviewLayer(
                     canvasWidthPx = renderWidthPx,
                     canvasHeightPx = renderHeightPx,
                     maxWidthFraction = widthFraction,
+                ) ?: return@key
+
+                val resolved = KeyframeInterpolator.evaluateAtTime(
+                    baseCenterX = clip.overlayCenterX,
+                    baseCenterY = clip.overlayCenterY,
+                    keyframes = clip.keyframes,
+                    elapsedTime = timelinePositionMs - clip.startTimeMs,
+                    totalDuration = clip.durationMs,
                 )
-                if (loaded != null) {
-                    val displayWidthPx = loaded.width / renderScale
-                    val displayHeightPx = loaded.height / renderScale
-                    val leftPx = (clip.overlayCenterX.coerceIn(0f, 1f) * canvasWidthPx) - (displayWidthPx / 2f)
-                    val topPx = (clip.overlayCenterY.coerceIn(0f, 1f) * canvasHeightPx) - (displayHeightPx / 2f)
 
-                    val widthDp = with(density) { displayWidthPx.toDp() }
-                    val heightDp = with(density) { displayHeightPx.toDp() }
+                val displayWidthPx = loaded.width / renderScale
+                val displayHeightPx = loaded.height / renderScale
+                val leftPx = (resolved.centerX * canvasWidthPx) - (displayWidthPx / 2f)
+                val topPx = (resolved.centerY * canvasHeightPx) - (displayHeightPx / 2f)
 
-                    Image(
-                        bitmap = loaded,
-                        contentDescription = null,
-                        contentScale = ContentScale.FillBounds,
-                        modifier = Modifier
-                            .offset { IntOffset(leftPx.roundToInt(), topPx.roundToInt()) }
-                            .size(width = widthDp, height = heightDp),
-                    )
-                }
+                val widthDp = with(density) { displayWidthPx.toDp() }
+                val heightDp = with(density) { displayHeightPx.toDp() }
+
+                Image(
+                    bitmap = loaded,
+                    contentDescription = null,
+                    contentScale = ContentScale.FillBounds,
+                    modifier = Modifier
+                        .offset { IntOffset(leftPx.roundToInt(), topPx.roundToInt()) }
+                        .size(width = widthDp, height = heightDp)
+                        .graphicsLayer {
+                            scaleX = resolved.scale
+                            scaleY = resolved.scale
+                            rotationZ = resolved.rotationDegrees
+                            alpha = resolved.opacity
+                        },
+                )
             }
         }
     }

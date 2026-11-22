@@ -46,12 +46,16 @@ data class Clip(
     val flipVertical: Boolean = false,
     val crop: ClipCrop? = null,
     val isStillImage: Boolean = false,
+    val keyframes: List<OverlayKeyframe> = emptyList(),
 ) {
     val hasActiveTransform: Boolean
         get() = (rotationDegrees % 360) != 0 || flipHorizontal || flipVertical
 
     val hasActiveCrop: Boolean
         get() = crop != null && !crop.sanitized().isIdentity
+
+    val hasKeyframes: Boolean
+        get() = keyframes.isNotEmpty()
 
     companion object {
         const val MIN_PLAYBACK_SPEED: Float = 0.25f

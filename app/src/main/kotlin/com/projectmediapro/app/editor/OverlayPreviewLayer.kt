@@ -13,9 +13,11 @@ import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.IntOffset
 import com.projectmediapro.core.model.Clip
+import com.projectmediapro.core.model.KeyframeInterpolator
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -39,39 +41,48 @@ internal fun OverlayPreviewLayer(
 
         visibleOverlays.forEach { clip ->
             key(clip.id) {
-                val path = overlayFilePaths[clip.id]
-                if (path != null) {
-                    val bitmap by produceState<ImageBitmap?>(initialValue = null, key1 = path) {
-                        value = withContext(Dispatchers.IO) {
-                            decodePreviewImageBitmap(path)
-                        }
-                    }
-                    val loaded = bitmap
-                    if (loaded != null) {
-                        val widthFraction = clip.overlayWidthFraction.coerceIn(
-                            Clip.MIN_OVERLAY_WIDTH_FRACTION,
-                            Clip.MAX_OVERLAY_WIDTH_FRACTION,
-                        )
-                        val overlayWidthPx = canvasWidthPx * widthFraction
-                        val imageAspect = if (loaded.height > 0) {
-                            loaded.width.toFloat() / loaded.height.toFloat()
-                        } else {
-                            1f
-                        }
-                        val overlayHeightPx = overlayWidthPx / imageAspect
-                        val leftPx = (clip.overlayCenterX.coerceIn(0f, 1f) * canvasWidthPx) - (overlayWidthPx / 2f)
-                        val topPx = (clip.overlayCenterY.coerceIn(0f, 1f) * canvasHeightPx) - (overlayHeightPx / 2f)
-
-                        Image(
-                            bitmap = loaded,
-                            contentDescription = null,
-                            contentScale = ContentScale.FillWidth,
-                            modifier = Modifier
-                                .offset { IntOffset(leftPx.roundToInt(), topPx.roundToInt()) }
-                                .width(canvasWidthDp * widthFraction),
-                        )
+                val path = overlayFilePaths[clip.id] ?: return@key
+                val bitmap by produceState<ImageBitmap?>(initialValue = null, key1 = path) {
+                    value = withContext(Dispatchers.IO) {
+                        decodePreviewImageBitmap(path)
                     }
                 }
+                val loaded = bitmap ?: return@key
+                val widthFraction = clip.overlayWidthFraction.coerceIn(
+                    Clip.MIN_OVERLAY_WIDTH_FRACTION,
+                    Clip.MAX_OVERLAY_WIDTH_FRACTION,
+                )
+                val resolved = KeyframeInterpolator.evaluateAtTime(
+                    baseCenterX = clip.overlayCenterX,
+                    baseCenterY = clip.overlayCenterY,
+                    keyframes = clip.keyframes,
+                    elapsedTime = timelinePositionMs - clip.startTimeMs,
+                    totalDuration = clip.durationMs,
+                )
+                val overlayWidthPx = canvasWidthPx * widthFraction
+                val imageAspect = if (loaded.height > 0) {
+                    loaded.width.toFloat() / loaded.height.toFloat()
+                } else {
+                    1f
+                }
+                val overlayHeightPx = overlayWidthPx / imageAspect
+                val leftPx = (resolved.centerX * canvasWidthPx) - (overlayWidthPx / 2f)
+                val topPx = (resolved.centerY * canvasHeightPx) - (overlayHeightPx / 2f)
+
+                Image(
+                    bitmap = loaded,
+                    contentDescription = null,
+                    contentScale = ContentScale.FillWidth,
+                    modifier = Modifier
+                        .offset { IntOffset(leftPx.roundToInt(), topPx.roundToInt()) }
+                        .width(canvasWidthDp * widthFraction)
+                        .graphicsLayer {
+                            scaleX = resolved.scale
+                            scaleY = resolved.scale
+                            rotationZ = resolved.rotationDegrees
+                            alpha = resolved.opacity
+                        },
+                )
             }
         }
     }

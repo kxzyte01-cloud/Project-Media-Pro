@@ -182,6 +182,10 @@ class EditorViewModel(
                     dialogFactory = EditorDialog::TextTiming,
                 )
             }
+            EditorEvent.OpenKeyframes -> openSelectedClipDialog(
+                predicate = { it.isOverlay || it.isText },
+                dialogFactory = EditorDialog::Keyframes,
+            )
             EditorEvent.OpenCaptions -> {
                 val current = _uiState.value as? EditorUiState.Loaded ?: return
                 if (current.isBusy) return
@@ -386,6 +390,17 @@ class EditorViewModel(
                         startTimeMs = event.startTimeMs,
                         durationMs = event.durationMs,
                     )
+                }
+            }
+            is EditorEvent.ApplyKeyframes -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                val targetId = (current.activeDialog as? EditorDialog.Keyframes)?.clipId
+                    ?: current.selectedClipId
+                    ?: return
+                val location = current.project.findClipLocation(targetId) ?: return
+                if (!location.isOverlay && !location.isText) return
+                commitUndoableEdit(targetId) { project ->
+                    ProjectTimeline.updateClipKeyframes(project, targetId, event.keyframes)
                 }
             }
             is EditorEvent.GenerateCaptions -> handleGenerateCaptions(event.providedScript)

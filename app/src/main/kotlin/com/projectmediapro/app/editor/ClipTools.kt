@@ -31,6 +31,7 @@ fun ClipTools(
     hasActiveSpeed: Boolean = false,
     hasActiveTransform: Boolean = false,
     hasActiveCrop: Boolean = false,
+    hasKeyframes: Boolean = false,
     canFreezeFrame: Boolean = false,
     canAdjustSpeed: Boolean = true,
     canAdjustVolume: Boolean = true,
@@ -50,6 +51,7 @@ fun ClipTools(
     onEditTextClick: () -> Unit = {},
     onTextPositionClick: () -> Unit = {},
     onTextTimingClick: () -> Unit = {},
+    onKeyframesClick: () -> Unit = {},
 ) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
@@ -75,6 +77,12 @@ fun ClipTools(
                     enabled = isEnabled && canEditOverlayTiming,
                     onClick = onTextTimingClick,
                 )
+                EditorOutlinedButton(
+                    label = stringResource(R.string.editor_tool_keyframes),
+                    enabled = isEnabled,
+                    tone = if (hasKeyframes) EditorButtonTone.Primary else EditorButtonTone.Default,
+                    onClick = onKeyframesClick,
+                )
             }
             isOverlayClip -> {
                 EditorOutlinedButton(
@@ -86,6 +94,12 @@ fun ClipTools(
                     label = stringResource(R.string.editor_tool_timing),
                     enabled = isEnabled && canEditOverlayTiming,
                     onClick = onOverlayTimingClick,
+                )
+                EditorOutlinedButton(
+                    label = stringResource(R.string.editor_tool_keyframes),
+                    enabled = isEnabled,
+                    tone = if (hasKeyframes) EditorButtonTone.Primary else EditorButtonTone.Default,
+                    onClick = onKeyframesClick,
                 )
             }
             else -> {

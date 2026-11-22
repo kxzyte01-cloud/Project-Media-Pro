@@ -332,6 +332,7 @@ private fun LoadedEditorContent(
                         ProjectTimeline.effectiveSpeed(selectedClip) != Clip.DEFAULT_PLAYBACK_SPEED,
                     hasActiveTransform = selectedLocation.isVideo && selectedClip.hasActiveTransform,
                     hasActiveCrop = selectedLocation.isVideo && selectedClip.hasActiveCrop,
+                    hasKeyframes = selectedLocation.isFreeTimed && selectedClip.hasKeyframes,
                     canFreezeFrame = selectedLocation.isVideo && !selectedClip.isStillImage,
                     canAdjustSpeed = !selectedLocation.isFreeTimed && !selectedClip.isStillImage,
                     canAdjustVolume = selectedLocation.isAudio || (selectedLocation.isVideo && !selectedClip.isStillImage),
@@ -353,6 +354,7 @@ private fun LoadedEditorContent(
                     onEditTextClick = { onEvent(EditorEvent.OpenEditText) },
                     onTextPositionClick = { onEvent(EditorEvent.OpenTextPosition) },
                     onTextTimingClick = { onEvent(EditorEvent.OpenTextTiming) },
+                    onKeyframesClick = { onEvent(EditorEvent.OpenKeyframes) },
                     onMoveEarlierClick = { onEvent(EditorEvent.MoveSelected(-1)) },
                     onMoveLaterClick = { onEvent(EditorEvent.MoveSelected(1)) },
                     onTogglePlayClick = { onEvent(EditorEvent.ToggleAudioPreview) },
@@ -720,6 +722,18 @@ private fun LoadedEditorContent(
                                 durationMs = durationMs,
                             ),
                         )
+                    },
+                    onDismiss = { onEvent(EditorEvent.DismissDialog) },
+                )
+            }
+        }
+        is EditorDialog.Keyframes -> {
+            val location = state.project.findClipLocation(dialog.clipId)
+            if (location != null && (location.isOverlay || location.isText)) {
+                KeyframeEditorDialog(
+                    clip = location.clip,
+                    onConfirm = { keyframes ->
+                        onEvent(EditorEvent.ApplyKeyframes(keyframes = keyframes))
                     },
                     onDismiss = { onEvent(EditorEvent.DismissDialog) },
                 )

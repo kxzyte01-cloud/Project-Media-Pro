@@ -320,6 +320,27 @@ object ProjectTimeline {
         durationMs = durationMs,
     )
 
+    fun updateClipKeyframes(
+        project: Project,
+        clipId: String,
+        keyframes: List<OverlayKeyframe>,
+    ): Project = modifyClipTrack(
+        project = project,
+        clipId = clipId,
+        trackFilter = { it == TrackType.OVERLAY || it == TrackType.TEXT },
+    ) { clips, clipIndex ->
+        val clip = clips[clipIndex]
+        val sanitized = KeyframeInterpolator.sanitizeList(
+            keyframes = keyframes,
+            defaultCenterX = clip.overlayCenterX,
+            defaultCenterY = clip.overlayCenterY,
+        )
+        if (clip.keyframes == sanitized) return@modifyClipTrack null
+        clips.toMutableList().apply {
+            set(clipIndex, clip.copy(keyframes = sanitized))
+        }
+    }
+
     fun removeClip(
         project: Project,
         clipId: String,
@@ -670,9 +691,9 @@ object ProjectTimeline {
         defaultCenterY: Float,
         defaultWidthFraction: Float,
     ): Triple<Float, Float, Float> {
-        val clampedX = if (centerX.isNaN() || centerX.isInfinite()) defaultCenterX else centerX.coerceIn(0f, 1f)
-        val clampedY = if (centerY.isNaN() || centerY.isInfinite()) defaultCenterY else centerY.coerceIn(0f, 1f)
-        val clampedWidth = if (widthFraction.isNaN() || widthFraction.isInfinite()) {
+        val clampedX = if (centerX.isNaN()) defaultCenterX else centerX.coerceIn(0f, 1f)
+        val clampedY = if (centerY.isNaN()) defaultCenterY else centerY.coerceIn(0f, 1f)
+        val clampedWidth = if (widthFraction.isNaN()) {
             defaultWidthFraction
         } else {
             widthFraction.coerceIn(Clip.MIN_OVERLAY_WIDTH_FRACTION, Clip.MAX_OVERLAY_WIDTH_FRACTION)
