@@ -35,8 +35,8 @@ class OpticalFlowExportTest {
         )
         val planOn = planOff.copy(opticalFlowEnabled = true)
 
-        assertTrue(ExportPlanner.canTransmuxDirectly(planOff, sourceLongSidePx = 1920))
-        assertFalse(ExportPlanner.canTransmuxDirectly(planOn, sourceLongSidePx = 1920))
+        assertTrue(ExportPlanner.canTransmuxVideo(planOff, sourceLongSidePx = 1920))
+        assertFalse(ExportPlanner.canTransmuxVideo(planOn, sourceLongSidePx = 1920))
     }
 
     @Test
