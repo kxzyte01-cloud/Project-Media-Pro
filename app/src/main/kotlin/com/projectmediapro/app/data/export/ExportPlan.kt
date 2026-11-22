@@ -2,6 +2,7 @@ package com.projectmediapro.app.data.export
 
 import com.projectmediapro.core.model.CanvasAspect
 import com.projectmediapro.core.model.Clip
+import com.projectmediapro.core.model.ClipCrop
 import com.projectmediapro.core.model.ClipVisualEffects
 import com.projectmediapro.core.model.ExportQuality
 import com.projectmediapro.core.model.Project
@@ -13,6 +14,7 @@ import com.projectmediapro.core.model.textClips as modelTextClips
 import com.projectmediapro.core.model.videoClips as modelVideoClips
 import com.projectmediapro.feature.captions.CaptionDocument
 import java.io.File
+import kotlin.math.roundToLong
 
 fun Project.videoClips(): List<Clip> = modelVideoClips()
 
@@ -25,6 +27,13 @@ data class ExportClip(
     val trimEndMs: Long,
     val durationMs: Long = 0L,
     val visualEffects: ClipVisualEffects? = null,
+    val volume: Float = 1.0f,
+    val playbackSpeed: Float = Clip.DEFAULT_PLAYBACK_SPEED,
+    val rotationDegrees: Int = 0,
+    val flipHorizontal: Boolean = false,
+    val flipVertical: Boolean = false,
+    val crop: ClipCrop? = null,
+    val isStillImage: Boolean = false,
 )
 
 /**
@@ -35,6 +44,7 @@ data class ExportAudioClip(
     val trimStartMs: Long,
     val trimEndMs: Long,
     val volume: Float = 1.0f,
+    val playbackSpeed: Float = Clip.DEFAULT_PLAYBACK_SPEED,
 )
 
 /**
@@ -108,6 +118,13 @@ object ExportPlanner {
                     trimEndMs = trimEndMs,
                     durationMs = clipDurationMs,
                     visualEffects = sanitizedEffects,
+                    volume = ProjectTimeline.sanitizeVolume(clip.volume),
+                    playbackSpeed = ProjectTimeline.effectiveSpeed(clip),
+                    rotationDegrees = ProjectTimeline.normalizeRotationDegrees(clip.rotationDegrees),
+                    flipHorizontal = clip.flipHorizontal,
+                    flipVertical = clip.flipVertical,
+                    crop = clip.crop?.sanitized()?.takeUnless { it.isIdentity },
+                    isStillImage = clip.isStillImage,
                 ),
             )
             totalDurationMs += clipDurationMs
@@ -162,15 +179,22 @@ object ExportPlanner {
             if (clipDurationMs <= 0L) continue
 
             val remainingMs = totalVideoDurationMs - timelineMs
-            val exportedDurationMs = minOf(clipDurationMs, remainingMs)
-            if (exportedDurationMs <= 0L) break
+            val exportedTimelineMs = minOf(clipDurationMs, remainingMs)
+            if (exportedTimelineMs <= 0L) break
 
+            val speed = ProjectTimeline.effectiveSpeed(clip)
+            val sourceSpanMs = ProjectTimeline.effectiveSourceSpanMs(clip)
             val isTrimmed = ProjectTimeline.isClipTrimmed(clip)
-            val isCutByVideoEnd = exportedDurationMs < clipDurationMs
+            val isCutByVideoEnd = exportedTimelineMs < clipDurationMs
             val clipStartMs = if (clip.trimStartMs >= 0L && clip.trimEndMs > clip.trimStartMs) {
                 clip.trimStartMs
             } else {
                 0L
+            }
+            val exportedSourceMs = if (isCutByVideoEnd) {
+                (exportedTimelineMs * speed).roundToLong().coerceIn(1L, sourceSpanMs.coerceAtLeast(1L))
+            } else {
+                sourceSpanMs
             }
             val shouldSpecifyBounds = isTrimmed || isCutByVideoEnd
 
@@ -178,11 +202,12 @@ object ExportPlanner {
                 ExportAudioClip(
                     path = file.absolutePath,
                     trimStartMs = if (shouldSpecifyBounds) clipStartMs else 0L,
-                    trimEndMs = if (shouldSpecifyBounds) clipStartMs + exportedDurationMs else 0L,
-                    volume = clip.volume.coerceIn(0f, 1f),
+                    trimEndMs = if (shouldSpecifyBounds) clipStartMs + exportedSourceMs else 0L,
+                    volume = ProjectTimeline.sanitizeVolume(clip.volume),
+                    playbackSpeed = speed,
                 ),
             )
-            timelineMs += exportedDurationMs
+            timelineMs += exportedTimelineMs
         }
 
         return planned

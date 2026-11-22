@@ -272,6 +272,7 @@ private fun LoadedEditorContent(
             projectId = state.project.id,
             videoClips = clips,
             previewClips = state.previewClips,
+            previewAudioClips = state.previewAudioClips,
             overlayClips = overlayClips,
             overlayFilePaths = state.overlayFilePaths,
             textClips = textClips,
@@ -312,10 +313,24 @@ private fun LoadedEditorContent(
                     isTextClip = selectedLocation.isText,
                     hasActiveEffects = selectedLocation.isVideo &&
                         selectedClip.visualEffects?.isIdentity == false,
+                    hasActiveSpeed = !selectedLocation.isFreeTimed &&
+                        ProjectTimeline.effectiveSpeed(selectedClip) != Clip.DEFAULT_PLAYBACK_SPEED,
+                    hasActiveTransform = selectedLocation.isVideo && selectedClip.hasActiveTransform,
+                    hasActiveCrop = selectedLocation.isVideo && selectedClip.hasActiveCrop,
+                    canFreezeFrame = selectedLocation.isVideo && !selectedClip.isStillImage,
+                    canAdjustSpeed = !selectedLocation.isFreeTimed && !selectedClip.isStillImage,
+                    canAdjustVolume = selectedLocation.isAudio || (selectedLocation.isVideo && !selectedClip.isStillImage),
+                    hasAdjustedVolume = (selectedLocation.isVideo || selectedLocation.isAudio) &&
+                        selectedClip.volume < 1.0f,
                     canEditOverlayTiming = videoDurationMs >= ProjectTimeline.MIN_CLIP_DURATION_MS,
                     isAudioPlaying = state.audioPreview?.clipId == selectedClip.id,
                     onTrimClick = { onEvent(EditorEvent.OpenTrim) },
                     onSplitClick = { onEvent(EditorEvent.OpenSplit) },
+                    onSpeedClick = { onEvent(EditorEvent.OpenSpeed) },
+                    onTransformClick = { onEvent(EditorEvent.OpenTransform) },
+                    onCropClick = { onEvent(EditorEvent.OpenCrop) },
+                    onFreezeFrameClick = { onEvent(EditorEvent.OpenFreezeFrame) },
+                    onDuplicateClick = { onEvent(EditorEvent.DuplicateSelected) },
                     onEffectsClick = { onEvent(EditorEvent.OpenClipEffects) },
                     onVolumeClick = { onEvent(EditorEvent.OpenVolume) },
                     onOverlayPositionClick = { onEvent(EditorEvent.OpenOverlayPosition) },
@@ -513,13 +528,72 @@ private fun LoadedEditorContent(
                 )
             }
         }
+        is EditorDialog.Speed -> {
+            val location = state.project.findClipLocation(dialog.clipId)
+            if (location != null && !location.isFreeTimed) {
+                ClipSpeedDialog(
+                    clip = location.clip,
+                    onConfirm = { speed ->
+                        onEvent(EditorEvent.ApplySpeed(speed = speed))
+                    },
+                    onDismiss = { onEvent(EditorEvent.DismissDialog) },
+                )
+            }
+        }
         is EditorDialog.Volume -> {
             val location = state.project.findClipLocation(dialog.clipId)
-            if (location != null && location.isAudio) {
+            if (location != null && (location.isAudio || location.isVideo)) {
                 VolumeDialog(
                     clip = location.clip,
                     onConfirm = { volume ->
                         onEvent(EditorEvent.ApplyVolume(volume = volume))
+                    },
+                    onDismiss = { onEvent(EditorEvent.DismissDialog) },
+                )
+            }
+        }
+        is EditorDialog.Transform -> {
+            val location = state.project.findClipLocation(dialog.clipId)
+            if (location != null && location.isVideo) {
+                ClipTransformDialog(
+                    clip = location.clip,
+                    onConfirm = { rotationDegrees, flipHorizontal, flipVertical ->
+                        onEvent(
+                            EditorEvent.ApplyTransform(
+                                rotationDegrees = rotationDegrees,
+                                flipHorizontal = flipHorizontal,
+                                flipVertical = flipVertical,
+                            ),
+                        )
+                    },
+                    onDismiss = { onEvent(EditorEvent.DismissDialog) },
+                )
+            }
+        }
+        is EditorDialog.Crop -> {
+            val location = state.project.findClipLocation(dialog.clipId)
+            if (location != null && location.isVideo) {
+                ClipCropDialog(
+                    clip = location.clip,
+                    onConfirm = { crop ->
+                        onEvent(EditorEvent.ApplyCrop(crop = crop))
+                    },
+                    onDismiss = { onEvent(EditorEvent.DismissDialog) },
+                )
+            }
+        }
+        is EditorDialog.FreezeFrame -> {
+            val location = state.project.findClipLocation(dialog.clipId)
+            if (location != null && location.isVideo && !location.clip.isStillImage) {
+                FreezeFrameDialog(
+                    clip = location.clip,
+                    onConfirm = { sourceTimeMs, freezeDurationMs ->
+                        onEvent(
+                            EditorEvent.ApplyFreezeFrame(
+                                sourceTimeMs = sourceTimeMs,
+                                durationMs = freezeDurationMs,
+                            ),
+                        )
                     },
                     onDismiss = { onEvent(EditorEvent.DismissDialog) },
                 )
@@ -718,6 +792,7 @@ private fun EditorPreviewStage(
     projectId: String,
     videoClips: List<Clip>,
     previewClips: List<PreviewClip>,
+    previewAudioClips: List<PreviewClip>,
     overlayClips: List<Clip>,
     overlayFilePaths: Map<String, String>,
     textClips: List<Clip>,
@@ -757,6 +832,7 @@ private fun EditorPreviewStage(
                 if (hasVideoClips) {
                     PreviewPlayer(
                         previewClips = previewClips,
+                        audioClips = previewAudioClips,
                         backgroundColor = previewBackground,
                         seekRequest = seekRequest,
                         onTimelinePositionChanged = { timelinePositionMs = it },

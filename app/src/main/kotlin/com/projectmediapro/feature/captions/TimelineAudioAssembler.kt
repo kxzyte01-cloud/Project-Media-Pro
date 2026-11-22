@@ -6,6 +6,11 @@ import java.io.File
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 
+data class AssembledTimelineAudio(
+    val pcm: PcmAudioData,
+    val wasTruncated: Boolean,
+)
+
 /**
  * Assembles a single timeline-aligned 16 kHz mono [PcmAudioData] buffer by extracting and mixing
  * trimmed [videoClips] and [audioClips] (e.g., music or voiceover tracks for lyric videos).
@@ -17,8 +22,9 @@ object TimelineAudioAssembler {
         audioClips: List<Clip>,
         extractor: PcmAudioExtractor,
         resolveFile: (String) -> File?,
-    ): PcmAudioData {
+    ): AssembledTimelineAudio {
         val sampleRate = PcmAudioData.TARGET_SAMPLE_RATE_HZ
+        val maxDurationMs = PcmAudioExtractor.DEFAULT_MAX_DURATION_US / CaptionTime.MICROS_PER_MS
         val maxSamples = ((PcmAudioExtractor.DEFAULT_MAX_DURATION_US * sampleRate) / CaptionTime.MICROS_PER_SEC)
             .toInt()
             .coerceAtLeast(1)
@@ -27,17 +33,21 @@ object TimelineAudioAssembler {
         val audioDurationMs = audioClips.sumOf { ProjectTimeline.effectiveDurationMs(it).coerceAtLeast(0L) }
         val targetDurationMs = if (videoDurationMs > 0L) videoDurationMs else audioDurationMs
         if (targetDurationMs <= 0L) {
-            return PcmAudioData(ShortArray(0), sampleRate, 1, 0L)
+            return AssembledTimelineAudio(
+                pcm = PcmAudioData(ShortArray(0), sampleRate, 1, 0L),
+                wasTruncated = false,
+            )
         }
 
-        val totalSamples = ((targetDurationMs * sampleRate) / 1_000L)
+        val wasTruncated = targetDurationMs > maxDurationMs
+        val clampedDurationMs = targetDurationMs.coerceAtMost(maxDurationMs)
+        val totalSamples = ((clampedDurationMs * sampleRate) / 1_000L)
             .toInt()
             .coerceIn(1, maxSamples)
         val mixBuffer = IntArray(totalSamples)
 
         mixTrackInto(
             clips = videoClips,
-            useClipVolume = false,
             sampleRate = sampleRate,
             mixBuffer = mixBuffer,
             extractor = extractor,
@@ -45,7 +55,6 @@ object TimelineAudioAssembler {
         )
         mixTrackInto(
             clips = audioClips,
-            useClipVolume = true,
             sampleRate = sampleRate,
             mixBuffer = mixBuffer,
             extractor = extractor,
@@ -56,17 +65,19 @@ object TimelineAudioAssembler {
             mixBuffer[i].coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
         }
         val mergedDurationUs = (totalSamples.toLong() * CaptionTime.MICROS_PER_SEC) / sampleRate
-        return PcmAudioData(
-            samples = merged,
-            sampleRateHz = sampleRate,
-            channelCount = 1,
-            durationUs = mergedDurationUs,
+        return AssembledTimelineAudio(
+            pcm = PcmAudioData(
+                samples = merged,
+                sampleRateHz = sampleRate,
+                channelCount = 1,
+                durationUs = mergedDurationUs,
+            ),
+            wasTruncated = wasTruncated,
         )
     }
 
     private suspend fun mixTrackInto(
         clips: List<Clip>,
-        useClipVolume: Boolean,
         sampleRate: Int,
         mixBuffer: IntArray,
         extractor: PcmAudioExtractor,
@@ -80,10 +91,10 @@ object TimelineAudioAssembler {
             val clipSamples = ((clipDurationMs * sampleRate) / 1_000L)
                 .toInt()
                 .coerceIn(1, mixBuffer.size - sampleCursor)
-            val gain = if (useClipVolume) clip.volume.coerceIn(0f, 1f) else 1f
+            val gain = if (clip.isStillImage) 0f else ProjectTimeline.sanitizeVolume(clip.volume)
             val file = resolveFile(clip.mediaUri)
 
-            if (gain > 0f && file != null && file.isFile) {
+            if (!clip.isStillImage && gain > 0f && file != null && file.isFile) {
                 val (trimStartMs, trimEndMs) = ProjectTimeline.resolvedTrimBounds(clip)
                 val trimStartUs = trimStartMs * CaptionTime.MICROS_PER_MS
                 val trimEndUs = if (trimEndMs > trimStartMs) {

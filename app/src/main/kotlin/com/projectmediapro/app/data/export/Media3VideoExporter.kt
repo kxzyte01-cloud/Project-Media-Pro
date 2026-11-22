@@ -13,6 +13,7 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.ChannelMixingAudioProcessor
 import androidx.media3.common.audio.ChannelMixingMatrix
+import androidx.media3.common.audio.SonicAudioProcessor
 import androidx.media3.common.util.Size
 import androidx.media3.effect.BitmapOverlay
 import androidx.media3.effect.OverlayEffect
@@ -30,6 +31,8 @@ import androidx.media3.transformer.Transformer
 import com.google.common.collect.ImmutableList
 import com.projectmediapro.app.data.export.VideoExportException.Reason
 import com.projectmediapro.core.model.CanvasAspect
+import com.projectmediapro.core.model.Clip
+import com.projectmediapro.core.model.ProjectTimeline
 import com.projectmediapro.feature.captions.CaptionOverlayEffectFactory
 import java.io.File
 import kotlin.coroutines.resume
@@ -41,9 +44,9 @@ import kotlinx.coroutines.withContext
 
 /**
  * [VideoExporter] built on Media3 Transformer: H.264 video and AAC audio, mixing the video track's
- * audio with an optional second [EditedMediaItemSequence] for music clips, per-clip GPU filters,
- * color adjustments, and fades via [VideoEffectFactory], and a single composition-level
- * [OverlayEffect] for timed picture and styled text/lyric overlays.
+ * audio with an optional second [EditedMediaItemSequence] for music clips, per-clip transforms,
+ * speed changes, volume/mute, GPU filters, color adjustments, and fades via [VideoEffectFactory],
+ * plus a single composition-level [OverlayEffect] for timed picture and styled text/lyric overlays.
  * Transformer must be created, started and queried on the main thread.
  * Media3 1.4.1 [Presentation.LAYOUT_SCALE_TO_FIT] renders letterbox/pillarbox bars in black.
  */
@@ -83,13 +86,34 @@ class Media3VideoExporter(
                 firstClipHeight = 0,
             )
         }
-        val firstSize = readRotatedSize(plan.clips.first().path) ?: return null
+        val firstClip = plan.clips.first()
+        val firstSize = if (firstClip.isStillImage) {
+            readImageSize(firstClip.path)
+        } else {
+            readRotatedSize(firstClip.path)
+        } ?: return null
+        val clipRotation = ProjectTimeline.normalizeRotationDegrees(firstClip.rotationDegrees)
+        val (effectiveWidth, effectiveHeight) = if (clipRotation == 90 || clipRotation == 270) {
+            firstSize.second to firstSize.first
+        } else {
+            firstSize.first to firstSize.second
+        }
         return ExportGeometry.sizeFor(
             aspect = CanvasAspect.ORIGINAL,
             quality = plan.exportQuality,
-            firstClipWidth = firstSize.first,
-            firstClipHeight = firstSize.second,
+            firstClipWidth = effectiveWidth,
+            firstClipHeight = effectiveHeight,
         )
+    }
+
+    private fun readImageSize(path: String): Pair<Int, Int>? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(path, bounds)
+        return if (bounds.outWidth > 0 && bounds.outHeight > 0) {
+            Pair(bounds.outWidth, bounds.outHeight)
+        } else {
+            null
+        }
     }
 
     private fun readRotatedSize(path: String): Pair<Int, Int>? {
@@ -133,12 +157,36 @@ class Media3VideoExporter(
         }
 
         val editedVideoItems = plan.clips.map { clip ->
-            val mediaItem = buildClippedMediaItem(clip.path, clip.trimStartMs, clip.trimEndMs)
+            val cropEffects = VideoEffectFactory.buildCropEffects(clip.crop)
+            val transformEffects = VideoEffectFactory.buildTransformEffects(
+                rotationDegrees = clip.rotationDegrees,
+                flipHorizontal = clip.flipHorizontal,
+                flipVertical = clip.flipVertical,
+            )
             val clipEffects = VideoEffectFactory.buildClipEffects(clip.visualEffects, clip.durationMs)
-            val allVideoEffects = presentationEffects + clipEffects
-            EditedMediaItem.Builder(mediaItem)
-                .setEffects(Effects(emptyList(), allVideoEffects))
-                .build()
+            if (clip.isStillImage) {
+                val mediaItem = MediaItem.Builder()
+                    .setUri(Uri.fromFile(File(clip.path)))
+                    .setImageDurationMs(clip.durationMs.coerceAtLeast(1L))
+                    .build()
+                val allVideoEffects = cropEffects + transformEffects + presentationEffects + clipEffects
+                EditedMediaItem.Builder(mediaItem)
+                    .setDurationUs(clip.durationMs.coerceAtLeast(1L) * 1_000L)
+                    .setFrameRate(FREEZE_FRAME_RATE_FPS)
+                    .setEffects(Effects(emptyList(), allVideoEffects))
+                    .build()
+            } else {
+                val mediaItem = buildClippedMediaItem(clip.path, clip.trimStartMs, clip.trimEndMs)
+                val speedVideoEffects = VideoEffectFactory.buildSpeedEffects(clip.playbackSpeed)
+                val allVideoEffects = cropEffects + transformEffects + presentationEffects + clipEffects + speedVideoEffects
+                val audioProcessors = buildAudioProcessors(
+                    volume = clip.volume,
+                    playbackSpeed = clip.playbackSpeed,
+                )
+                EditedMediaItem.Builder(mediaItem)
+                    .setEffects(Effects(audioProcessors, allVideoEffects))
+                    .build()
+            }
         }
 
         val sequences = mutableListOf(EditedMediaItemSequence(editedVideoItems))
@@ -149,7 +197,10 @@ class Media3VideoExporter(
                     trimStartMs = audioClip.trimStartMs,
                     trimEndMs = audioClip.trimEndMs,
                 )
-                val audioProcessors = buildVolumeProcessors(audioClip.volume)
+                val audioProcessors = buildAudioProcessors(
+                    volume = audioClip.volume,
+                    playbackSpeed = audioClip.playbackSpeed,
+                )
                 EditedMediaItem.Builder(mediaItem)
                     .setRemoveVideo(true)
                     .setEffects(Effects(audioProcessors, emptyList()))
@@ -193,14 +244,25 @@ class Media3VideoExporter(
         return builder.build()
     }
 
-    private fun buildVolumeProcessors(volume: Float): List<AudioProcessor> {
-        val clamped = volume.coerceIn(0f, 1f)
-        if (clamped >= 1.0f) return emptyList()
-        val processor = ChannelMixingAudioProcessor().apply {
-            putChannelMixingMatrix(ChannelMixingMatrix.create(1, 1).scaleBy(clamped))
-            putChannelMixingMatrix(ChannelMixingMatrix.create(2, 2).scaleBy(clamped))
+    private fun buildAudioProcessors(
+        volume: Float,
+        playbackSpeed: Float,
+    ): List<AudioProcessor> = buildList {
+        val safeSpeed = ProjectTimeline.sanitizeSpeed(playbackSpeed)
+        if (safeSpeed != Clip.DEFAULT_PLAYBACK_SPEED) {
+            add(SonicAudioProcessor().apply { setSpeed(safeSpeed) })
         }
-        return listOf(processor)
+        val clampedVolume = ProjectTimeline.sanitizeVolume(volume)
+        if (clampedVolume < 1.0f) {
+            // Scaling to 0f via ChannelMixingAudioProcessor mutes cleanly while keeping a valid
+            // audio track for Transformer's Composition audio mixer across multi-clip sequences.
+            add(
+                ChannelMixingAudioProcessor().apply {
+                    putChannelMixingMatrix(ChannelMixingMatrix.create(1, 1).scaleBy(clampedVolume))
+                    putChannelMixingMatrix(ChannelMixingMatrix.create(2, 2).scaleBy(clampedVolume))
+                },
+            )
+        }
     }
 
     private suspend fun runTransformer(
@@ -297,6 +359,7 @@ class Media3VideoExporter(
 
     private companion object {
         const val POLL_INTERVAL_MS = 250L
+        const val FREEZE_FRAME_RATE_FPS = 30
     }
 }
 

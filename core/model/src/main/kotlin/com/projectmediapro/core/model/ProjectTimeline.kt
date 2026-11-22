@@ -1,6 +1,8 @@
 package com.projectmediapro.core.model
 
 import java.util.Locale
+import kotlin.math.abs
+import kotlin.math.roundToLong
 
 fun Project.videoClips(): List<Clip> =
     tracks.firstOrNull { it.type == TrackType.VIDEO }?.clips.orEmpty()
@@ -19,9 +21,36 @@ object ProjectTimeline {
     const val MIN_CLIP_DURATION_MS: Long = 500L
     const val DEFAULT_OVERLAY_DURATION_MS: Long = 5_000L
     const val DEFAULT_TEXT_DURATION_MS: Long = 4_000L
+    const val DEFAULT_FREEZE_DURATION_MS: Long = 3_000L
+    const val MAX_FREEZE_DURATION_MS: Long = 10_000L
+
+    private const val SPEED_EPSILON: Float = 0.001f
 
     fun videoDurationMs(project: Project): Long =
         project.videoClips().sumOf { effectiveDurationMs(it) }
+
+    fun sanitizeVolume(volume: Float): Float {
+        return if (volume.isNaN() || volume.isInfinite()) 1.0f else volume.coerceIn(0f, 1f)
+    }
+
+    fun sanitizeSpeed(speed: Float): Float {
+        if (speed.isNaN() || speed.isInfinite() || speed <= 0f) {
+            return Clip.DEFAULT_PLAYBACK_SPEED
+        }
+        val clamped = speed.coerceIn(Clip.MIN_PLAYBACK_SPEED, Clip.MAX_PLAYBACK_SPEED)
+        return if (abs(clamped - Clip.DEFAULT_PLAYBACK_SPEED) < SPEED_EPSILON) {
+            Clip.DEFAULT_PLAYBACK_SPEED
+        } else {
+            clamped
+        }
+    }
+
+    fun normalizeRotationDegrees(degrees: Int): Int {
+        val mod = ((degrees % 360) + 360) % 360
+        return ((mod + 45) / 90 * 90) % 360
+    }
+
+    fun effectiveSpeed(clip: Clip): Float = sanitizeSpeed(clip.playbackSpeed)
 
     fun effectiveSourceDurationMs(clip: Clip): Long {
         return if (clip.sourceDurationMs > 0L) {
@@ -43,12 +72,24 @@ object ProjectTimeline {
         }
     }
 
-    fun effectiveDurationMs(clip: Clip): Long {
+    fun effectiveSourceSpanMs(clip: Clip): Long {
         return if (clip.trimStartMs >= 0L && clip.trimEndMs > clip.trimStartMs) {
             clip.trimEndMs - clip.trimStartMs
         } else {
             clip.durationMs.coerceAtLeast(0L)
         }
+    }
+
+    fun scaledDurationMs(sourceSpanMs: Long, speed: Float): Long {
+        if (sourceSpanMs <= 0L) return 0L
+        val safeSpeed = sanitizeSpeed(speed)
+        if (safeSpeed == Clip.DEFAULT_PLAYBACK_SPEED) return sourceSpanMs
+        return (sourceSpanMs / safeSpeed).roundToLong().coerceAtLeast(1L)
+    }
+
+    fun effectiveDurationMs(clip: Clip): Long {
+        val sourceSpanMs = effectiveSourceSpanMs(clip)
+        return scaledDurationMs(sourceSpanMs, clip.playbackSpeed)
     }
 
     fun isClipTrimmed(clip: Clip): Boolean {
@@ -71,10 +112,10 @@ object ProjectTimeline {
     }
 
     fun canTrimClip(clip: Clip): Boolean =
-        effectiveSourceDurationMs(clip) >= MIN_CLIP_DURATION_MS
+        !clip.isStillImage && effectiveSourceDurationMs(clip) >= MIN_CLIP_DURATION_MS
 
     fun canSplitClip(clip: Clip): Boolean =
-        clip.durationMs >= MIN_CLIP_DURATION_MS * 2L
+        !clip.isStillImage && effectiveSourceSpanMs(clip) >= MIN_CLIP_DURATION_MS * 2L
 
     fun isMediaReferenced(project: Project, mediaUri: String): Boolean {
         if (mediaUri.isBlank()) return false
@@ -294,18 +335,19 @@ object ProjectTimeline {
     ): Project = modifyClipTrack(project, clipId) { clips, clipIndex ->
         val clip = clips[clipIndex]
         val sourceDurationMs = effectiveSourceDurationMs(clip)
-        val trimmedDurationMs = newEndMs - newStartMs
+        val trimmedSourceMs = newEndMs - newStartMs
         if (newStartMs < 0L ||
             newEndMs <= newStartMs ||
             newEndMs > sourceDurationMs ||
-            trimmedDurationMs < MIN_CLIP_DURATION_MS
+            trimmedSourceMs < MIN_CLIP_DURATION_MS
         ) {
             return@modifyClipTrack null
         }
 
-        val updatedEffects = clip.visualEffects?.sanitized(trimmedDurationMs)?.takeUnless { it.isIdentity }
+        val timelineDurationMs = scaledDurationMs(trimmedSourceMs, clip.playbackSpeed)
+        val updatedEffects = clip.visualEffects?.sanitized(timelineDurationMs)?.takeUnless { it.isIdentity }
         val updatedClip = clip.copy(
-            durationMs = trimmedDurationMs,
+            durationMs = timelineDurationMs,
             trimStartMs = newStartMs,
             trimEndMs = newEndMs,
             sourceDurationMs = sourceDurationMs,
@@ -324,31 +366,34 @@ object ProjectTimeline {
         if (project.tracks.any { track -> track.clips.any { it.id == newClipId } }) return project
         return modifyClipTrack(project, clipId) { clips, clipIndex ->
             val clip = clips[clipIndex]
+            if (clip.isStillImage) return project
             val sourceDurationMs = effectiveSourceDurationMs(clip)
             val currentStartMs = effectiveTrimStartMs(clip)
             val currentEndMs = effectiveTrimEndMs(clip)
             val currentDurationMs = currentEndMs - currentStartMs
-            val secondDurationMs = currentDurationMs - offsetMs
+            val secondSourceDurationMs = currentDurationMs - offsetMs
 
-            if (offsetMs < MIN_CLIP_DURATION_MS || secondDurationMs < MIN_CLIP_DURATION_MS) {
+            if (offsetMs < MIN_CLIP_DURATION_MS || secondSourceDurationMs < MIN_CLIP_DURATION_MS) {
                 return@modifyClipTrack null
             }
 
             val splitPointMs = currentStartMs + offsetMs
+            val firstTimelineDurationMs = scaledDurationMs(offsetMs, clip.playbackSpeed)
+            val secondTimelineDurationMs = scaledDurationMs(secondSourceDurationMs, clip.playbackSpeed)
             val firstPart = clip.copy(
-                durationMs = offsetMs,
+                durationMs = firstTimelineDurationMs,
                 trimStartMs = currentStartMs,
                 trimEndMs = splitPointMs,
                 sourceDurationMs = sourceDurationMs,
-                visualEffects = clip.visualEffects?.sanitized(offsetMs)?.takeUnless { it.isIdentity },
+                visualEffects = clip.visualEffects?.sanitized(firstTimelineDurationMs)?.takeUnless { it.isIdentity },
             )
             val secondPart = clip.copy(
                 id = newClipId,
-                durationMs = secondDurationMs,
+                durationMs = secondTimelineDurationMs,
                 trimStartMs = splitPointMs,
                 trimEndMs = currentEndMs,
                 sourceDurationMs = sourceDurationMs,
-                visualEffects = clip.visualEffects?.sanitized(secondDurationMs)?.takeUnless { it.isIdentity },
+                visualEffects = clip.visualEffects?.sanitized(secondTimelineDurationMs)?.takeUnless { it.isIdentity },
             )
 
             buildList(clips.size + 1) {
@@ -380,17 +425,162 @@ object ProjectTimeline {
         }
     }
 
+    fun duplicateClip(
+        project: Project,
+        clipId: String,
+        newClipId: String,
+    ): Project {
+        if (newClipId.isBlank() || newClipId == clipId) return project
+        if (project.tracks.any { track -> track.clips.any { it.id == newClipId } }) return project
+        return modifyClipTrack(project, clipId) { clips, clipIndex ->
+            val duplicate = clips[clipIndex].copy(id = newClipId)
+            buildList(clips.size + 1) {
+                clips.forEachIndexed { index, existing ->
+                    add(existing)
+                    if (index == clipIndex) {
+                        add(duplicate)
+                    }
+                }
+            }
+        }
+    }
+
     fun setClipVolume(
         project: Project,
         clipId: String,
         volume: Float,
     ): Project {
-        val clampedVolume = if (volume.isNaN()) 1.0f else volume.coerceIn(0f, 1f)
+        val clampedVolume = sanitizeVolume(volume)
         return modifyClipTrack(project, clipId) { clips, clipIndex ->
             val clip = clips[clipIndex]
-            if (clip.volume == clampedVolume) return@modifyClipTrack null
+            if (clip.isStillImage || clip.volume == clampedVolume) return@modifyClipTrack null
             clips.toMutableList().apply {
                 set(clipIndex, clip.copy(volume = clampedVolume))
+            }
+        }
+    }
+
+    fun setClipSpeed(
+        project: Project,
+        clipId: String,
+        speed: Float,
+    ): Project {
+        val safeSpeed = sanitizeSpeed(speed)
+        for (trackIndex in project.tracks.indices) {
+            val track = project.tracks[trackIndex]
+            if (track.type != TrackType.VIDEO && track.type != TrackType.AUDIO) continue
+            val clips = track.clips
+            val clipIndex = clips.indexOfFirst { it.id == clipId }
+            if (clipIndex < 0) continue
+
+            val clip = clips[clipIndex]
+            val sourceDurationMs = effectiveSourceDurationMs(clip)
+            val sourceSpanMs = effectiveSourceSpanMs(clip)
+            val trimStartMs = effectiveTrimStartMs(clip)
+            val trimEndMs = effectiveTrimEndMs(clip)
+            val newDurationMs = scaledDurationMs(sourceSpanMs, safeSpeed)
+            val updatedEffects = clip.visualEffects?.sanitized(newDurationMs)?.takeUnless { it.isIdentity }
+
+            if (clip.playbackSpeed == safeSpeed &&
+                clip.durationMs == newDurationMs &&
+                clip.visualEffects == updatedEffects
+            ) {
+                return project
+            }
+
+            val updatedClip = clip.copy(
+                playbackSpeed = safeSpeed,
+                durationMs = newDurationMs,
+                trimStartMs = trimStartMs,
+                trimEndMs = trimEndMs,
+                sourceDurationMs = sourceDurationMs,
+                visualEffects = updatedEffects,
+            )
+            val updatedClips = clips.toMutableList().apply { set(clipIndex, updatedClip) }
+            return updateTrack(project, trackIndex, normalizeTrackClips(track.type, updatedClips))
+        }
+        return project
+    }
+
+    fun setClipTransform(
+        project: Project,
+        clipId: String,
+        rotationDegrees: Int,
+        flipHorizontal: Boolean,
+        flipVertical: Boolean,
+    ): Project {
+        val normalizedRotation = normalizeRotationDegrees(rotationDegrees)
+        return modifyClipTrack(project, clipId, requiredTrackType = TrackType.VIDEO) { clips, clipIndex ->
+            val clip = clips[clipIndex]
+            if (clip.rotationDegrees == normalizedRotation &&
+                clip.flipHorizontal == flipHorizontal &&
+                clip.flipVertical == flipVertical
+            ) {
+                return@modifyClipTrack null
+            }
+            clips.toMutableList().apply {
+                set(
+                    clipIndex,
+                    clip.copy(
+                        rotationDegrees = normalizedRotation,
+                        flipHorizontal = flipHorizontal,
+                        flipVertical = flipVertical,
+                    ),
+                )
+            }
+        }
+    }
+
+    fun setClipCrop(
+        project: Project,
+        clipId: String,
+        crop: ClipCrop?,
+    ): Project {
+        val normalized = crop?.sanitized()?.takeUnless { it.isIdentity }
+        return modifyClipTrack(project, clipId, requiredTrackType = TrackType.VIDEO) { clips, clipIndex ->
+            val clip = clips[clipIndex]
+            if (clip.crop == normalized) return@modifyClipTrack null
+            clips.toMutableList().apply {
+                set(clipIndex, clip.copy(crop = normalized))
+            }
+        }
+    }
+
+    fun insertFreezeFrameClip(
+        project: Project,
+        sourceClipId: String,
+        newClipId: String,
+        imageMediaUri: String,
+        durationMs: Long = DEFAULT_FREEZE_DURATION_MS,
+    ): Project {
+        if (newClipId.isBlank() || newClipId == sourceClipId || imageMediaUri.isBlank()) return project
+        if (project.tracks.any { track -> track.clips.any { it.id == newClipId } }) return project
+        val clampedDurationMs = durationMs.coerceIn(MIN_CLIP_DURATION_MS, MAX_FREEZE_DURATION_MS)
+        return modifyClipTrack(project, sourceClipId, requiredTrackType = TrackType.VIDEO) { clips, clipIndex ->
+            val source = clips[clipIndex]
+            val freezeClip = Clip(
+                id = newClipId,
+                mediaUri = imageMediaUri,
+                startTimeMs = 0L,
+                durationMs = clampedDurationMs,
+                trimStartMs = 0L,
+                trimEndMs = clampedDurationMs,
+                sourceDurationMs = clampedDurationMs,
+                volume = 0f,
+                visualEffects = source.visualEffects?.sanitized(clampedDurationMs)?.takeUnless { it.isIdentity },
+                rotationDegrees = normalizeRotationDegrees(source.rotationDegrees),
+                flipHorizontal = source.flipHorizontal,
+                flipVertical = source.flipVertical,
+                crop = source.crop?.sanitized()?.takeUnless { it.isIdentity },
+                isStillImage = true,
+            )
+            buildList(clips.size + 1) {
+                clips.forEachIndexed { index, existing ->
+                    add(existing)
+                    if (index == clipIndex) {
+                        add(freezeClip)
+                    }
+                }
             }
         }
     }

@@ -28,8 +28,20 @@ fun ClipTools(
     isOverlayClip: Boolean = false,
     isTextClip: Boolean = false,
     hasActiveEffects: Boolean = false,
+    hasActiveSpeed: Boolean = false,
+    hasActiveTransform: Boolean = false,
+    hasActiveCrop: Boolean = false,
+    canFreezeFrame: Boolean = false,
+    canAdjustSpeed: Boolean = true,
+    canAdjustVolume: Boolean = true,
+    hasAdjustedVolume: Boolean = false,
     canEditOverlayTiming: Boolean = false,
     isAudioPlaying: Boolean = false,
+    onSpeedClick: () -> Unit = {},
+    onTransformClick: () -> Unit = {},
+    onCropClick: () -> Unit = {},
+    onFreezeFrameClick: () -> Unit = {},
+    onDuplicateClick: () -> Unit = {},
     onEffectsClick: () -> Unit = {},
     onVolumeClick: () -> Unit = {},
     onTogglePlayClick: () -> Unit = {},
@@ -87,19 +99,41 @@ fun ClipTools(
                     enabled = isEnabled && !isAudioClip && canSplit,
                     onClick = onSplitClick,
                 )
+                EditorOutlinedButton(
+                    label = stringResource(R.string.editor_tool_speed),
+                    enabled = isEnabled && canAdjustSpeed,
+                    tone = if (hasActiveSpeed) EditorButtonTone.Primary else EditorButtonTone.Default,
+                    onClick = onSpeedClick,
+                )
+                EditorOutlinedButton(
+                    label = stringResource(R.string.editor_tool_volume),
+                    enabled = isEnabled && canAdjustVolume,
+                    tone = if (hasAdjustedVolume) EditorButtonTone.Primary else EditorButtonTone.Default,
+                    onClick = onVolumeClick,
+                )
                 if (!isAudioClip) {
+                    EditorOutlinedButton(
+                        label = stringResource(R.string.editor_tool_transform),
+                        enabled = isEnabled,
+                        tone = if (hasActiveTransform) EditorButtonTone.Primary else EditorButtonTone.Default,
+                        onClick = onTransformClick,
+                    )
+                    EditorOutlinedButton(
+                        label = stringResource(R.string.editor_tool_crop),
+                        enabled = isEnabled,
+                        tone = if (hasActiveCrop) EditorButtonTone.Primary else EditorButtonTone.Default,
+                        onClick = onCropClick,
+                    )
+                    EditorOutlinedButton(
+                        label = stringResource(R.string.editor_tool_freeze),
+                        enabled = isEnabled && canFreezeFrame,
+                        onClick = onFreezeFrameClick,
+                    )
                     EditorOutlinedButton(
                         label = stringResource(R.string.editor_tool_effects),
                         enabled = isEnabled,
                         tone = if (hasActiveEffects) EditorButtonTone.Primary else EditorButtonTone.Default,
                         onClick = onEffectsClick,
-                    )
-                }
-                if (isAudioClip) {
-                    EditorOutlinedButton(
-                        label = stringResource(R.string.editor_tool_volume),
-                        enabled = isEnabled,
-                        onClick = onVolumeClick,
                     )
                 }
                 EditorOutlinedButton(
@@ -127,6 +161,11 @@ fun ClipTools(
                 }
             }
         }
+        EditorOutlinedButton(
+            label = stringResource(R.string.editor_tool_duplicate),
+            enabled = isEnabled,
+            onClick = onDuplicateClick,
+        )
         EditorOutlinedButton(
             label = stringResource(R.string.editor_remove_confirm),
             enabled = isEnabled,

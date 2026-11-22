@@ -22,12 +22,18 @@ fun SplitDialog(
     onConfirm: (offsetMs: Long) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val minPartMs = ProjectTimeline.MIN_CLIP_DURATION_MS
-    val clipDurationMs = clip.durationMs.coerceAtLeast(minPartMs * 2L)
-    val maxOffsetMs = (clipDurationMs - minPartMs).coerceAtLeast(minPartMs)
-    val initialOffsetMs = (clipDurationMs / 2L).coerceIn(minPartMs, maxOffsetMs)
+    val speed = ProjectTimeline.effectiveSpeed(clip)
+    val sourceSpanMs = ProjectTimeline.effectiveSourceSpanMs(clip)
+    val timelineDurationMs = ProjectTimeline.effectiveDurationMs(clip)
+    val minTimelinePartMs = ProjectTimeline.scaledDurationMs(ProjectTimeline.MIN_CLIP_DURATION_MS, speed)
+    val safeTimelineDurationMs = timelineDurationMs.coerceAtLeast(minTimelinePartMs * 2L)
+    val maxOffsetMs = (safeTimelineDurationMs - minTimelinePartMs).coerceAtLeast(minTimelinePartMs)
+    val initialOffsetMs = (safeTimelineDurationMs / 2L).coerceIn(minTimelinePartMs, maxOffsetMs)
 
-    var offsetMs by rememberSaveable(clip.id, clipDurationMs) { mutableLongStateOf(initialOffsetMs) }
+    var offsetMs by rememberSaveable(clip.id, safeTimelineDurationMs) { mutableLongStateOf(initialOffsetMs) }
+    val sourceOffsetMs = (offsetMs * speed).roundToLong()
+    val canSplitHere = sourceOffsetMs >= ProjectTimeline.MIN_CLIP_DURATION_MS &&
+        (sourceSpanMs - sourceOffsetMs) >= ProjectTimeline.MIN_CLIP_DURATION_MS
 
     EditorSliderDialog(
         title = stringResource(R.string.editor_split_title),
@@ -36,16 +42,16 @@ fun SplitDialog(
             ProjectTimeline.formatDuration(offsetMs),
         ),
         confirmLabel = stringResource(R.string.editor_split_confirm),
-        isConfirmEnabled = offsetMs >= minPartMs && (clip.durationMs - offsetMs) >= minPartMs,
-        onConfirm = { onConfirm(offsetMs) },
+        isConfirmEnabled = canSplitHere,
+        onConfirm = { onConfirm(sourceOffsetMs) },
         onDismiss = onDismiss,
     ) {
         Slider(
             value = offsetMs.toFloat(),
             onValueChange = { value ->
-                offsetMs = value.roundToLong().coerceIn(minPartMs, maxOffsetMs)
+                offsetMs = value.roundToLong().coerceIn(minTimelinePartMs, maxOffsetMs)
             },
-            valueRange = 0f..clipDurationMs.toFloat(),
+            valueRange = 0f..safeTimelineDurationMs.toFloat(),
             modifier = Modifier.fillMaxWidth(),
         )
     }

@@ -222,6 +222,7 @@ fun AppNavHost(
                     captionRepository = container.captionRepository,
                     pcmAudioExtractor = container.pcmAudioExtractor,
                     transcriptionEngine = container.transcriptionEngine,
+                    freezeFrameExtractor = container.freezeFrameExtractor,
                 ),
             )
             val uiState by viewModel.uiState.collectAsStateWithLifecycle()

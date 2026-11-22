@@ -13,6 +13,8 @@ import com.projectmediapro.app.data.media.AndroidVideoImporter
 import com.projectmediapro.app.data.media.AudioImporter
 import com.projectmediapro.app.data.media.OverlayImporter
 import com.projectmediapro.app.data.media.ProjectMediaStorage
+import com.projectmediapro.app.data.media.AndroidFreezeFrameExtractor
+import com.projectmediapro.app.data.media.FreezeFrameExtractor
 import com.projectmediapro.app.data.media.VideoImporter
 import com.projectmediapro.app.data.project.FileProjectRepository
 import com.projectmediapro.app.data.project.ProjectRepository
@@ -81,6 +83,7 @@ class AppContainer(appContext: Context) {
         overlayImporter = overlayImporter,
     )
     val videoExporter: VideoExporter = Media3VideoExporter(context = appContext)
+    val freezeFrameExtractor: FreezeFrameExtractor = AndroidFreezeFrameExtractor()
     val exportSaver: ExportSaver = AndroidExportSaver(context = appContext)
     val exportTempDirectory: File = File(appContext.cacheDir, "exports")
     val cacheSpaceProvider: () -> Long = { usableBytesNear(exportTempDirectory) }

@@ -76,6 +76,31 @@ internal fun resolvePreviewClips(
             durationMs = ProjectTimeline.effectiveDurationMs(clip),
             trimStartMs = trimStartMs,
             trimEndMs = trimEndMs,
+            volume = clip.volume,
+            playbackSpeed = ProjectTimeline.effectiveSpeed(clip),
+            rotationDegrees = ProjectTimeline.normalizeRotationDegrees(clip.rotationDegrees),
+            flipHorizontal = clip.flipHorizontal,
+            flipVertical = clip.flipVertical,
+            crop = clip.crop?.sanitized()?.takeUnless { it.isIdentity },
+            isStillImage = clip.isStillImage,
+        )
+    }
+
+internal fun resolvePreviewAudioClips(
+    project: Project,
+    mediaStorage: ProjectMediaStorage,
+): List<PreviewClip> =
+    project.audioClips().mapNotNull { clip ->
+        val file = mediaStorage.resolve(clip.mediaUri)
+        if (file == null || !file.isFile) return@mapNotNull null
+        val (trimStartMs, trimEndMs) = ProjectTimeline.resolvedTrimBounds(clip)
+        PreviewClip(
+            path = file.absolutePath,
+            durationMs = ProjectTimeline.effectiveDurationMs(clip),
+            trimStartMs = trimStartMs,
+            trimEndMs = trimEndMs,
+            volume = clip.volume,
+            playbackSpeed = ProjectTimeline.effectiveSpeed(clip),
         )
     }
 
@@ -104,7 +129,7 @@ internal fun resolveAudioPreview(
         path = file.absolutePath,
         trimStartMs = trimStartMs,
         trimEndMs = trimEndMs,
-        volume = clip.volume.coerceIn(0f, 1f),
+        volume = ProjectTimeline.sanitizeVolume(clip.volume),
     )
 }
 
@@ -154,6 +179,7 @@ internal fun EditorUiState.Loaded.withSyncedProject(
 ): EditorUiState.Loaded = copy(
     project = targetProject,
     previewClips = resolvePreviewClips(targetProject, mediaStorage),
+    previewAudioClips = resolvePreviewAudioClips(targetProject, mediaStorage),
     overlayFilePaths = resolveOverlayFilePaths(targetProject, mediaStorage),
     selectedClipId = resolveClipSelection(
         previousProject = previousProject,
@@ -175,6 +201,7 @@ internal fun EditorUiState.Loaded.withSaveFailedRollback(
 ): EditorUiState.Loaded = copy(
     project = previousProject,
     previewClips = resolvePreviewClips(previousProject, mediaStorage),
+    previewAudioClips = resolvePreviewAudioClips(previousProject, mediaStorage),
     overlayFilePaths = resolveOverlayFilePaths(previousProject, mediaStorage),
     canUndo = history.canUndo,
     canRedo = history.canRedo,

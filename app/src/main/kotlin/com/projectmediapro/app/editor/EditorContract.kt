@@ -2,6 +2,7 @@ package com.projectmediapro.app.editor
 
 import com.projectmediapro.core.model.CanvasAspect
 import com.projectmediapro.core.model.CanvasBackground
+import com.projectmediapro.core.model.ClipCrop
 import com.projectmediapro.core.model.ClipVisualEffects
 import com.projectmediapro.core.model.ExportQuality
 import com.projectmediapro.core.model.Project
@@ -24,6 +25,8 @@ enum class EditorError {
     EXPORT_SAVE_FAILED,
     EXPORT_NOTHING,
     CAPTIONS_FAILED,
+    CAPTIONS_TRUNCATED,
+    FREEZE_FRAME_FAILED,
 }
 
 sealed interface ExportUiState {
@@ -35,7 +38,11 @@ sealed interface ExportUiState {
 sealed interface EditorDialog {
     data class Trim(val clipId: String) : EditorDialog
     data class Split(val clipId: String) : EditorDialog
+    data class Speed(val clipId: String) : EditorDialog
     data class Volume(val clipId: String) : EditorDialog
+    data class Transform(val clipId: String) : EditorDialog
+    data class Crop(val clipId: String) : EditorDialog
+    data class FreezeFrame(val clipId: String) : EditorDialog
     data class ClipEffects(val clipId: String) : EditorDialog
     data class OverlayPosition(val clipId: String) : EditorDialog
     data class OverlayTiming(val clipId: String) : EditorDialog
@@ -62,6 +69,7 @@ sealed interface EditorUiState {
     data class Loaded(
         val project: Project,
         val previewClips: List<PreviewClip> = emptyList(),
+        val previewAudioClips: List<PreviewClip> = emptyList(),
         val overlayFilePaths: Map<String, String> = emptyMap(),
         val selectedClipId: String? = null,
         val canUndo: Boolean = false,
@@ -93,7 +101,11 @@ sealed interface EditorEvent {
     data class SelectClip(val clipId: String) : EditorEvent
     data object OpenTrim : EditorEvent
     data object OpenSplit : EditorEvent
+    data object OpenSpeed : EditorEvent
     data object OpenVolume : EditorEvent
+    data object OpenTransform : EditorEvent
+    data object OpenCrop : EditorEvent
+    data object OpenFreezeFrame : EditorEvent
     data object OpenClipEffects : EditorEvent
     data object OpenOverlayPosition : EditorEvent
     data object OpenOverlayTiming : EditorEvent
@@ -107,8 +119,17 @@ sealed interface EditorEvent {
     data object DismissDialog : EditorEvent
     data class ApplyTrim(val startMs: Long, val endMs: Long) : EditorEvent
     data class ApplySplit(val offsetMs: Long) : EditorEvent
+    data class ApplySpeed(val speed: Float) : EditorEvent
     data class ApplyVolume(val volume: Float) : EditorEvent
+    data class ApplyTransform(
+        val rotationDegrees: Int,
+        val flipHorizontal: Boolean,
+        val flipVertical: Boolean,
+    ) : EditorEvent
     data class ApplyClipEffects(val effects: ClipVisualEffects) : EditorEvent
+    data class ApplyCrop(val crop: ClipCrop?) : EditorEvent
+    data class ApplyFreezeFrame(val sourceTimeMs: Long, val durationMs: Long) : EditorEvent
+    data object DuplicateSelected : EditorEvent
     data class ApplyOverlayPosition(
         val centerX: Float,
         val centerY: Float,

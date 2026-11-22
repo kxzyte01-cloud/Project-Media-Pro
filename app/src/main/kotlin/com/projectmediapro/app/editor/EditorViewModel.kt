@@ -8,6 +8,7 @@ import com.projectmediapro.app.data.export.ExportSaver
 import com.projectmediapro.app.data.export.VideoExportException
 import com.projectmediapro.app.data.export.VideoExporter
 import com.projectmediapro.app.data.media.AudioImporter
+import com.projectmediapro.app.data.media.FreezeFrameExtractor
 import com.projectmediapro.app.data.media.OverlayImporter
 import com.projectmediapro.app.data.media.ProjectMediaStorage
 import com.projectmediapro.app.data.media.VideoImportException
@@ -60,6 +61,7 @@ class EditorViewModel(
     private val captionRepository: CaptionRepository? = null,
     private val pcmAudioExtractor: PcmAudioExtractor? = null,
     private val transcriptionEngine: TranscriptionEngine? = null,
+    private val freezeFrameExtractor: FreezeFrameExtractor? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<EditorUiState>(EditorUiState.Loading)
@@ -69,6 +71,7 @@ class EditorViewModel(
     private val exportMutex = Mutex()
     private var exportJob: Job? = null
     private var captionJob: Job? = null
+    private var freezeJob: Job? = null
     private val history = UndoRedoManager(Project(id = projectId, title = ""))
 
     init {
@@ -82,6 +85,7 @@ class EditorViewModel(
                         EditorUiState.Loaded(
                             project = project,
                             previewClips = resolvePreviewClips(project, mediaStorage),
+                            previewAudioClips = resolvePreviewAudioClips(project, mediaStorage),
                             overlayFilePaths = resolveOverlayFilePaths(project, mediaStorage),
                             selectedClipId = project.videoClips().firstOrNull()?.id
                                 ?: project.audioClips().firstOrNull()?.id
@@ -113,9 +117,25 @@ class EditorViewModel(
                 predicate = { it.isVideo && ProjectTimeline.canSplitClip(it.clip) },
                 dialogFactory = EditorDialog::Split,
             )
+            EditorEvent.OpenSpeed -> openSelectedClipDialog(
+                predicate = { !it.isFreeTimed && !it.clip.isStillImage },
+                dialogFactory = EditorDialog::Speed,
+            )
             EditorEvent.OpenVolume -> openSelectedClipDialog(
-                predicate = { it.isAudio },
+                predicate = { it.isAudio || (it.isVideo && !it.clip.isStillImage) },
                 dialogFactory = EditorDialog::Volume,
+            )
+            EditorEvent.OpenTransform -> openSelectedClipDialog(
+                predicate = { it.isVideo },
+                dialogFactory = EditorDialog::Transform,
+            )
+            EditorEvent.OpenCrop -> openSelectedClipDialog(
+                predicate = { it.isVideo },
+                dialogFactory = EditorDialog::Crop,
+            )
+            EditorEvent.OpenFreezeFrame -> openSelectedClipDialog(
+                predicate = { it.isVideo && !it.clip.isStillImage },
+                dialogFactory = EditorDialog::FreezeFrame,
             )
             EditorEvent.OpenClipEffects -> openSelectedClipDialog(
                 predicate = { it.isVideo },
@@ -200,14 +220,51 @@ class EditorViewModel(
                     ProjectTimeline.splitClip(project, targetId, event.offsetMs, idProvider())
                 }
             }
+            is EditorEvent.ApplySpeed -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                val targetId = (current.activeDialog as? EditorDialog.Speed)?.clipId
+                    ?: current.selectedClipId
+                    ?: return
+                val location = current.project.findClipLocation(targetId) ?: return
+                if (location.isFreeTimed || location.clip.isStillImage) return
+                commitUndoableEdit(targetId) { project ->
+                    ProjectTimeline.setClipSpeed(project, targetId, event.speed)
+                }
+            }
             is EditorEvent.ApplyVolume -> {
                 val current = _uiState.value as? EditorUiState.Loaded ?: return
                 val targetId = (current.activeDialog as? EditorDialog.Volume)?.clipId
                     ?: current.selectedClipId
                     ?: return
-                if (current.project.findClipLocation(targetId)?.isAudio != true) return
+                val location = current.project.findClipLocation(targetId) ?: return
+                if (!location.isAudio && !(location.isVideo && !location.clip.isStillImage)) return
                 commitUndoableEdit(targetId) { project ->
                     ProjectTimeline.setClipVolume(project, targetId, event.volume)
+                }
+            }
+            is EditorEvent.ApplyTransform -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                val targetId = (current.activeDialog as? EditorDialog.Transform)?.clipId
+                    ?: current.selectedClipId
+                    ?: return
+                if (current.project.findClipLocation(targetId)?.isVideo != true) return
+                commitUndoableEdit(targetId) { project ->
+                    ProjectTimeline.setClipTransform(
+                        project = project,
+                        clipId = targetId,
+                        rotationDegrees = event.rotationDegrees,
+                        flipHorizontal = event.flipHorizontal,
+                        flipVertical = event.flipVertical,
+                    )
+                }
+            }
+            EditorEvent.DuplicateSelected -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                val targetId = current.selectedClipId ?: return
+                if (current.project.findClipLocation(targetId) == null) return
+                val newClipId = idProvider()
+                commitUndoableEdit(newClipId) { project ->
+                    ProjectTimeline.duplicateClip(project, targetId, newClipId)
                 }
             }
             is EditorEvent.ApplyClipEffects -> {
@@ -219,6 +276,27 @@ class EditorViewModel(
                 commitUndoableEdit(targetId) { project ->
                     ProjectTimeline.updateClipVisualEffects(project, targetId, event.effects)
                 }
+            }
+            is EditorEvent.ApplyCrop -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                val targetId = (current.activeDialog as? EditorDialog.Crop)?.clipId
+                    ?: current.selectedClipId
+                    ?: return
+                if (current.project.findClipLocation(targetId)?.isVideo != true) return
+                commitUndoableEdit(targetId) { project ->
+                    ProjectTimeline.setClipCrop(project, targetId, event.crop)
+                }
+            }
+            is EditorEvent.ApplyFreezeFrame -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                val targetId = (current.activeDialog as? EditorDialog.FreezeFrame)?.clipId
+                    ?: current.selectedClipId
+                    ?: return
+                handleApplyFreezeFrame(
+                    sourceClipId = targetId,
+                    sourceTimeMs = event.sourceTimeMs,
+                    freezeDurationMs = event.durationMs,
+                )
             }
             is EditorEvent.ApplyOverlayPosition -> {
                 val current = _uiState.value as? EditorUiState.Loaded ?: return
@@ -791,7 +869,7 @@ class EditorViewModel(
         _uiState.value = current.copy(isTranscribingCaptions = true, error = null)
         captionJob = viewModelScope.launch {
             try {
-                val mergedPcm = TimelineAudioAssembler.assemble(
+                val assembled = TimelineAudioAssembler.assemble(
                     videoClips = videoClips,
                     audioClips = audioClips,
                     extractor = extractor,
@@ -799,7 +877,7 @@ class EditorViewModel(
                 )
                 val result = engine.transcribe(
                     TranscriptionRequest(
-                        pcmAudio = mergedPcm,
+                        pcmAudio = assembled.pcm,
                         clipId = projectId,
                         providedScript = providedScript?.trim()?.takeIf { it.isNotEmpty() },
                     ),
@@ -816,12 +894,27 @@ class EditorViewModel(
                     globalOffsetUs = existingDoc?.globalOffsetUs ?: 0L,
                     style = style,
                 )
-                runCatching { captionRepository?.saveCaptions(newDoc) }
+                val saveError = try {
+                    captionRepository?.saveCaptions(newDoc)
+                    null
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: IOException) {
+                    EditorError.SAVE_FAILED
+                }
                 val latest = _uiState.value as? EditorUiState.Loaded ?: return@launch
-                _uiState.value = latest.copy(
-                    captionDocument = newDoc,
-                    isTranscribingCaptions = false,
-                )
+                if (saveError != null) {
+                    _uiState.value = latest.copy(
+                        isTranscribingCaptions = false,
+                        error = saveError,
+                    )
+                } else {
+                    _uiState.value = latest.copy(
+                        captionDocument = newDoc,
+                        isTranscribingCaptions = false,
+                        error = if (assembled.wasTruncated) EditorError.CAPTIONS_TRUNCATED else null,
+                    )
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -841,10 +934,7 @@ class EditorViewModel(
         val existing = current.captionDocument ?: return
         val updated = transform(existing)
         if (updated == existing) return
-        _uiState.value = current.copy(captionDocument = updated)
-        viewModelScope.launch {
-            runCatching { captionRepository?.saveCaptions(updated) }
-        }
+        persistCaptionChange(previous = existing, updated = updated)
     }
 
     private fun handleImportSrt(srtText: String) {
@@ -859,22 +949,148 @@ class EditorViewModel(
             style = style,
         )
         if (parsed.lines.isEmpty()) return
-        _uiState.value = current.copy(captionDocument = parsed)
+        persistCaptionChange(previous = existing, updated = parsed)
+    }
+
+    private fun persistCaptionChange(previous: CaptionDocument?, updated: CaptionDocument) {
+        val current = _uiState.value as? EditorUiState.Loaded ?: return
+        _uiState.value = current.copy(captionDocument = updated, error = null)
         viewModelScope.launch {
-            runCatching { captionRepository?.saveCaptions(parsed) }
+            changeMutex.withLock {
+                try {
+                    captionRepository?.saveCaptions(updated)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: IOException) {
+                    val latest = _uiState.value as? EditorUiState.Loaded ?: return@withLock
+                    _uiState.value = latest.copy(
+                        captionDocument = previous,
+                        error = EditorError.SAVE_FAILED,
+                    )
+                }
+            }
         }
     }
 
     private fun handleClearCaptions() {
         val current = _uiState.value as? EditorUiState.Loaded ?: return
+        val previous = current.captionDocument
         captionJob?.cancel()
-        _uiState.value = current.copy(captionDocument = null, isTranscribingCaptions = false)
+        _uiState.value = current.copy(
+            captionDocument = null,
+            isTranscribingCaptions = false,
+            error = null,
+        )
         viewModelScope.launch {
-            runCatching { captionRepository?.deleteCaptions(projectId) }
+            changeMutex.withLock {
+                try {
+                    captionRepository?.deleteCaptions(projectId)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: IOException) {
+                    val latest = _uiState.value as? EditorUiState.Loaded ?: return@withLock
+                    _uiState.value = latest.copy(
+                        captionDocument = previous,
+                        error = EditorError.SAVE_FAILED,
+                    )
+                }
+            }
+        }
+    }
+
+    private fun handleApplyFreezeFrame(
+        sourceClipId: String,
+        sourceTimeMs: Long,
+        freezeDurationMs: Long,
+    ) {
+        val initial = _uiState.value as? EditorUiState.Loaded ?: return
+        if (initial.isBusy || freezeJob?.isActive == true) return
+        val extractor = freezeFrameExtractor
+        val sourceLocation = initial.project.findClipLocation(sourceClipId)
+        if (extractor == null || sourceLocation == null || !sourceLocation.isVideo || sourceLocation.clip.isStillImage) {
+            _uiState.value = initial.copy(activeDialog = null, error = EditorError.FREEZE_FRAME_FAILED)
+            return
+        }
+        val sourceFile = mediaStorage.resolve(sourceLocation.clip.mediaUri)
+        if (sourceFile == null || !sourceFile.isFile) {
+            _uiState.value = initial.copy(activeDialog = null, error = EditorError.FREEZE_FRAME_FAILED)
+            return
+        }
+
+        _uiState.value = initial.copy(activeDialog = null, audioPreview = null, error = null)
+        freezeJob = viewModelScope.launch {
+            val newClipId = idProvider()
+            val imageRelPath = try {
+                mediaStorage.clipRelativePath(projectId, newClipId, "png")
+            } catch (_: IllegalArgumentException) {
+                val latest = _uiState.value as? EditorUiState.Loaded ?: return@launch
+                _uiState.value = latest.copy(error = EditorError.FREEZE_FRAME_FAILED)
+                return@launch
+            }
+            val outputFile = mediaStorage.resolve(imageRelPath)
+            if (outputFile == null) {
+                val latest = _uiState.value as? EditorUiState.Loaded ?: return@launch
+                _uiState.value = latest.copy(error = EditorError.FREEZE_FRAME_FAILED)
+                return@launch
+            }
+
+            try {
+                extractor.extractFrame(
+                    videoFile = sourceFile,
+                    timeUs = sourceTimeMs.coerceAtLeast(0L) * 1_000L,
+                    outputFile = outputFile,
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: IOException) {
+                val latest = _uiState.value as? EditorUiState.Loaded ?: return@launch
+                _uiState.value = latest.copy(error = EditorError.FREEZE_FRAME_FAILED)
+                return@launch
+            }
+
+            var saved = false
+            try {
+                changeMutex.withLock {
+                    val latest = _uiState.value as? EditorUiState.Loaded ?: return@withLock
+                    if (latest.isBusy) return@withLock
+                    val previousProject = latest.project
+                    val updatedProject = ProjectTimeline.insertFreezeFrameClip(
+                        project = previousProject,
+                        sourceClipId = sourceClipId,
+                        newClipId = newClipId,
+                        imageMediaUri = imageRelPath,
+                        durationMs = freezeDurationMs,
+                    )
+                    if (updatedProject == previousProject) return@withLock
+                    try {
+                        repository.saveProject(updatedProject)
+                        saved = true
+                        history.pushState(updatedProject)
+                        _uiState.value = latest.withSyncedProject(
+                            previousProject = previousProject,
+                            targetProject = updatedProject,
+                            preferredSelectedId = newClipId,
+                            mediaStorage = mediaStorage,
+                            history = history,
+                        )
+                    } catch (_: IOException) {
+                        _uiState.value = latest.withSaveFailedRollback(
+                            previousProject = previousProject,
+                            mediaStorage = mediaStorage,
+                            history = history,
+                        )
+                    }
+                }
+            } finally {
+                if (!saved) {
+                    mediaStorage.deleteClipFile(imageRelPath)
+                }
+            }
         }
     }
 
     override fun onCleared() {
+        freezeJob?.cancel()
         captionJob?.cancel()
         exportJob?.cancel()
         exportTempFile().delete()
@@ -898,6 +1114,7 @@ class EditorViewModel(
             captionRepository: CaptionRepository? = null,
             pcmAudioExtractor: PcmAudioExtractor? = null,
             transcriptionEngine: TranscriptionEngine? = null,
+            freezeFrameExtractor: FreezeFrameExtractor? = null,
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -915,6 +1132,7 @@ class EditorViewModel(
                     captionRepository = captionRepository,
                     pcmAudioExtractor = pcmAudioExtractor,
                     transcriptionEngine = transcriptionEngine,
+                    freezeFrameExtractor = freezeFrameExtractor,
                 ) as T
             }
         }

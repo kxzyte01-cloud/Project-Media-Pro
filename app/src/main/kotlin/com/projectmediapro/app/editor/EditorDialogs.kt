@@ -268,6 +268,8 @@ internal fun editorErrorStringRes(error: EditorError): Int = when (error) {
     EditorError.EXPORT_SAVE_FAILED -> R.string.error_export_save_failed
     EditorError.EXPORT_NOTHING -> R.string.error_export_nothing
     EditorError.CAPTIONS_FAILED -> R.string.error_captions_failed
+    EditorError.CAPTIONS_TRUNCATED -> R.string.error_captions_truncated
+    EditorError.FREEZE_FRAME_FAILED -> R.string.error_freeze_frame_failed
 }
 
 @Composable
