@@ -756,6 +756,7 @@ private fun TimelineTimedLane(
                 rowEntries.forEach { (clipNumber, clip) ->
                     val isSelected = clip.id == selectedClipId
                     val formattedDuration = ProjectTimeline.formatDuration(clip.durationMs)
+                    val clipContentDescription = accessibilityLabel(clipNumber, clip, formattedDuration)
                     val startOffsetDp = TimelineScale.msToDp(clip.startTimeMs, dpPerSecond).dp
                     val blockWidthDp = TimelineScale.msToDp(clip.durationMs, dpPerSecond)
                         .coerceAtLeast(TimelineScale.MIN_BLOCK_WIDTH_DP)
@@ -777,7 +778,7 @@ private fun TimelineTimedLane(
                             .width(blockWidthDp)
                             .height(TIMED_LANE_HEIGHT_DP)
                             .clearAndSetSemantics {
-                                contentDescription = accessibilityLabel(clipNumber, clip, formattedDuration)
+                                contentDescription = clipContentDescription
                                 role = Role.Button
                                 selected = isSelected
                             },
