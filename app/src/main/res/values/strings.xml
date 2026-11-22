@@ -350,6 +350,16 @@
     <string name="editor_filter_retro_film">Retro Film</string>
     <string name="editor_filter_cyber_neon">Cyber Neon</string>
     <string name="editor_filter_noir_punch">Noir Punch</string>
+    <string name="settings_section_whisper">Offline Auto-Captions (Open Whisper)</string>
+    <string name="settings_whisper_title">Open Whisper Tiny (Multilingual)</string>
+    <string name="settings_whisper_description">Optional ~32 MB on-device AI model (English, Hindi &amp; 99+ languages). Downloads once over HTTPS, then transcribes 100% offline with zero cloud uploads.</string>
+    <string name="settings_whisper_download">Download Model (~32 MB)</string>
+    <string name="settings_whisper_downloading">Downloading Open Whisper… %1$d%%</string>
+    <string name="settings_whisper_cancel">Cancel Download</string>
+    <string name="settings_whisper_installed">Installed (%1$d MB) · Ready for offline auto-captions</string>
+    <string name="settings_whisper_delete">Delete Model</string>
+    <string name="settings_whisper_error">Could not download model. Check your internet connection and try again.</string>
+    <string name="settings_whisper_retry">Retry Download</string>
     <string name="error_beats_detect_failed">Could not detect beats from this project audio.</string>
     <string name="editor_studio_dock_canvas">Canvas</string>
     <string name="editor_studio_empty_timeline_hint">Tap Video below to start building your timeline</string>

@@ -33,6 +33,8 @@ import com.projectmediapro.feature.captions.MediaCodecPcmAudioExtractor
 import com.projectmediapro.feature.captions.OfflineHeuristicTranscriptionEngine
 import com.projectmediapro.feature.captions.PcmAudioExtractor
 import com.projectmediapro.feature.captions.TranscriptionEngine
+import com.projectmediapro.feature.captions.WhisperModelManager
+import com.projectmediapro.feature.captions.WhisperTranscriptionEngine
 import java.io.File
 
 class AppContainer(appContext: Context) {
@@ -95,6 +97,12 @@ class AppContainer(appContext: Context) {
     val exportTempDirectory: File = File(appContext.cacheDir, "exports")
     val cacheSpaceProvider: () -> Long = { usableBytesNear(exportTempDirectory) }
     val pcmAudioExtractor: PcmAudioExtractor = MediaCodecPcmAudioExtractor()
-    val transcriptionEngine: TranscriptionEngine = OfflineHeuristicTranscriptionEngine()
+    val whisperModelManager: WhisperModelManager = WhisperModelManager(
+        modelsDirectory = File(appContext.filesDir, "whisper_models"),
+    )
+    val transcriptionEngine: TranscriptionEngine = WhisperTranscriptionEngine(
+        modelManager = whisperModelManager,
+        fallbackEngine = OfflineHeuristicTranscriptionEngine(),
+    )
     val appVersionName: String = BuildConfig.VERSION_NAME
 }

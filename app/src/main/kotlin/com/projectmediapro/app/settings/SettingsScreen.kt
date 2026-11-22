@@ -12,7 +12,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedButton
+import com.projectmediapro.feature.captions.WhisperModelState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
@@ -63,6 +68,14 @@ fun SettingsScreen(
             AppearanceSelector(
                 selected = uiState.themePreference,
                 onSelect = { onEvent(SettingsEvent.SelectTheme(it)) },
+            )
+
+            SectionHeader(title = stringResource(R.string.settings_section_whisper))
+            WhisperModelCard(
+                state = uiState.whisperModelState,
+                onDownload = { onEvent(SettingsEvent.DownloadWhisperModel) },
+                onCancel = { onEvent(SettingsEvent.CancelWhisperDownload) },
+                onDelete = { onEvent(SettingsEvent.DeleteWhisperModel) },
             )
 
             SectionHeader(title = stringResource(R.string.settings_section_privacy))
@@ -132,6 +145,99 @@ private fun AppearanceSelector(
                     color = MaterialTheme.colorScheme.onBackground,
                     modifier = Modifier.padding(start = MediaProSpacing.Medium),
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun WhisperModelCard(
+    state: WhisperModelState,
+    onDownload: () -> Unit,
+    onCancel: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Surface(
+        shape = MediaProShapes.Medium,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(MediaProSpacing.Medium),
+        ) {
+            Text(
+                text = stringResource(R.string.settings_whisper_title),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = stringResource(R.string.settings_whisper_description),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            when (state) {
+                WhisperModelState.NotInstalled -> {
+                    Button(
+                        onClick = onDownload,
+                        shape = MediaProShapes.Small,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(text = stringResource(R.string.settings_whisper_download))
+                    }
+                }
+                is WhisperModelState.Downloading -> {
+                    Text(
+                        text = stringResource(R.string.settings_whisper_downloading, state.percent),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    LinearProgressIndicator(
+                        progress = { (state.percent / 100f).coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedButton(
+                        onClick = onCancel,
+                        shape = MediaProShapes.Small,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(text = stringResource(R.string.settings_whisper_cancel))
+                    }
+                }
+                is WhisperModelState.Installed -> {
+                    val sizeMb = ((state.sizeBytes / (1024L * 1024L)).coerceAtLeast(1L)).toInt()
+                    Text(
+                        text = stringResource(R.string.settings_whisper_installed, sizeMb),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    OutlinedButton(
+                        onClick = onDelete,
+                        shape = MediaProShapes.Small,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.settings_whisper_delete),
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+                WhisperModelState.Error -> {
+                    Text(
+                        text = stringResource(R.string.settings_whisper_error),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    Button(
+                        onClick = onDownload,
+                        shape = MediaProShapes.Small,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(text = stringResource(R.string.settings_whisper_retry))
+                    }
+                }
             }
         }
     }
