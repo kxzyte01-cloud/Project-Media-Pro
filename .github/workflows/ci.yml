@@ -45,6 +45,13 @@ jobs:
           gradle-version: "8.7"
           cache-provider: basic
 
+      - name: Fetch pinned whisper.cpp sources for offline Open Whisper
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf app/src/main/cpp/whisper.cpp
+          git clone --depth 1 --branch v1.7.5 https://github.com/ggml-org/whisper.cpp.git app/src/main/cpp/whisper.cpp
+
       - name: Run lint, all module unit tests, and build APKs
         run: |
           gradle \
@@ -65,8 +72,9 @@ jobs:
           test -x "$aapt2"
           for apk in app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/release/app-release-unsigned.apk; do
             test -f "$apk"
-            if "$aapt2" dump permissions "$apk" | grep -q "android.permission.INTERNET"; then
-              echo "Unexpected INTERNET permission in $apk"
+            UNEXPECTED=$("$aapt2" dump permissions "$apk" | grep "uses-permission:" | grep -v "android.permission.INTERNET" || true)
+            if [ -n "$UNEXPECTED" ]; then
+              echo "Unexpected permission in $apk: $UNEXPECTED"
               exit 1
             fi
           done
