@@ -61,6 +61,8 @@ import com.projectmediapro.core.designsystem.theme.MediaProShapes
 import com.projectmediapro.core.designsystem.theme.MediaProSpacing
 import com.projectmediapro.core.model.CanvasBackground
 import com.projectmediapro.core.model.Clip
+import com.projectmediapro.core.model.ExportBitrate
+import com.projectmediapro.core.model.ExportFrameRate
 import com.projectmediapro.core.model.ExportQuality
 import com.projectmediapro.core.model.ProjectTimeline
 import com.projectmediapro.core.model.TextOverlayStyle
@@ -101,6 +103,18 @@ fun EditorScreen(
         contract = ActivityResultContracts.PickVisualMedia(),
     ) { uri ->
         onEvent(EditorEvent.OverlayPicked(uri?.toString()))
+    }
+
+    val replaceVideoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        onEvent(EditorEvent.ReplaceClipPicked(uri?.toString()))
+    }
+
+    val replaceAudioPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+    ) { uri ->
+        onEvent(EditorEvent.ReplaceClipPicked(uri?.toString()))
     }
 
     val createDocumentLauncher = rememberLauncherForActivityResult(
@@ -180,11 +194,31 @@ fun EditorScreen(
                                     PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
                                 )
                             },
-                            onConfirmExportQuality = { quality ->
+                            onReplaceVideo = {
+                                replaceVideoPickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly),
+                                )
+                            },
+                            onReplaceAudio = {
+                                replaceAudioPickerLauncher.launch("audio/*")
+                            },
+                            onConfirmExportQuality = { quality, frameRate, bitrate ->
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                    onEvent(EditorEvent.StartExport(quality = quality))
+                                    onEvent(
+                                        EditorEvent.StartExport(
+                                            quality = quality,
+                                            frameRate = frameRate,
+                                            bitrate = bitrate,
+                                        ),
+                                    )
                                 } else {
-                                    onEvent(EditorEvent.SelectExportQuality(quality))
+                                    onEvent(
+                                        EditorEvent.SelectExportQuality(
+                                            quality = quality,
+                                            frameRate = frameRate,
+                                            bitrate = bitrate,
+                                        ),
+                                    )
                                     createDocumentLauncher.launch("${sanitizeExportName(uiState.project.title)}.mp4")
                                 }
                             },
@@ -296,7 +330,9 @@ private fun LoadedStudioWorkspace(
     onPickVideo: () -> Unit,
     onPickAudio: () -> Unit,
     onPickOverlay: () -> Unit,
-    onConfirmExportQuality: (ExportQuality) -> Unit,
+    onReplaceVideo: () -> Unit,
+    onReplaceAudio: () -> Unit,
+    onConfirmExportQuality: (ExportQuality, ExportFrameRate, ExportBitrate) -> Unit,
     onEvent: (EditorEvent) -> Unit,
 ) {
     val context = LocalContext.current
@@ -453,6 +489,15 @@ private fun LoadedStudioWorkspace(
                         onTrimClip = { _, startMs, endMs ->
                             onEvent(EditorEvent.ApplyTrim(startMs = startMs, endMs = endMs))
                         },
+                        onResizeTimedClip = { clipId, startTimeMs, durationMs ->
+                            onEvent(
+                                EditorEvent.ResizeTimedClip(
+                                    clipId = clipId,
+                                    startTimeMs = startTimeMs,
+                                    durationMs = durationMs,
+                                ),
+                            )
+                        },
                         onUndo = { onEvent(EditorEvent.Undo) },
                         onRedo = { onEvent(EditorEvent.Redo) },
                         showHistoryControls = false,
@@ -480,9 +525,12 @@ private fun LoadedStudioWorkspace(
             state = state,
             selectedLocation = selectedLocation,
             videoDurationMs = videoDurationMs,
+            timelinePositionMs = timelinePositionMs,
             onPickVideo = onPickVideo,
             onPickAudio = onPickAudio,
             onPickOverlay = onPickOverlay,
+            onReplaceVideo = onReplaceVideo,
+            onReplaceAudio = onReplaceAudio,
             onEvent = onEvent,
         )
     }
@@ -750,6 +798,8 @@ private fun LoadedStudioWorkspace(
         EditorDialog.Quality -> {
             ExportQualityDialog(
                 initialQuality = state.project.exportQuality,
+                initialFrameRate = state.project.exportFrameRate,
+                initialBitrate = state.project.exportBitrate,
                 onConfirm = onConfirmExportQuality,
                 onDismiss = { onEvent(EditorEvent.DismissDialog) },
             )

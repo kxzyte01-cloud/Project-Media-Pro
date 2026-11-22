@@ -32,13 +32,32 @@ enum class CanvasBackground {
 enum class ExportQuality {
     HD_720P,
     FULL_HD_1080P,
+    QHD_1440P,
     UHD_4K,
 }
 
 /**
+ * Target export frame rate remembered per [Project].
+ */
+@Serializable
+enum class ExportFrameRate {
+    AUTO,
+    FPS_30,
+    FPS_60,
+}
+
+/**
+ * Target export bitrate / speed balance remembered per [Project].
+ */
+@Serializable
+enum class ExportBitrate {
+    FAST_SMALL,
+    STANDARD,
+    HIGH,
+}
+
+/**
  * Root project model persisted as JSON.
- * Later features (overlays, text) place elements as fractions (`0..1`) of the canvas defined by
- * [canvasAspect].
  */
 @Serializable
 data class Project(
@@ -52,6 +71,8 @@ data class Project(
     val canvasAspect: CanvasAspect = CanvasAspect.ORIGINAL,
     val canvasBackground: CanvasBackground = CanvasBackground.BLACK,
     val exportQuality: ExportQuality = ExportQuality.FULL_HD_1080P,
+    val exportFrameRate: ExportFrameRate = ExportFrameRate.AUTO,
+    val exportBitrate: ExportBitrate = ExportBitrate.STANDARD,
 ) {
     companion object {
         const val CURRENT_SCHEMA_VERSION = 1

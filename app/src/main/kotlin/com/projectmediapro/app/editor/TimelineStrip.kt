@@ -94,6 +94,7 @@ fun TimelineStrip(
     totalDurationMs: Long = 0L,
     onSeekTimeline: (Long) -> Unit = {},
     onTrimClip: (clipId: String, startMs: Long, endMs: Long) -> Unit = { _, _, _ -> },
+    onResizeTimedClip: (clipId: String, startTimeMs: Long, durationMs: Long) -> Unit = { _, _, _ -> },
     showHistoryControls: Boolean = true,
 ) {
     var dpPerSecond by rememberSaveable { mutableFloatStateOf(TimelineScale.DEFAULT_DP_PER_SECOND) }
@@ -289,7 +290,9 @@ fun TimelineStrip(
                             accessibilityLabel = { number, _, formattedDuration ->
                                 stringResource(R.string.cd_timeline_overlay_clip, number, formattedDuration)
                             },
+                            totalVideoDurationMs = effectiveTotalMs,
                             onSelectClip = onSelectClip,
+                            onResizeTimedClip = onResizeTimedClip,
                         )
                     }
 
@@ -317,7 +320,9 @@ fun TimelineStrip(
                                     formattedDuration,
                                 )
                             },
+                            totalVideoDurationMs = effectiveTotalMs,
                             onSelectClip = onSelectClip,
+                            onResizeTimedClip = onResizeTimedClip,
                         )
                     }
                 }
@@ -743,9 +748,14 @@ private fun TimelineTimedLane(
     unselectedContentColor: Color,
     blockLabel: (Int, Clip) -> String,
     accessibilityLabel: @Composable (Int, Clip, String) -> String,
+    totalVideoDurationMs: Long,
     onSelectClip: (String) -> Unit,
+    onResizeTimedClip: (clipId: String, startTimeMs: Long, durationMs: Long) -> Unit,
 ) {
+    val density = LocalDensity.current
     val rows = remember(clips, dpPerSecond) { packOverlayRows(clips, dpPerSecond) }
+    val currentOnResize by rememberUpdatedState(onResizeTimedClip)
+    val maxTimelineMs = totalVideoDurationMs.coerceAtLeast(ProjectTimeline.MIN_CLIP_DURATION_MS)
     Column(
         verticalArrangement = Arrangement.spacedBy(MediaProSpacing.ExtraSmall),
         modifier = Modifier.width(totalWidthDp),
@@ -758,10 +768,16 @@ private fun TimelineTimedLane(
             ) {
                 rowEntries.forEach { (clipNumber, clip) ->
                     val isSelected = clip.id == selectedClipId
-                    val formattedDuration = ProjectTimeline.formatDuration(clip.durationMs)
+                    var dragEdge by remember(clip.id) { mutableStateOf<TimelineTrimEdge?>(null) }
+                    var dragStartMs by remember(clip.id, clip.startTimeMs) { mutableStateOf(clip.startTimeMs) }
+                    var dragDurationMs by remember(clip.id, clip.durationMs) { mutableStateOf(clip.durationMs) }
+
+                    val displayStartMs = if (dragEdge != null) dragStartMs else clip.startTimeMs
+                    val displayDurationMs = if (dragEdge != null) dragDurationMs else clip.durationMs
+                    val formattedDuration = ProjectTimeline.formatDuration(displayDurationMs)
                     val clipContentDescription = accessibilityLabel(clipNumber, clip, formattedDuration)
-                    val startOffsetDp = TimelineScale.msToDp(clip.startTimeMs, dpPerSecond).dp
-                    val blockWidthDp = TimelineScale.msToDp(clip.durationMs, dpPerSecond)
+                    val startOffsetDp = TimelineScale.msToDp(displayStartMs, dpPerSecond).dp
+                    val blockWidthDp = TimelineScale.msToDp(displayDurationMs, dpPerSecond)
                         .coerceAtLeast(TimelineScale.MIN_BLOCK_WIDTH_DP)
                         .dp
                     val borderStroke = if (isSelected) {
@@ -769,40 +785,121 @@ private fun TimelineTimedLane(
                     } else {
                         BorderStroke(MediaProSpacing.BorderThin, MaterialTheme.colorScheme.outline)
                     }
-                    Surface(
-                        onClick = { onSelectClip(clip.id) },
-                        enabled = isEnabled,
-                        shape = MediaProShapes.Small,
-                        color = if (isSelected) selectedContainerColor else unselectedContainerColor,
-                        contentColor = if (isSelected) selectedContentColor else unselectedContentColor,
-                        border = borderStroke,
+                    val canDragResize = isSelected && isEnabled && totalVideoDurationMs >= ProjectTimeline.MIN_CLIP_DURATION_MS
+
+                    Box(
                         modifier = Modifier
                             .offset(x = startOffsetDp)
                             .width(blockWidthDp)
-                            .height(TIMED_LANE_HEIGHT_DP)
-                            .clearAndSetSemantics {
-                                contentDescription = clipContentDescription
-                                role = Role.Button
-                                selected = isSelected
-                            },
+                            .height(TIMED_LANE_HEIGHT_DP),
                     ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center,
-                            modifier = Modifier.padding(horizontal = MediaProSpacing.ExtraSmall),
+                        Surface(
+                            onClick = { onSelectClip(clip.id) },
+                            enabled = isEnabled,
+                            shape = MediaProShapes.Small,
+                            color = if (isSelected) selectedContainerColor else unselectedContainerColor,
+                            contentColor = if (isSelected) selectedContentColor else unselectedContentColor,
+                            border = borderStroke,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clearAndSetSemantics {
+                                    contentDescription = clipContentDescription
+                                    role = Role.Button
+                                    selected = isSelected
+                                },
                         ) {
-                            Text(
-                                text = blockLabel(clipNumber, clip),
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center,
+                                modifier = Modifier.padding(
+                                    horizontal = if (canDragResize) TRIM_HANDLE_WIDTH_DP + 2.dp else MediaProSpacing.ExtraSmall,
+                                ),
+                            ) {
+                                Text(
+                                    text = blockLabel(clipNumber, clip),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    text = formattedDuration,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Clip,
+                                )
+                            }
+                        }
+
+                        if (canDragResize) {
+                            val clipEndMs = (clip.startTimeMs + clip.durationMs).coerceAtMost(maxTimelineMs)
+                            TrimDragHandle(
+                                edge = TimelineTrimEdge.START,
+                                handleColor = selectedContentColor,
+                                modifier = Modifier
+                                    .align(Alignment.CenterStart)
+                                    .pointerInput(clip.id, dpPerSecond, maxTimelineMs) {
+                                        var accDp = 0f
+                                        detectHorizontalDragGestures(
+                                            onDragStart = {
+                                                dragEdge = TimelineTrimEdge.START
+                                                dragStartMs = clip.startTimeMs
+                                                dragDurationMs = clip.durationMs
+                                                accDp = 0f
+                                            },
+                                            onHorizontalDrag = { change, dragAmount ->
+                                                change.consume()
+                                                accDp += with(density) { dragAmount.toDp().value }
+                                                val deltaMs = TimelineScale.dpToMs(accDp, dpPerSecond)
+                                                val maxStart = (clipEndMs - ProjectTimeline.MIN_CLIP_DURATION_MS).coerceAtLeast(0L)
+                                                val nextStart = (clip.startTimeMs + deltaMs).coerceIn(0L, maxStart)
+                                                dragStartMs = nextStart
+                                                dragDurationMs = (clipEndMs - nextStart).coerceAtLeast(ProjectTimeline.MIN_CLIP_DURATION_MS)
+                                            },
+                                            onDragEnd = {
+                                                val finalStart = dragStartMs
+                                                val finalDuration = dragDurationMs
+                                                dragEdge = null
+                                                if (finalStart != clip.startTimeMs || finalDuration != clip.durationMs) {
+                                                    currentOnResize(clip.id, finalStart, finalDuration)
+                                                }
+                                            },
+                                            onDragCancel = { dragEdge = null },
+                                        )
+                                    },
                             )
-                            Text(
-                                text = formattedDuration,
-                                style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
-                                maxLines = 1,
-                                overflow = TextOverflow.Clip,
+                            TrimDragHandle(
+                                edge = TimelineTrimEdge.END,
+                                handleColor = selectedContentColor,
+                                modifier = Modifier
+                                    .align(Alignment.CenterEnd)
+                                    .pointerInput(clip.id, dpPerSecond, maxTimelineMs) {
+                                        var accDp = 0f
+                                        detectHorizontalDragGestures(
+                                            onDragStart = {
+                                                dragEdge = TimelineTrimEdge.END
+                                                dragStartMs = clip.startTimeMs
+                                                dragDurationMs = clip.durationMs
+                                                accDp = 0f
+                                            },
+                                            onHorizontalDrag = { change, dragAmount ->
+                                                change.consume()
+                                                accDp += with(density) { dragAmount.toDp().value }
+                                                val deltaMs = TimelineScale.dpToMs(accDp, dpPerSecond)
+                                                val maxDuration = (maxTimelineMs - clip.startTimeMs).coerceAtLeast(ProjectTimeline.MIN_CLIP_DURATION_MS)
+                                                dragDurationMs = (clip.durationMs + deltaMs).coerceIn(ProjectTimeline.MIN_CLIP_DURATION_MS, maxDuration)
+                                            },
+                                            onDragEnd = {
+                                                val finalStart = dragStartMs
+                                                val finalDuration = dragDurationMs
+                                                dragEdge = null
+                                                if (finalDuration != clip.durationMs) {
+                                                    currentOnResize(clip.id, finalStart, finalDuration)
+                                                }
+                                            },
+                                            onDragCancel = { dragEdge = null },
+                                        )
+                                    },
                             )
                         }
                     }

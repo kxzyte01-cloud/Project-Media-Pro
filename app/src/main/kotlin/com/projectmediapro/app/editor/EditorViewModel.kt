@@ -15,6 +15,8 @@ import com.projectmediapro.app.data.media.VideoImportException
 import com.projectmediapro.app.data.media.VideoImporter
 import com.projectmediapro.app.data.project.ProjectRepository
 import com.projectmediapro.core.model.Clip
+import com.projectmediapro.core.model.ExportBitrate
+import com.projectmediapro.core.model.ExportFrameRate
 import com.projectmediapro.core.model.ExportQuality
 import com.projectmediapro.core.model.Project
 import com.projectmediapro.core.model.ProjectTimeline
@@ -273,6 +275,46 @@ class EditorViewModel(
                     ProjectTimeline.duplicateClip(project, targetId, newClipId)
                 }
             }
+            is EditorEvent.ReplaceClipPicked -> handleReplaceClipPicked(event.sourceUri)
+            is EditorEvent.CopyFromHere -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                val targetId = current.selectedClipId ?: return
+                if (current.project.findClipLocation(targetId) == null) return
+                val newClipId = idProvider()
+                commitUndoableEdit(newClipId) { project ->
+                    ProjectTimeline.copyClipFromPlayhead(project, targetId, event.playheadMs, newClipId)
+                }
+            }
+            is EditorEvent.CopyTillHere -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                val targetId = current.selectedClipId ?: return
+                if (current.project.findClipLocation(targetId) == null) return
+                val newClipId = idProvider()
+                commitUndoableEdit(newClipId) { project ->
+                    ProjectTimeline.copyClipTillPlayhead(project, targetId, event.playheadMs, newClipId)
+                }
+            }
+            is EditorEvent.CopyToHere -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                val targetId = current.selectedClipId ?: return
+                if (current.project.findClipLocation(targetId) == null) return
+                val newClipId = idProvider()
+                commitUndoableEdit(newClipId) { project ->
+                    ProjectTimeline.copyClipToPlayhead(project, targetId, event.playheadMs, newClipId)
+                }
+            }
+            is EditorEvent.ResizeTimedClip -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                val location = current.project.findClipLocation(event.clipId) ?: return
+                if (!location.isOverlay && !location.isText) return
+                commitUndoableEdit(event.clipId) { project ->
+                    if (location.isOverlay) {
+                        ProjectTimeline.updateOverlayTiming(project, event.clipId, event.startTimeMs, event.durationMs)
+                    } else {
+                        ProjectTimeline.updateTextTiming(project, event.clipId, event.startTimeMs, event.durationMs)
+                    }
+                }
+            }
             is EditorEvent.ApplyClipEffects -> {
                 val current = _uiState.value as? EditorUiState.Loaded ?: return
                 val targetId = (current.activeDialog as? EditorDialog.ClipEffects)?.clipId
@@ -448,7 +490,7 @@ class EditorViewModel(
                     )
                 }
             }
-            is EditorEvent.SelectExportQuality -> handleSelectExportQuality(event.quality)
+            is EditorEvent.SelectExportQuality -> handleSelectExportQuality(event.quality, event.frameRate, event.bitrate)
             is EditorEvent.MoveSelected -> {
                 val current = _uiState.value as? EditorUiState.Loaded ?: return
                 val targetId = current.selectedClipId ?: return
@@ -486,13 +528,97 @@ class EditorViewModel(
                 _uiState.value = current.copy(pendingRemoveClipId = null)
             }
             EditorEvent.ConfirmRemoveClip -> handleConfirmRemoveClip()
-            is EditorEvent.StartExport -> handleStartExport(event.destinationUri, event.quality)
+            is EditorEvent.StartExport -> handleStartExport(event.destinationUri, event.quality, event.frameRate, event.bitrate)
             EditorEvent.CancelExport -> handleCancelExport()
             EditorEvent.DismissExportDone -> {
                 val current = _uiState.value as? EditorUiState.Loaded ?: return
                 if (current.export is ExportUiState.Done) {
                     _uiState.value = current.copy(export = ExportUiState.Idle)
                 }
+            }
+        }
+    }
+
+    private fun handleReplaceClipPicked(sourceUri: String?) {
+        if (sourceUri.isNullOrBlank()) return
+        val current = _uiState.value as? EditorUiState.Loaded ?: return
+        if (current.isBusy) return
+        val location = current.project.findClipLocation(current.selectedClipId) ?: return
+        if (!location.isVideo && !location.isAudio) return
+        val trackType = location.trackType
+        val targetClipId = location.clip.id
+        val oldMediaUri = location.clip.mediaUri
+
+        _uiState.value = current.copy(
+            importingTrack = trackType,
+            activeDialog = null,
+            audioPreview = null,
+            error = null,
+        )
+
+        viewModelScope.launch {
+            val imported: Pair<String, Long> = try {
+                if (trackType == TrackType.VIDEO) {
+                    val result = videoImporter.importVideo(projectId, sourceUri)
+                    result.relativePath to result.durationMs
+                } else {
+                    val result = audioImporter.importAudio(projectId, sourceUri)
+                    result.relativePath to result.durationMs
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: VideoImportException) {
+                val latest = _uiState.value as? EditorUiState.Loaded ?: return@launch
+                _uiState.value = latest.copy(
+                    importingTrack = null,
+                    error = mapImportError(failure.reason, trackType),
+                )
+                return@launch
+            }
+
+            val (newMediaUri, newDurationMs) = imported
+            val latest = _uiState.value as? EditorUiState.Loaded ?: return@launch
+            val previousProject = latest.project
+            val updatedProject = ProjectTimeline.replaceClipMedia(
+                project = previousProject,
+                clipId = targetClipId,
+                newMediaUri = newMediaUri,
+                newDurationMs = newDurationMs,
+            )
+            if (updatedProject == previousProject) {
+                withContext(ioDispatcher) { mediaStorage.deleteRelativeFile(newMediaUri) }
+                _uiState.value = latest.copy(importingTrack = null)
+                return@launch
+            }
+
+            history.push(updatedProject)
+            _uiState.value = latest.withSyncedProject(
+                previousProject = previousProject,
+                targetProject = updatedProject,
+                preferredSelectedId = targetClipId,
+                mediaStorage = mediaStorage,
+                history = history,
+            )
+
+            try {
+                projectRepository.saveProject(updatedProject)
+                if (oldMediaUri.isNotBlank() &&
+                    oldMediaUri != newMediaUri &&
+                    !ProjectTimeline.isMediaReferenced(updatedProject, oldMediaUri)
+                ) {
+                    withContext(ioDispatcher) { mediaStorage.deleteRelativeFile(oldMediaUri) }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: IOException) {
+                history.undo()
+                withContext(ioDispatcher) { mediaStorage.deleteRelativeFile(newMediaUri) }
+                val afterFailure = _uiState.value as? EditorUiState.Loaded ?: return@launch
+                _uiState.value = afterFailure.withSaveFailedRollback(
+                    previousProject = previousProject,
+                    mediaStorage = mediaStorage,
+                    history = history,
+                )
             }
         }
     }
@@ -545,11 +671,28 @@ class EditorViewModel(
         )
     }
 
-    private fun handleSelectExportQuality(quality: ExportQuality) {
+    private fun handleSelectExportQuality(
+        quality: ExportQuality,
+        frameRate: ExportFrameRate? = null,
+        bitrate: ExportBitrate? = null,
+    ) {
         persistProjectTransition(
             preferredSelectedClipId = null,
             prepareTarget = { previous ->
-                if (previous.exportQuality == quality) null else previous.copy(exportQuality = quality)
+                val nextFrameRate = frameRate ?: previous.exportFrameRate
+                val nextBitrate = bitrate ?: previous.exportBitrate
+                if (previous.exportQuality == quality &&
+                    previous.exportFrameRate == nextFrameRate &&
+                    previous.exportBitrate == nextBitrate
+                ) {
+                    null
+                } else {
+                    previous.copy(
+                        exportQuality = quality,
+                        exportFrameRate = nextFrameRate,
+                        exportBitrate = nextBitrate,
+                    )
+                }
             },
         )
     }
@@ -575,7 +718,11 @@ class EditorViewModel(
         persistProjectTransition(
             preferredSelectedClipId = null,
             prepareTarget = { previous ->
-                step(history)?.copy(exportQuality = previous.exportQuality)
+                step(history)?.copy(
+                exportQuality = previous.exportQuality,
+                exportFrameRate = previous.exportFrameRate,
+                exportBitrate = previous.exportBitrate,
+            )
             },
             onSaveFailure = { rollback(history) },
         )
@@ -777,6 +924,8 @@ class EditorViewModel(
     private fun handleStartExport(
         destinationUri: String?,
         qualityOverride: ExportQuality?,
+        frameRateOverride: ExportFrameRate? = null,
+        bitrateOverride: ExportBitrate? = null,
     ) {
         val exporter = videoExporter
         val saver = exportSaver
@@ -788,8 +937,19 @@ class EditorViewModel(
             return
         }
 
-        val effectiveProject = if (qualityOverride != null && qualityOverride != initial.project.exportQuality) {
-            initial.project.copy(exportQuality = qualityOverride)
+        val nextQuality = qualityOverride ?: initial.project.exportQuality
+        val nextFrameRate = frameRateOverride ?: initial.project.exportFrameRate
+        val nextBitrate = bitrateOverride ?: initial.project.exportBitrate
+        val effectiveProject = if (
+            nextQuality != initial.project.exportQuality ||
+            nextFrameRate != initial.project.exportFrameRate ||
+            nextBitrate != initial.project.exportBitrate
+        ) {
+            initial.project.copy(
+                exportQuality = nextQuality,
+                exportFrameRate = nextFrameRate,
+                exportBitrate = nextBitrate,
+            )
         } else {
             initial.project
         }

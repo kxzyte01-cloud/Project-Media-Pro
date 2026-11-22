@@ -4,9 +4,11 @@ import androidx.annotation.StringRes
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -44,7 +46,10 @@ import com.projectmediapro.core.designsystem.theme.MediaProSpacing
 import com.projectmediapro.core.model.CanvasAspect
 import com.projectmediapro.core.model.CanvasBackground
 import com.projectmediapro.core.model.Clip
+import com.projectmediapro.core.model.OverlayKeyframe
 import kotlin.math.roundToInt
+
+private const val POSITION_NUDGE_STEP = 0.01f
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,14 +63,17 @@ fun OverlayPositionDialog(
     isText: Boolean = false,
 ) {
     var centerX by rememberSaveable(clip.id, clip.overlayCenterX) {
-        mutableFloatStateOf(clip.overlayCenterX.coerceIn(0f, 1f))
+        mutableFloatStateOf(OverlayKeyframe.sanitizeCoordinate(clip.overlayCenterX, 0.5f))
     }
     var centerY by rememberSaveable(clip.id, clip.overlayCenterY) {
-        mutableFloatStateOf(clip.overlayCenterY.coerceIn(0f, 1f))
+        mutableFloatStateOf(OverlayKeyframe.sanitizeCoordinate(clip.overlayCenterY, 0.5f))
     }
     var widthFraction by rememberSaveable(clip.id, clip.overlayWidthFraction) {
         mutableFloatStateOf(
-            clip.overlayWidthFraction.coerceIn(
+            OverlayKeyframe.sanitizeFinite(
+                clip.overlayWidthFraction,
+                if (isText) Clip.DEFAULT_TEXT_WIDTH_FRACTION else Clip.DEFAULT_OVERLAY_WIDTH_FRACTION,
+            ).coerceIn(
                 Clip.MIN_OVERLAY_WIDTH_FRACTION,
                 Clip.MAX_OVERLAY_WIDTH_FRACTION,
             ),
@@ -172,6 +180,37 @@ fun OverlayPositionDialog(
                             )
                         }
                     }
+                }
+
+                Spacer(modifier = Modifier.height(MediaProSpacing.Small))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.ExtraSmall),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    EditorOutlinedButton(
+                        label = stringResource(R.string.editor_precision_nudge_left),
+                        enabled = centerX > 0f,
+                        onClick = { centerX = (centerX - POSITION_NUDGE_STEP).coerceIn(0f, 1f) },
+                        modifier = Modifier.weight(1f),
+                    )
+                    EditorOutlinedButton(
+                        label = stringResource(R.string.editor_precision_nudge_right),
+                        enabled = centerX < 1f,
+                        onClick = { centerX = (centerX + POSITION_NUDGE_STEP).coerceIn(0f, 1f) },
+                        modifier = Modifier.weight(1f),
+                    )
+                    EditorOutlinedButton(
+                        label = stringResource(R.string.editor_precision_nudge_up),
+                        enabled = centerY > 0f,
+                        onClick = { centerY = (centerY - POSITION_NUDGE_STEP).coerceIn(0f, 1f) },
+                        modifier = Modifier.weight(1f),
+                    )
+                    EditorOutlinedButton(
+                        label = stringResource(R.string.editor_precision_nudge_down),
+                        enabled = centerY < 1f,
+                        onClick = { centerY = (centerY + POSITION_NUDGE_STEP).coerceIn(0f, 1f) },
+                        modifier = Modifier.weight(1f),
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(MediaProSpacing.MediumSmall))

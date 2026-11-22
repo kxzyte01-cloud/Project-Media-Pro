@@ -1,7 +1,9 @@
 package com.projectmediapro.app.editor
 
 import androidx.annotation.StringRes
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -21,6 +23,8 @@ import com.projectmediapro.core.designsystem.theme.MediaProSpacing
 import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.ProjectTimeline
 import kotlin.math.roundToLong
+
+private const val TIMING_NUDGE_MS = 100L
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -47,12 +51,21 @@ fun OverlayTimingDialog(
     val currentMaxDurationMs = (safeVideoMs - startMs).coerceAtLeast(minDurationMs)
     val clampedDurationMs = durationMs.coerceIn(minDurationMs, currentMaxDurationMs)
 
+    fun updateStart(nextRaw: Long) {
+        val nextStart = nextRaw.coerceIn(0L, maxStartMs)
+        startMs = nextStart
+        val nextMaxDuration = (safeVideoMs - nextStart).coerceAtLeast(minDurationMs)
+        if (durationMs > nextMaxDuration) {
+            durationMs = nextMaxDuration
+        }
+    }
+
     EditorSliderDialog(
         title = stringResource(titleRes),
         readoutText = stringResource(
             R.string.editor_overlay_timing_summary,
-            ProjectTimeline.formatDuration(startMs),
-            ProjectTimeline.formatDuration(clampedDurationMs),
+            ProjectTimeline.formatPreciseDuration(startMs),
+            ProjectTimeline.formatPreciseDuration(clampedDurationMs),
         ),
         confirmLabel = stringResource(R.string.editor_apply),
         isConfirmEnabled = videoDurationMs >= minDurationMs,
@@ -63,30 +76,40 @@ fun OverlayTimingDialog(
             Text(
                 text = stringResource(
                     R.string.editor_overlay_start_label,
-                    ProjectTimeline.formatDuration(startMs),
+                    ProjectTimeline.formatPreciseDuration(startMs),
                 ),
                 style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Slider(
                 value = startMs.toFloat(),
-                onValueChange = { raw ->
-                    val nextStart = raw.roundToLong().coerceIn(0L, maxStartMs)
-                    startMs = nextStart
-                    val nextMaxDuration = (safeVideoMs - nextStart).coerceAtLeast(minDurationMs)
-                    if (durationMs > nextMaxDuration) {
-                        durationMs = nextMaxDuration
-                    }
-                },
+                onValueChange = { raw -> updateStart(raw.roundToLong()) },
                 valueRange = 0f..maxStartMs.toFloat().coerceAtLeast(1f),
                 enabled = maxStartMs > 0L,
                 modifier = Modifier.fillMaxWidth(),
             )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                EditorOutlinedButton(
+                    label = stringResource(R.string.editor_precision_minus_100ms),
+                    enabled = startMs > 0L,
+                    onClick = { updateStart(startMs - TIMING_NUDGE_MS) },
+                    modifier = Modifier.weight(1f),
+                )
+                EditorOutlinedButton(
+                    label = stringResource(R.string.editor_precision_plus_100ms),
+                    enabled = startMs < maxStartMs,
+                    onClick = { updateStart(startMs + TIMING_NUDGE_MS) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
             Spacer(modifier = Modifier.height(MediaProSpacing.Small))
             Text(
                 text = stringResource(
                     R.string.editor_overlay_duration_label,
-                    ProjectTimeline.formatDuration(clampedDurationMs),
+                    ProjectTimeline.formatPreciseDuration(clampedDurationMs),
                 ),
                 style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -100,6 +123,27 @@ fun OverlayTimingDialog(
                 enabled = currentMaxDurationMs > minDurationMs,
                 modifier = Modifier.fillMaxWidth(),
             )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                EditorOutlinedButton(
+                    label = stringResource(R.string.editor_precision_minus_100ms),
+                    enabled = clampedDurationMs > minDurationMs,
+                    onClick = {
+                        durationMs = (clampedDurationMs - TIMING_NUDGE_MS).coerceIn(minDurationMs, currentMaxDurationMs)
+                    },
+                    modifier = Modifier.weight(1f),
+                )
+                EditorOutlinedButton(
+                    label = stringResource(R.string.editor_precision_plus_100ms),
+                    enabled = clampedDurationMs < currentMaxDurationMs,
+                    onClick = {
+                        durationMs = (clampedDurationMs + TIMING_NUDGE_MS).coerceIn(minDurationMs, currentMaxDurationMs)
+                    },
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
     }
 }

@@ -35,6 +35,10 @@ internal enum class StudioToolIconKind {
     TIMING,
     KEYFRAMES,
     DUPLICATE,
+    REPLACE,
+    COPY_FROM,
+    COPY_TILL,
+    COPY_TO,
     EARLIER,
     LATER,
     PLAY,
@@ -261,6 +265,30 @@ internal fun StudioToolIcon(
                     cornerRadius = CornerRadius(w * 0.08f, w * 0.08f),
                     style = stroke,
                 )
+            }
+            StudioToolIconKind.REPLACE -> {
+                drawLine(tint, Offset(w * 0.22f, h * 0.36f), Offset(w * 0.78f, h * 0.36f), strokePx, StrokeCap.Round)
+                drawLine(tint, Offset(w * 0.64f, h * 0.22f), Offset(w * 0.78f, h * 0.36f), strokePx, StrokeCap.Round)
+                drawLine(tint, Offset(w * 0.78f, h * 0.64f), Offset(w * 0.22f, h * 0.64f), strokePx, StrokeCap.Round)
+                drawLine(tint, Offset(w * 0.36f, h * 0.78f), Offset(w * 0.22f, h * 0.64f), strokePx, StrokeCap.Round)
+            }
+            StudioToolIconKind.COPY_FROM -> {
+                drawLine(tint, Offset(w * 0.28f, h * 0.20f), Offset(w * 0.28f, h * 0.80f), strokePx * 1.2f, StrokeCap.Round)
+                drawLine(tint, Offset(w * 0.38f, h * 0.50f), Offset(w * 0.80f, h * 0.50f), strokePx, StrokeCap.Round)
+                drawLine(tint, Offset(w * 0.64f, h * 0.34f), Offset(w * 0.80f, h * 0.50f), strokePx, StrokeCap.Round)
+                drawLine(tint, Offset(w * 0.64f, h * 0.66f), Offset(w * 0.80f, h * 0.50f), strokePx, StrokeCap.Round)
+            }
+            StudioToolIconKind.COPY_TILL -> {
+                drawLine(tint, Offset(w * 0.72f, h * 0.20f), Offset(w * 0.72f, h * 0.80f), strokePx * 1.2f, StrokeCap.Round)
+                drawLine(tint, Offset(w * 0.62f, h * 0.50f), Offset(w * 0.20f, h * 0.50f), strokePx, StrokeCap.Round)
+                drawLine(tint, Offset(w * 0.36f, h * 0.34f), Offset(w * 0.20f, h * 0.50f), strokePx, StrokeCap.Round)
+                drawLine(tint, Offset(w * 0.36f, h * 0.66f), Offset(w * 0.20f, h * 0.50f), strokePx, StrokeCap.Round)
+            }
+            StudioToolIconKind.COPY_TO -> {
+                drawLine(tint, Offset(w * 0.50f, h * 0.16f), Offset(w * 0.50f, h * 0.72f), strokePx, StrokeCap.Round)
+                drawLine(tint, Offset(w * 0.34f, h * 0.56f), Offset(w * 0.50f, h * 0.72f), strokePx, StrokeCap.Round)
+                drawLine(tint, Offset(w * 0.66f, h * 0.56f), Offset(w * 0.50f, h * 0.72f), strokePx, StrokeCap.Round)
+                drawLine(tint, Offset(w * 0.22f, h * 0.82f), Offset(w * 0.78f, h * 0.82f), strokePx * 1.2f, StrokeCap.Round)
             }
             StudioToolIconKind.EARLIER -> {
                 drawLine(tint, Offset(w * 0.62f, h * 0.24f), Offset(w * 0.36f, h * 0.50f), strokePx, StrokeCap.Round)

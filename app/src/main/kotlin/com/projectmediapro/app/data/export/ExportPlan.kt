@@ -4,6 +4,8 @@ import com.projectmediapro.core.model.CanvasAspect
 import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.ClipCrop
 import com.projectmediapro.core.model.ClipVisualEffects
+import com.projectmediapro.core.model.ExportBitrate
+import com.projectmediapro.core.model.ExportFrameRate
 import com.projectmediapro.core.model.ExportQuality
 import com.projectmediapro.core.model.KeyframeInterpolator
 import com.projectmediapro.core.model.OverlayKeyframe
@@ -86,6 +88,8 @@ data class ExportPlan(
     val textOverlays: List<ExportTextOverlay> = emptyList(),
     val canvasAspect: CanvasAspect = CanvasAspect.ORIGINAL,
     val exportQuality: ExportQuality = ExportQuality.FULL_HD_1080P,
+    val exportFrameRate: ExportFrameRate = ExportFrameRate.AUTO,
+    val exportBitrate: ExportBitrate = ExportBitrate.STANDARD,
     val captionDocument: CaptionDocument? = null,
 )
 
@@ -163,6 +167,8 @@ object ExportPlanner {
             textOverlays = exportTextOverlays,
             canvasAspect = project.canvasAspect,
             exportQuality = project.exportQuality,
+            exportFrameRate = project.exportFrameRate,
+            exportBitrate = project.exportBitrate,
             captionDocument = captionDocument?.takeIf { it.lines.isNotEmpty() },
         )
     }
@@ -327,6 +333,27 @@ object ExportPlanner {
      * Output size for a clip of [width] x [height] (already rotated): the long side is capped at
      * [MAX_LONG_SIDE_PX] and both sides are made even, as H.264 requires. Returns null for bad input.
      */
+    /**
+     * Returns true when the video stream can safely transmux (direct sample copy without re-encoding)
+     * in Media3 Transformer for dramatically faster exports.
+     */
+    fun canTransmuxVideo(plan: ExportPlan, sourceLongSidePx: Int?): Boolean {
+        if (plan.clips.size != 1) return false
+        if (plan.canvasAspect != CanvasAspect.ORIGINAL) return false
+        if (plan.overlays.isNotEmpty() || plan.textOverlays.isNotEmpty() || plan.captionDocument != null) return false
+        if (plan.exportFrameRate != ExportFrameRate.AUTO || plan.exportBitrate != ExportBitrate.STANDARD) return false
+        val longSide = sourceLongSidePx ?: return false
+        if (longSide <= 0 || longSide > ExportGeometry.longSideCapFor(plan.exportQuality)) return false
+        val clip = plan.clips.single()
+        return !clip.isStillImage &&
+            clip.visualEffects == null &&
+            clip.crop == null &&
+            clip.rotationDegrees == 0 &&
+            !clip.flipHorizontal &&
+            !clip.flipVertical &&
+            clip.playbackSpeed == Clip.DEFAULT_PLAYBACK_SPEED
+    }
+
     fun fitExportSize(width: Int, height: Int): Pair<Int, Int>? =
         ExportGeometry.fitToLongSide(width, height, MAX_LONG_SIDE_PX)
 }

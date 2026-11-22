@@ -5,6 +5,8 @@ import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.CanvasBackground
 import com.projectmediapro.core.model.ClipCrop
 import com.projectmediapro.core.model.ClipVisualEffects
+import com.projectmediapro.core.model.ExportBitrate
+import com.projectmediapro.core.model.ExportFrameRate
 import com.projectmediapro.core.model.ExportQuality
 import com.projectmediapro.core.model.OverlayKeyframe
 import com.projectmediapro.core.model.Project
@@ -137,6 +139,15 @@ sealed interface EditorEvent {
     data class ApplyCrop(val crop: ClipCrop?) : EditorEvent
     data class ApplyFreezeFrame(val sourceTimeMs: Long, val durationMs: Long) : EditorEvent
     data object DuplicateSelected : EditorEvent
+    data class ReplaceClipPicked(val sourceUri: String?) : EditorEvent
+    data class CopyFromHere(val playheadMs: Long) : EditorEvent
+    data class CopyTillHere(val playheadMs: Long) : EditorEvent
+    data class CopyToHere(val playheadMs: Long) : EditorEvent
+    data class ResizeTimedClip(
+        val clipId: String,
+        val startTimeMs: Long,
+        val durationMs: Long,
+    ) : EditorEvent
     data class ApplyOverlayPosition(
         val centerX: Float,
         val centerY: Float,
@@ -173,7 +184,11 @@ sealed interface EditorEvent {
         val aspect: CanvasAspect,
         val background: CanvasBackground,
     ) : EditorEvent
-    data class SelectExportQuality(val quality: ExportQuality) : EditorEvent
+    data class SelectExportQuality(
+        val quality: ExportQuality,
+        val frameRate: ExportFrameRate? = null,
+        val bitrate: ExportBitrate? = null,
+    ) : EditorEvent
     data class MoveSelected(val delta: Int) : EditorEvent
     data object ToggleAudioPreview : EditorEvent
     data object StopAudioPreview : EditorEvent
@@ -185,6 +200,8 @@ sealed interface EditorEvent {
     data class StartExport(
         val destinationUri: String? = null,
         val quality: ExportQuality? = null,
+        val frameRate: ExportFrameRate? = null,
+        val bitrate: ExportBitrate? = null,
     ) : EditorEvent
     data object CancelExport : EditorEvent
     data object DismissExportDone : EditorEvent

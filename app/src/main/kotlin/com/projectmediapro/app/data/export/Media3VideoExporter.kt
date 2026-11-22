@@ -16,11 +16,13 @@ import androidx.media3.common.audio.ChannelMixingMatrix
 import androidx.media3.common.audio.SonicAudioProcessor
 import androidx.media3.common.util.Size
 import androidx.media3.effect.BitmapOverlay
+import androidx.media3.effect.FrameDropEffect
 import androidx.media3.effect.OverlayEffect
 import androidx.media3.effect.OverlaySettings
 import androidx.media3.effect.Presentation
 import androidx.media3.effect.TextureOverlay
 import androidx.media3.transformer.Composition
+import androidx.media3.transformer.DefaultEncoderFactory
 import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.EditedMediaItemSequence
 import androidx.media3.transformer.Effects
@@ -28,10 +30,12 @@ import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.ProgressHolder
 import androidx.media3.transformer.Transformer
+import androidx.media3.transformer.VideoEncoderSettings
 import com.google.common.collect.ImmutableList
 import com.projectmediapro.app.data.export.VideoExportException.Reason
 import com.projectmediapro.core.model.CanvasAspect
 import com.projectmediapro.core.model.Clip
+import com.projectmediapro.core.model.ExportFrameRate
 import com.projectmediapro.core.model.KeyframeInterpolator
 import com.projectmediapro.core.model.OverlayKeyframe
 import com.projectmediapro.core.model.ProjectTimeline
@@ -63,12 +67,21 @@ class Media3VideoExporter(
         if (plan.clips.isEmpty()) {
             throw VideoExportException(Reason.FAILED)
         }
-        val targetSize = withContext(Dispatchers.IO) {
+        val (targetSize, useTransmuxFastPath) = withContext(Dispatchers.IO) {
             prepareOutputFile(outputFile)
-            resolveTargetSize(plan)
+            val firstClip = plan.clips.first()
+            val firstSize = if (firstClip.isStillImage) {
+                readImageSize(firstClip.path)
+            } else {
+                readRotatedSize(firstClip.path)
+            }
+            val firstLongSide = firstSize?.let { maxOf(it.first, it.second) }
+            val fastPath = ExportPlanner.canTransmuxVideo(plan, firstLongSide)
+            val resolvedSize = if (fastPath) null else resolveTargetSize(plan, firstSize)
+            resolvedSize to fastPath
         }
-        val composition = buildComposition(plan, targetSize)
-        runTransformer(composition, outputFile, onProgress)
+        val composition = buildComposition(plan, targetSize, useTransmuxFastPath)
+        runTransformer(composition, plan, useTransmuxFastPath, outputFile, onProgress)
     }
 
     private fun prepareOutputFile(outputFile: File) {
@@ -81,7 +94,10 @@ class Media3VideoExporter(
         }
     }
 
-    private fun resolveTargetSize(plan: ExportPlan): Pair<Int, Int>? {
+    private fun resolveTargetSize(
+        plan: ExportPlan,
+        preReadFirstSize: Pair<Int, Int>?,
+    ): Pair<Int, Int>? {
         if (plan.canvasAspect != CanvasAspect.ORIGINAL) {
             return ExportGeometry.sizeFor(
                 aspect = plan.canvasAspect,
@@ -91,11 +107,7 @@ class Media3VideoExporter(
             )
         }
         val firstClip = plan.clips.first()
-        val firstSize = if (firstClip.isStillImage) {
-            readImageSize(firstClip.path)
-        } else {
-            readRotatedSize(firstClip.path)
-        } ?: return null
+        val firstSize = preReadFirstSize ?: return null
         val clipRotation = ProjectTimeline.normalizeRotationDegrees(firstClip.rotationDegrees)
         val (effectiveWidth, effectiveHeight) = if (clipRotation == 90 || clipRotation == 270) {
             firstSize.second to firstSize.first
@@ -147,8 +159,12 @@ class Media3VideoExporter(
         }
     }
 
-    private fun buildComposition(plan: ExportPlan, targetSize: Pair<Int, Int>?): Composition {
-        val presentationEffects: List<Effect> = if (targetSize != null) {
+    private fun buildComposition(
+        plan: ExportPlan,
+        targetSize: Pair<Int, Int>?,
+        useTransmuxFastPath: Boolean,
+    ): Composition {
+        val presentationEffects: List<Effect> = if (!useTransmuxFastPath && targetSize != null) {
             listOf(
                 Presentation.createForWidthAndHeight(
                     targetSize.first,
@@ -158,6 +174,15 @@ class Media3VideoExporter(
             )
         } else {
             emptyList()
+        }
+        val frameRateEffects: List<Effect> = if (useTransmuxFastPath) {
+            emptyList()
+        } else {
+            when (plan.exportFrameRate) {
+                ExportFrameRate.AUTO -> emptyList()
+                ExportFrameRate.FPS_30 -> listOf(FrameDropEffect.createDefaultFrameDropEffect(30f))
+                ExportFrameRate.FPS_60 -> listOf(FrameDropEffect.createDefaultFrameDropEffect(60f))
+            }
         }
 
         val editedVideoItems = plan.clips.map { clip ->
@@ -182,7 +207,7 @@ class Media3VideoExporter(
             } else {
                 val mediaItem = buildClippedMediaItem(clip.path, clip.trimStartMs, clip.trimEndMs)
                 val speedVideoEffects = VideoEffectFactory.buildSpeedEffects(clip.playbackSpeed)
-                val allVideoEffects = cropEffects + transformEffects + presentationEffects + clipEffects + speedVideoEffects
+                val allVideoEffects = cropEffects + transformEffects + presentationEffects + clipEffects + speedVideoEffects + frameRateEffects
                 val audioProcessors = buildAudioProcessors(
                     volume = clip.volume,
                     playbackSpeed = clip.playbackSpeed,
@@ -271,6 +296,8 @@ class Media3VideoExporter(
 
     private suspend fun runTransformer(
         composition: Composition,
+        plan: ExportPlan,
+        useTransmuxFastPath: Boolean,
         outputFile: File,
         onProgress: (Int) -> Unit,
     ) {
@@ -326,11 +353,28 @@ class Media3VideoExporter(
                 }
 
                 try {
-                    val built = Transformer.Builder(context)
-                        .setVideoMimeType(MimeTypes.VIDEO_H264)
+                    val transformerBuilder = Transformer.Builder(context)
                         .setAudioMimeType(MimeTypes.AUDIO_AAC)
                         .addListener(listener)
-                        .build()
+                    if (!useTransmuxFastPath) {
+                        val targetBitrateBps = ExportGeometry.targetBitrateBps(
+                            quality = plan.exportQuality,
+                            frameRate = plan.exportFrameRate,
+                            bitrate = plan.exportBitrate,
+                        )
+                        val encoderFactory = DefaultEncoderFactory.Builder(context)
+                            .setRequestedVideoEncoderSettings(
+                                VideoEncoderSettings.Builder()
+                                    .setBitrate(targetBitrateBps)
+                                    .build(),
+                            )
+                            .setEnableFallback(true)
+                            .build()
+                        transformerBuilder
+                            .setVideoMimeType(MimeTypes.VIDEO_H264)
+                            .setEncoderFactory(encoderFactory)
+                    }
+                    val built = transformerBuilder.build()
                     transformer = built
                     built.start(composition, outputFile.absolutePath)
                     mainHandler.postDelayed(poller, POLL_INTERVAL_MS)

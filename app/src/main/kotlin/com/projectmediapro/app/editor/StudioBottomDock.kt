@@ -42,9 +42,12 @@ internal fun StudioBottomDock(
     state: EditorUiState.Loaded,
     selectedLocation: ClipLocation?,
     videoDurationMs: Long,
+    timelinePositionMs: Long,
     onPickVideo: () -> Unit,
     onPickAudio: () -> Unit,
     onPickOverlay: () -> Unit,
+    onReplaceVideo: () -> Unit,
+    onReplaceAudio: () -> Unit,
     onEvent: (EditorEvent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -87,7 +90,10 @@ internal fun StudioBottomDock(
                         state = state,
                         location = selectedLocation,
                         videoDurationMs = videoDurationMs,
+                        timelinePositionMs = timelinePositionMs,
                         editsEnabled = editsEnabled,
+                        onReplaceVideo = onReplaceVideo,
+                        onReplaceAudio = onReplaceAudio,
                         onEvent = onEvent,
                     )
                 }
@@ -153,7 +159,10 @@ private fun SelectedClipDockItems(
     state: EditorUiState.Loaded,
     location: ClipLocation,
     videoDurationMs: Long,
+    timelinePositionMs: Long,
     editsEnabled: Boolean,
+    onReplaceVideo: () -> Unit,
+    onReplaceAudio: () -> Unit,
     onEvent: (EditorEvent) -> Unit,
 ) {
     val clip = location.clip
@@ -256,6 +265,12 @@ private fun SelectedClipDockItems(
                 onClick = { onEvent(EditorEvent.ToggleAudioPreview) },
             )
             StudioDockTile(
+                icon = StudioToolIconKind.REPLACE,
+                label = stringResource(R.string.editor_tool_replace),
+                enabled = editsEnabled,
+                onClick = onReplaceAudio,
+            )
+            StudioDockTile(
                 icon = StudioToolIconKind.TRIM,
                 label = stringResource(R.string.editor_tool_trim),
                 enabled = editsEnabled && ProjectTimeline.canTrimClip(clip),
@@ -289,6 +304,12 @@ private fun SelectedClipDockItems(
             )
         }
         else -> {
+            StudioDockTile(
+                icon = StudioToolIconKind.REPLACE,
+                label = stringResource(R.string.editor_tool_replace),
+                enabled = editsEnabled,
+                onClick = onReplaceVideo,
+            )
             StudioDockTile(
                 icon = StudioToolIconKind.TRIM,
                 label = stringResource(R.string.editor_tool_trim),
@@ -359,9 +380,29 @@ private fun SelectedClipDockItems(
 
     StudioDockTile(
         icon = StudioToolIconKind.DUPLICATE,
-        label = stringResource(R.string.editor_tool_duplicate),
+        label = stringResource(
+            if (location.isOverlay) R.string.editor_tool_copy_overlay else R.string.editor_tool_duplicate,
+        ),
         enabled = editsEnabled,
         onClick = { onEvent(EditorEvent.DuplicateSelected) },
+    )
+    StudioDockTile(
+        icon = StudioToolIconKind.COPY_FROM,
+        label = stringResource(R.string.editor_tool_copy_from_here),
+        enabled = editsEnabled,
+        onClick = { onEvent(EditorEvent.CopyFromHere(timelinePositionMs)) },
+    )
+    StudioDockTile(
+        icon = StudioToolIconKind.COPY_TILL,
+        label = stringResource(R.string.editor_tool_copy_till_here),
+        enabled = editsEnabled,
+        onClick = { onEvent(EditorEvent.CopyTillHere(timelinePositionMs)) },
+    )
+    StudioDockTile(
+        icon = StudioToolIconKind.COPY_TO,
+        label = stringResource(R.string.editor_tool_copy_to_here),
+        enabled = editsEnabled,
+        onClick = { onEvent(EditorEvent.CopyToHere(timelinePositionMs)) },
     )
     StudioDockTile(
         icon = StudioToolIconKind.DELETE,

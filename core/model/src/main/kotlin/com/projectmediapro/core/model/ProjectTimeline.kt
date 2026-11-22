@@ -602,6 +602,209 @@ object ProjectTimeline {
         }
     }
 
+    fun replaceClipMedia(
+        project: Project,
+        clipId: String,
+        newMediaUri: String,
+        newDurationMs: Long,
+    ): Project {
+        if (newMediaUri.isBlank() || newDurationMs <= 0L) return project
+        return modifyClipTrack(
+            project = project,
+            clipId = clipId,
+            trackFilter = { it == TrackType.VIDEO || it == TrackType.AUDIO },
+        ) { clips, clipIndex ->
+            val clip = clips[clipIndex]
+            val oldStartMs = effectiveTrimStartMs(clip)
+            val oldEndMs = effectiveTrimEndMs(clip)
+            val (nextTrimStart, nextTrimEnd) = if (
+                oldStartMs + MIN_CLIP_DURATION_MS <= newDurationMs &&
+                oldEndMs > oldStartMs
+            ) {
+                oldStartMs to oldEndMs.coerceAtMost(newDurationMs).coerceAtLeast(oldStartMs + MIN_CLIP_DURATION_MS)
+            } else {
+                0L to newDurationMs
+            }
+            val nextSourceSpan = (nextTrimEnd - nextTrimStart).coerceAtLeast(1L)
+            val nextTimelineDuration = scaledDurationMs(nextSourceSpan, clip.playbackSpeed)
+            val nextEffects = clip.visualEffects?.sanitized(nextTimelineDuration)?.takeUnless { it.isIdentity }
+            val replaced = clip.copy(
+                mediaUri = newMediaUri,
+                durationMs = nextTimelineDuration,
+                trimStartMs = nextTrimStart,
+                trimEndMs = nextTrimEnd,
+                sourceDurationMs = newDurationMs,
+                visualEffects = nextEffects,
+                isStillImage = false,
+            )
+            clips.toMutableList().apply { set(clipIndex, replaced) }
+        }
+    }
+
+    fun copyClipFromPlayhead(
+        project: Project,
+        clipId: String,
+        playheadMs: Long,
+        newClipId: String,
+    ): Project {
+        if (newClipId.isBlank() || newClipId == clipId) return project
+        if (project.tracks.any { track -> track.clips.any { it.id == newClipId } }) return project
+        return modifyClipTrack(project, clipId) { clips, clipIndex ->
+            val clip = clips[clipIndex]
+            val copied = buildPlayheadSliceCopy(
+                project = project,
+                clip = clip,
+                playheadMs = playheadMs,
+                newClipId = newClipId,
+                fromPlayhead = true,
+            )
+            buildList(clips.size + 1) {
+                clips.forEachIndexed { index, existing ->
+                    add(existing)
+                    if (index == clipIndex) add(copied)
+                }
+            }
+        }
+    }
+
+    fun copyClipTillPlayhead(
+        project: Project,
+        clipId: String,
+        playheadMs: Long,
+        newClipId: String,
+    ): Project {
+        if (newClipId.isBlank() || newClipId == clipId) return project
+        if (project.tracks.any { track -> track.clips.any { it.id == newClipId } }) return project
+        return modifyClipTrack(project, clipId) { clips, clipIndex ->
+            val clip = clips[clipIndex]
+            val copied = buildPlayheadSliceCopy(
+                project = project,
+                clip = clip,
+                playheadMs = playheadMs,
+                newClipId = newClipId,
+                fromPlayhead = false,
+            )
+            buildList(clips.size + 1) {
+                clips.forEachIndexed { index, existing ->
+                    add(existing)
+                    if (index == clipIndex) add(copied)
+                }
+            }
+        }
+    }
+
+    fun copyClipToPlayhead(
+        project: Project,
+        clipId: String,
+        playheadMs: Long,
+        newClipId: String,
+    ): Project {
+        if (newClipId.isBlank() || newClipId == clipId) return project
+        if (project.tracks.any { track -> track.clips.any { it.id == newClipId } }) return project
+        val safePlayheadMs = playheadMs.coerceAtLeast(0L)
+        for (trackIndex in project.tracks.indices) {
+            val track = project.tracks[trackIndex]
+            val clips = track.clips
+            val clipIndex = clips.indexOfFirst { it.id == clipId }
+            if (clipIndex < 0) continue
+            val clip = clips[clipIndex]
+            val updatedClips = if (track.type == TrackType.OVERLAY || track.type == TrackType.TEXT) {
+                val totalVideoMs = videoDurationMs(project)
+                val (clampedStart, clampedDuration) = if (totalVideoMs >= MIN_CLIP_DURATION_MS) {
+                    clampTimedRange(totalVideoMs, safePlayheadMs, clip.durationMs)
+                } else {
+                    safePlayheadMs to clip.durationMs.coerceAtLeast(MIN_CLIP_DURATION_MS)
+                }
+                clips + clip.copy(
+                    id = newClipId,
+                    startTimeMs = clampedStart,
+                    durationMs = clampedDuration,
+                )
+            } else {
+                val targetIndex = clips.indexOfFirst { existing ->
+                    safePlayheadMs < existing.startTimeMs + effectiveDurationMs(existing)
+                }.let { idx -> if (idx < 0) clips.size else (idx + 1).coerceAtMost(clips.size) }
+                clips.toMutableList().apply {
+                    add(targetIndex, clip.copy(id = newClipId))
+                }
+            }
+            return updateTrack(project, trackIndex, normalizeTrackClips(track.type, updatedClips))
+        }
+        return project
+    }
+
+    private fun buildPlayheadSliceCopy(
+        project: Project,
+        clip: Clip,
+        playheadMs: Long,
+        newClipId: String,
+        fromPlayhead: Boolean,
+    ): Clip {
+        val trackType = project.tracks.firstOrNull { t -> t.clips.any { it.id == clip.id } }?.type
+        val safePlayheadMs = playheadMs.coerceAtLeast(0L)
+        if (trackType == TrackType.OVERLAY || trackType == TrackType.TEXT) {
+            val clipEndMs = clip.startTimeMs + clip.durationMs
+            return if (fromPlayhead) {
+                val remainingMs = clipEndMs - safePlayheadMs
+                if (safePlayheadMs > clip.startTimeMs && remainingMs >= MIN_CLIP_DURATION_MS) {
+                    clip.copy(id = newClipId, startTimeMs = safePlayheadMs, durationMs = remainingMs)
+                } else {
+                    clip.copy(id = newClipId)
+                }
+            } else {
+                val leadingMs = safePlayheadMs - clip.startTimeMs
+                if (safePlayheadMs < clipEndMs && leadingMs >= MIN_CLIP_DURATION_MS) {
+                    clip.copy(id = newClipId, startTimeMs = clip.startTimeMs, durationMs = leadingMs)
+                } else {
+                    clip.copy(id = newClipId)
+                }
+            }
+        }
+
+        if (clip.isStillImage) return clip.copy(id = newClipId)
+        val speed = effectiveSpeed(clip)
+        val sourceDurationMs = effectiveSourceDurationMs(clip)
+        val currentStartMs = effectiveTrimStartMs(clip)
+        val currentEndMs = effectiveTrimEndMs(clip)
+        val clipTimelineDurationMs = effectiveDurationMs(clip)
+        val offsetInClipMs = safePlayheadMs - clip.startTimeMs
+        if (offsetInClipMs <= 0L || offsetInClipMs >= clipTimelineDurationMs) {
+            return clip.copy(id = newClipId)
+        }
+        val sourceOffsetMs = (offsetInClipMs * speed).roundToLong()
+        val cutSourceMs = (currentStartMs + sourceOffsetMs).coerceIn(currentStartMs, currentEndMs)
+        val (nextStartMs, nextEndMs) = if (fromPlayhead) {
+            cutSourceMs to currentEndMs
+        } else {
+            currentStartMs to cutSourceMs
+        }
+        val nextSpanMs = nextEndMs - nextStartMs
+        if (nextSpanMs < MIN_CLIP_DURATION_MS) return clip.copy(id = newClipId)
+        val nextDurationMs = scaledDurationMs(nextSpanMs, speed)
+        return clip.copy(
+            id = newClipId,
+            durationMs = nextDurationMs,
+            trimStartMs = nextStartMs,
+            trimEndMs = nextEndMs,
+            sourceDurationMs = sourceDurationMs,
+            visualEffects = clip.visualEffects?.sanitized(nextDurationMs)?.takeUnless { it.isIdentity },
+        )
+    }
+
+    fun formatPreciseDuration(ms: Long): String {
+        if (ms <= 0L) return "0:00.0"
+        val tenths = (ms % 1_000L) / 100L
+        val totalSeconds = ms / 1_000L
+        val seconds = totalSeconds % 60L
+        val minutes = (totalSeconds / 60L) % 60L
+        val hours = totalSeconds / 3_600L
+        return if (hours > 0L) {
+            String.format(Locale.US, "%d:%02d:%02d.%d", hours, minutes, seconds, tenths)
+        } else {
+            String.format(Locale.US, "%d:%02d.%d", minutes, seconds, tenths)
+        }
+    }
+
     fun formatDuration(ms: Long): String {
         if (ms <= 0L) return "0:00"
         val totalSeconds = ms / 1_000L
