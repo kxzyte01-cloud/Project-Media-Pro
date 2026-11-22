@@ -466,13 +466,11 @@ object ProjectTimeline {
         speed: Float,
     ): Project {
         val safeSpeed = sanitizeSpeed(speed)
-        for (trackIndex in project.tracks.indices) {
-            val track = project.tracks[trackIndex]
-            if (track.type != TrackType.VIDEO && track.type != TrackType.AUDIO) continue
-            val clips = track.clips
-            val clipIndex = clips.indexOfFirst { it.id == clipId }
-            if (clipIndex < 0) continue
-
+        return modifyClipTrack(
+            project = project,
+            clipId = clipId,
+            trackFilter = { it == TrackType.VIDEO || it == TrackType.AUDIO },
+        ) { clips, clipIndex ->
             val clip = clips[clipIndex]
             val sourceDurationMs = effectiveSourceDurationMs(clip)
             val sourceSpanMs = effectiveSourceSpanMs(clip)
@@ -485,7 +483,7 @@ object ProjectTimeline {
                 clip.durationMs == newDurationMs &&
                 clip.visualEffects == updatedEffects
             ) {
-                return project
+                return@modifyClipTrack null
             }
 
             val updatedClip = clip.copy(
@@ -496,10 +494,8 @@ object ProjectTimeline {
                 sourceDurationMs = sourceDurationMs,
                 visualEffects = updatedEffects,
             )
-            val updatedClips = clips.toMutableList().apply { set(clipIndex, updatedClip) }
-            return updateTrack(project, trackIndex, normalizeTrackClips(track.type, updatedClips))
+            clips.toMutableList().apply { set(clipIndex, updatedClip) }
         }
-        return project
     }
 
     fun setClipTransform(
@@ -674,9 +670,9 @@ object ProjectTimeline {
         defaultCenterY: Float,
         defaultWidthFraction: Float,
     ): Triple<Float, Float, Float> {
-        val clampedX = if (centerX.isNaN()) defaultCenterX else centerX.coerceIn(0f, 1f)
-        val clampedY = if (centerY.isNaN()) defaultCenterY else centerY.coerceIn(0f, 1f)
-        val clampedWidth = if (widthFraction.isNaN()) {
+        val clampedX = if (centerX.isNaN() || centerX.isInfinite()) defaultCenterX else centerX.coerceIn(0f, 1f)
+        val clampedY = if (centerY.isNaN() || centerY.isInfinite()) defaultCenterY else centerY.coerceIn(0f, 1f)
+        val clampedWidth = if (widthFraction.isNaN() || widthFraction.isInfinite()) {
             defaultWidthFraction
         } else {
             widthFraction.coerceIn(Clip.MIN_OVERLAY_WIDTH_FRACTION, Clip.MAX_OVERLAY_WIDTH_FRACTION)
@@ -700,11 +696,13 @@ object ProjectTimeline {
         project: Project,
         clipId: String,
         requiredTrackType: TrackType? = null,
+        trackFilter: (TrackType) -> Boolean = { true },
         transform: (clips: List<Clip>, clipIndex: Int) -> List<Clip>?,
     ): Project {
         for (trackIndex in project.tracks.indices) {
             val track = project.tracks[trackIndex]
             if (requiredTrackType != null && track.type != requiredTrackType) continue
+            if (!trackFilter(track.type)) continue
             val clips = track.clips
             val clipIndex = clips.indexOfFirst { it.id == clipId }
             if (clipIndex >= 0) {

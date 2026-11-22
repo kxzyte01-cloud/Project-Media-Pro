@@ -1,6 +1,7 @@
 package com.projectmediapro.app.editor
 
 import com.projectmediapro.core.model.CanvasAspect
+import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.CanvasBackground
 import com.projectmediapro.core.model.ClipCrop
 import com.projectmediapro.core.model.ClipVisualEffects
@@ -60,6 +61,7 @@ data class AudioPreviewState(
     val trimStartMs: Long = 0L,
     val trimEndMs: Long = 0L,
     val volume: Float = 1.0f,
+    val playbackSpeed: Float = Clip.DEFAULT_PLAYBACK_SPEED,
 )
 
 sealed interface EditorUiState {

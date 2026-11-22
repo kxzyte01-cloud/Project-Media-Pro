@@ -1,18 +1,12 @@
 package com.projectmediapro.feature.captions
 
+import com.projectmediapro.app.data.AtomicFileStore
 import java.io.File
-import java.io.FileOutputStream
 import java.io.IOException
-import java.nio.file.AtomicMoveNotSupportedException
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
-import java.util.UUID
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 
@@ -61,8 +55,14 @@ class FileCaptionRepository(
         }
         runOnIo {
             mutex.withLock {
-                ensureDirectory()
-                writeAtomically(document)
+                AtomicFileStore.ensureDirectory(directory, "captions")
+                AtomicFileStore.writeUtf8Atomically(
+                    directory = directory,
+                    targetFile = captionFile(document.projectId),
+                    tempPrefix = "$FILE_SUFFIX.${document.projectId}",
+                    content = json.encodeToString(CaptionDocument.serializer(), document),
+                    failureMessage = "Failed to write captions atomically",
+                )
             }
         }
     }
@@ -79,60 +79,11 @@ class FileCaptionRepository(
         }
     }
 
-    private suspend fun <T> runOnIo(block: suspend () -> T): T = withContext(ioDispatcher) {
-        try {
-            block()
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (denied: SecurityException) {
-            throw IOException("Caption storage access denied", denied)
-        }
-    }
-
-    private fun ensureDirectory() {
-        if (!directory.exists() && !directory.mkdirs()) {
-            throw IOException("Could not create captions directory: ${directory.absolutePath}")
-        }
-        if (!directory.isDirectory) {
-            throw IOException("Captions path is not a directory: ${directory.absolutePath}")
-        }
-    }
-
-    private fun writeAtomically(document: CaptionDocument) {
-        val targetFile = captionFile(document.projectId)
-        val tempFile = File(directory, "$FILE_SUFFIX.${document.projectId}.${UUID.randomUUID()}.tmp")
-        try {
-            val bytes = json.encodeToString(CaptionDocument.serializer(), document).toByteArray(Charsets.UTF_8)
-            FileOutputStream(tempFile).use { output ->
-                output.write(bytes)
-                output.flush()
-                output.fd.sync()
-            }
-            // Some Android FUSE/scoped filesystems reject ATOMIC_MOVE; fall back after fsync.
-            try {
-                Files.move(
-                    tempFile.toPath(),
-                    targetFile.toPath(),
-                    StandardCopyOption.ATOMIC_MOVE,
-                    StandardCopyOption.REPLACE_EXISTING,
-                )
-            } catch (_: AtomicMoveNotSupportedException) {
-                Files.move(
-                    tempFile.toPath(),
-                    targetFile.toPath(),
-                    StandardCopyOption.REPLACE_EXISTING,
-                )
-            }
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failure: Exception) {
-            throw IOException("Failed to write captions atomically", failure)
-        } finally {
-            runCatching {
-                if (tempFile.exists()) tempFile.delete()
-            }
-        }
-    }
+    private suspend fun <T> runOnIo(block: suspend () -> T): T = AtomicFileStore.runOnIo(
+        ioDispatcher = ioDispatcher,
+        accessDeniedMessage = "Caption storage access denied",
+        block = block,
+    )
 
     private fun captionFile(projectId: String): File = File(directory, "$projectId$FILE_SUFFIX")
 

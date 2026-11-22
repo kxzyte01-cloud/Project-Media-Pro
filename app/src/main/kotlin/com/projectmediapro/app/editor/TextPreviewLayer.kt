@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
@@ -80,18 +81,19 @@ internal fun TextPreviewLayer(
         val renderHeightPx = (canvasHeightPx * renderScale).roundToInt().coerceAtLeast(1)
 
         visibleTexts.forEach { clip ->
-            val style = clip.textStyle ?: TextOverlayStyle()
-            val widthFraction = clip.overlayWidthFraction.coerceIn(
-                Clip.MIN_OVERLAY_WIDTH_FRACTION,
-                Clip.MAX_OVERLAY_WIDTH_FRACTION,
-            )
-            val loaded = rememberRenderedTextBitmap(
-                text = clip.textContent,
-                style = style,
-                canvasWidthPx = renderWidthPx,
-                canvasHeightPx = renderHeightPx,
-                maxWidthFraction = widthFraction,
-            ) ?: return@forEach
+            key(clip.id) {
+                val style = clip.textStyle ?: TextOverlayStyle()
+                val widthFraction = clip.overlayWidthFraction.coerceIn(
+                    Clip.MIN_OVERLAY_WIDTH_FRACTION,
+                    Clip.MAX_OVERLAY_WIDTH_FRACTION,
+                )
+                val loaded = rememberRenderedTextBitmap(
+                    text = clip.textContent,
+                    style = style,
+                    canvasWidthPx = renderWidthPx,
+                    canvasHeightPx = renderHeightPx,
+                    maxWidthFraction = widthFraction,
+                ) ?: return@key
 
             val displayWidthPx = loaded.width / renderScale
             val displayHeightPx = loaded.height / renderScale
@@ -108,7 +110,8 @@ internal fun TextPreviewLayer(
                 modifier = Modifier
                     .offset { IntOffset(leftPx.roundToInt(), topPx.roundToInt()) }
                     .size(width = widthDp, height = heightDp),
-            )
+                )
+            }
         }
     }
 }

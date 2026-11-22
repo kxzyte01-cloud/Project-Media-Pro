@@ -1,22 +1,19 @@
 package com.projectmediapro.app.data.project
 
+import com.projectmediapro.app.data.AtomicFileStore
 import com.projectmediapro.app.data.media.ProjectMediaStorage
 import com.projectmediapro.core.model.Project
 import com.projectmediapro.core.model.ProjectSerializer
 import com.projectmediapro.core.model.Track
 import com.projectmediapro.core.model.TrackType
 import java.io.File
-import java.io.FileOutputStream
 import java.io.IOException
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
 
 /**
@@ -28,13 +25,14 @@ class FileProjectRepository(
     private val idProvider: () -> String = { UUID.randomUUID().toString() },
     private val clock: () -> Long = System::currentTimeMillis,
     private val mediaStorage: ProjectMediaStorage? = null,
+    private val onProjectDeleted: (suspend (String) -> Unit)? = null,
 ) : ProjectRepository {
 
     private val mutex = Mutex()
 
     override suspend fun listProjects(): List<Project> = runOnIo {
         mutex.withLock {
-            ensureDirectory()
+            AtomicFileStore.ensureDirectory(directory, "projects")
             val files = directory.listFiles()
                 ?: throw IOException("Could not list project directory: ${directory.absolutePath}")
             val projects = mutableListOf<Project>()
@@ -62,7 +60,7 @@ class FileProjectRepository(
         return runOnIo {
             mutex.withLock {
                 if (!directory.exists()) return@withLock null
-                ensureDirectory()
+                AtomicFileStore.ensureDirectory(directory, "projects")
 
                 val file = projectFile(id)
                 if (!file.isFile) return@withLock null
@@ -78,7 +76,7 @@ class FileProjectRepository(
 
     override suspend fun createProject(title: String): Project = runOnIo {
         mutex.withLock {
-            ensureDirectory()
+            AtomicFileStore.ensureDirectory(directory, "projects")
 
             val projectId = idProvider()
             val trackId = idProvider()
@@ -120,7 +118,7 @@ class FileProjectRepository(
 
         runOnIo {
             mutex.withLock {
-                ensureDirectory()
+                AtomicFileStore.ensureDirectory(directory, "projects")
                 val updated = project.copy(
                     title = normalizeTitle(project.title),
                     updatedAt = clock(),
@@ -137,7 +135,7 @@ class FileProjectRepository(
 
         runOnIo {
             mutex.withLock {
-                ensureDirectory()
+                AtomicFileStore.ensureDirectory(directory, "projects")
                 val target = projectFile(id)
                 if (target.exists() && !target.delete()) {
                     throw IOException("Could not delete project file: ${target.name}")
@@ -145,33 +143,20 @@ class FileProjectRepository(
             }
             try {
                 mediaStorage?.deleteProjectMedia(id)
+                onProjectDeleted?.invoke(id)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                // Best-effort cleanup: media deletion failure must not make deleteProject fail.
+                // Best-effort cleanup: media/caption deletion failure must not fail deleteProject.
             }
         }
     }
 
-    /** Run filesystem work on the configured dispatcher and normalize permission failures. */
-    private suspend fun <T> runOnIo(block: suspend () -> T): T = withContext(ioDispatcher) {
-        try {
-            block()
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (denied: SecurityException) {
-            throw IOException("Access to project storage was denied.", denied)
-        }
-    }
-
-    private fun ensureDirectory() {
-        if (!directory.exists() && !directory.mkdirs()) {
-            throw IOException("Could not create projects directory: ${directory.absolutePath}")
-        }
-        if (!directory.isDirectory) {
-            throw IOException("Projects path is not a directory: ${directory.absolutePath}")
-        }
-    }
+    private suspend fun <T> runOnIo(block: suspend () -> T): T = AtomicFileStore.runOnIo(
+        ioDispatcher = ioDispatcher,
+        accessDeniedMessage = "Access to project storage was denied.",
+        block = block,
+    )
 
     private fun projectFile(id: String): File = File(directory, "$id$FILE_SUFFIX")
 
@@ -189,33 +174,13 @@ class FileProjectRepository(
     }
 
     private fun writeProjectAtomically(project: Project) {
-        val targetFile = projectFile(project.id)
-        val tempFile = File(directory, "$FILE_SUFFIX.${project.id}.${UUID.randomUUID()}.tmp")
-
-        try {
-            val bytes = ProjectSerializer.serialize(project).toByteArray(Charsets.UTF_8)
-            FileOutputStream(tempFile).use { output ->
-                output.write(bytes)
-                output.flush()
-                output.fd.sync()
-            }
-            Files.move(
-                tempFile.toPath(),
-                targetFile.toPath(),
-                StandardCopyOption.ATOMIC_MOVE,
-                StandardCopyOption.REPLACE_EXISTING,
-            )
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failure: Exception) {
-            throw IOException("Failed to write project atomically", failure)
-        } finally {
-            try {
-                tempFile.delete()
-            } catch (_: SecurityException) {
-                // Do not mask the original save result or failure with a cleanup failure.
-            }
-        }
+        AtomicFileStore.writeUtf8Atomically(
+            directory = directory,
+            targetFile = projectFile(project.id),
+            tempPrefix = "$FILE_SUFFIX.${project.id}",
+            content = ProjectSerializer.serialize(project),
+            failureMessage = "Failed to write project atomically",
+        )
     }
 
     companion object {

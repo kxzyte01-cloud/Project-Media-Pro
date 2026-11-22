@@ -15,8 +15,10 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import com.projectmediapro.core.model.ProjectTimeline
 import java.io.File
 
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
 fun AudioPreviewPlayer(
     audioPreview: AudioPreviewState?,
@@ -92,7 +94,8 @@ fun AudioPreviewPlayer(
         } else {
             MediaItem.fromUri(uri)
         }
-        player.volume = audioPreview.volume.coerceIn(0f, 1f)
+        player.volume = ProjectTimeline.sanitizeVolume(audioPreview.volume)
+        player.setPlaybackSpeed(ProjectTimeline.sanitizeSpeed(audioPreview.playbackSpeed))
         player.setMediaItem(mediaItem)
         player.prepare()
         player.playWhenReady = true

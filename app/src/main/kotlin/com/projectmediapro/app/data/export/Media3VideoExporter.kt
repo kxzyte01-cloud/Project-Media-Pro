@@ -38,6 +38,7 @@ import java.io.File
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -331,6 +332,7 @@ class Media3VideoExporter(
                     built.start(composition, outputFile.absolutePath)
                     mainHandler.postDelayed(poller, POLL_INTERVAL_MS)
                 } catch (failure: Exception) {
+                    if (failure is CancellationException) throw failure
                     mainHandler.removeCallbacks(poller)
                     outputFile.delete()
                     if (continuation.isActive) {

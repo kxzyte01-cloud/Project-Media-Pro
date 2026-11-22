@@ -8,13 +8,13 @@ import com.projectmediapro.app.data.export.Media3VideoExporter
 import com.projectmediapro.app.data.export.VideoExporter
 import com.projectmediapro.app.data.export.usableBytesNear
 import com.projectmediapro.app.data.media.AndroidAudioImporter
+import com.projectmediapro.app.data.media.AndroidFreezeFrameExtractor
 import com.projectmediapro.app.data.media.AndroidOverlayImporter
 import com.projectmediapro.app.data.media.AndroidVideoImporter
 import com.projectmediapro.app.data.media.AudioImporter
+import com.projectmediapro.app.data.media.FreezeFrameExtractor
 import com.projectmediapro.app.data.media.OverlayImporter
 import com.projectmediapro.app.data.media.ProjectMediaStorage
-import com.projectmediapro.app.data.media.AndroidFreezeFrameExtractor
-import com.projectmediapro.app.data.media.FreezeFrameExtractor
 import com.projectmediapro.app.data.media.VideoImporter
 import com.projectmediapro.app.data.project.FileProjectRepository
 import com.projectmediapro.app.data.project.ProjectRepository
@@ -51,9 +51,13 @@ class AppContainer(appContext: Context) {
         context = appContext,
         storage = mediaStorage,
     )
+    val captionRepository: CaptionRepository = FileCaptionRepository(
+        directory = File(appContext.filesDir, "captions"),
+    )
     val projectRepository: ProjectRepository = FileProjectRepository(
         directory = File(appContext.filesDir, "projects"),
         mediaStorage = mediaStorage,
+        onProjectDeleted = { projectId -> captionRepository.deleteCaptions(projectId) },
     )
     val templateMediaStorage: ProjectMediaStorage = ProjectMediaStorage(
         rootDirectory = File(appContext.filesDir, "template_media"),
@@ -87,9 +91,6 @@ class AppContainer(appContext: Context) {
     val exportSaver: ExportSaver = AndroidExportSaver(context = appContext)
     val exportTempDirectory: File = File(appContext.cacheDir, "exports")
     val cacheSpaceProvider: () -> Long = { usableBytesNear(exportTempDirectory) }
-    val captionRepository: CaptionRepository = FileCaptionRepository(
-        directory = File(appContext.filesDir, "captions"),
-    )
     val pcmAudioExtractor: PcmAudioExtractor = MediaCodecPcmAudioExtractor()
     val transcriptionEngine: TranscriptionEngine = OfflineHeuristicTranscriptionEngine()
     val appVersionName: String = BuildConfig.VERSION_NAME

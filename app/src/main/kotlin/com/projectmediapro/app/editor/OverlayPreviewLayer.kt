@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
@@ -37,13 +38,14 @@ internal fun OverlayPreviewLayer(
         val canvasWidthDp = maxWidth
 
         visibleOverlays.forEach { clip ->
-            val path = overlayFilePaths[clip.id] ?: return@forEach
-            val bitmap by produceState<ImageBitmap?>(initialValue = null, key1 = path) {
-                value = withContext(Dispatchers.IO) {
-                    decodePreviewImageBitmap(path)
+            key(clip.id) {
+                val path = overlayFilePaths[clip.id] ?: return@key
+                val bitmap by produceState<ImageBitmap?>(initialValue = null, key1 = path) {
+                    value = withContext(Dispatchers.IO) {
+                        decodePreviewImageBitmap(path)
+                    }
                 }
-            }
-            val loaded = bitmap ?: return@forEach
+                val loaded = bitmap ?: return@key
             val widthFraction = clip.overlayWidthFraction.coerceIn(
                 Clip.MIN_OVERLAY_WIDTH_FRACTION,
                 Clip.MAX_OVERLAY_WIDTH_FRACTION,
@@ -65,7 +67,8 @@ internal fun OverlayPreviewLayer(
                 modifier = Modifier
                     .offset { IntOffset(leftPx.roundToInt(), topPx.roundToInt()) }
                     .width(canvasWidthDp * widthFraction),
-            )
+                )
+            }
         }
     }
 }

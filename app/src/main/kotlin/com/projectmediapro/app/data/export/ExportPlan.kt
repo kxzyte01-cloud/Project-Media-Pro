@@ -297,9 +297,9 @@ object ExportPlanner {
         defaultY: Float,
         defaultWidth: Float,
     ): Triple<Float, Float, Float> {
-        val centerX = if (clip.overlayCenterX.isNaN()) defaultX else clip.overlayCenterX.coerceIn(0f, 1f)
-        val centerY = if (clip.overlayCenterY.isNaN()) defaultY else clip.overlayCenterY.coerceIn(0f, 1f)
-        val widthFraction = if (clip.overlayWidthFraction.isNaN()) {
+        val centerX = if (clip.overlayCenterX.isNaN() || clip.overlayCenterX.isInfinite()) defaultX else clip.overlayCenterX.coerceIn(0f, 1f)
+        val centerY = if (clip.overlayCenterY.isNaN() || clip.overlayCenterY.isInfinite()) defaultY else clip.overlayCenterY.coerceIn(0f, 1f)
+        val widthFraction = if (clip.overlayWidthFraction.isNaN() || clip.overlayWidthFraction.isInfinite()) {
             defaultWidth
         } else {
             clip.overlayWidthFraction.coerceIn(

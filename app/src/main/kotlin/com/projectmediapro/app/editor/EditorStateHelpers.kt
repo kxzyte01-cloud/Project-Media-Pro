@@ -143,6 +143,7 @@ internal fun resolveAudioPreview(
         trimStartMs = trimStartMs,
         trimEndMs = trimEndMs,
         volume = ProjectTimeline.sanitizeVolume(clip.volume),
+        playbackSpeed = ProjectTimeline.effectiveSpeed(clip),
     )
 }
 

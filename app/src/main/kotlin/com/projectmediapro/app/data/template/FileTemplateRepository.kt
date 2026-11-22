@@ -1,22 +1,19 @@
 package com.projectmediapro.app.data.template
 
+import com.projectmediapro.app.data.AtomicFileStore
 import com.projectmediapro.app.data.media.ProjectMediaStorage
 import com.projectmediapro.app.data.project.FileProjectRepository
 import com.projectmediapro.core.model.Template
 import com.projectmediapro.core.model.TemplateBuilder
 import com.projectmediapro.core.model.TemplateSerializer
 import java.io.File
-import java.io.FileOutputStream
 import java.io.IOException
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
 
 /**
@@ -34,7 +31,7 @@ class FileTemplateRepository(
 
     override suspend fun listTemplates(): List<Template> = runOnIo {
         mutex.withLock {
-            ensureDirectory()
+            AtomicFileStore.ensureDirectory(directory, "templates")
             val files = directory.listFiles()
                 ?: throw IOException("Could not list template directory: ${directory.absolutePath}")
             val templates = mutableListOf<Template>()
@@ -62,7 +59,7 @@ class FileTemplateRepository(
         return runOnIo {
             mutex.withLock {
                 if (!directory.exists()) return@withLock null
-                ensureDirectory()
+                AtomicFileStore.ensureDirectory(directory, "templates")
 
                 val file = templateFile(id)
                 if (!file.isFile) return@withLock null
@@ -78,7 +75,7 @@ class FileTemplateRepository(
 
     override suspend fun createTemplate(name: String): Template = runOnIo {
         mutex.withLock {
-            ensureDirectory()
+            AtomicFileStore.ensureDirectory(directory, "templates")
 
             val templateId = idProvider()
             val introId = idProvider()
@@ -119,7 +116,7 @@ class FileTemplateRepository(
 
         runOnIo {
             mutex.withLock {
-                ensureDirectory()
+                AtomicFileStore.ensureDirectory(directory, "templates")
                 val updated = template.copy(
                     name = normalizeName(template.name),
                     updatedAt = clock(),
@@ -136,7 +133,7 @@ class FileTemplateRepository(
 
         runOnIo {
             mutex.withLock {
-                ensureDirectory()
+                AtomicFileStore.ensureDirectory(directory, "templates")
                 val target = templateFile(id)
                 if (target.exists() && !target.delete()) {
                     throw IOException("Could not delete template file: ${target.name}")
@@ -152,24 +149,11 @@ class FileTemplateRepository(
         }
     }
 
-    private suspend fun <T> runOnIo(block: suspend () -> T): T = withContext(ioDispatcher) {
-        try {
-            block()
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (denied: SecurityException) {
-            throw IOException("Access to template storage was denied.", denied)
-        }
-    }
-
-    private fun ensureDirectory() {
-        if (!directory.exists() && !directory.mkdirs()) {
-            throw IOException("Could not create templates directory: ${directory.absolutePath}")
-        }
-        if (!directory.isDirectory) {
-            throw IOException("Templates path is not a directory: ${directory.absolutePath}")
-        }
-    }
+    private suspend fun <T> runOnIo(block: suspend () -> T): T = AtomicFileStore.runOnIo(
+        ioDispatcher = ioDispatcher,
+        accessDeniedMessage = "Access to template storage was denied.",
+        block = block,
+    )
 
     private fun templateFile(id: String): File = File(directory, "$id$FILE_SUFFIX")
 
@@ -186,33 +170,13 @@ class FileTemplateRepository(
     }
 
     private fun writeTemplateAtomically(template: Template) {
-        val targetFile = templateFile(template.id)
-        val tempFile = File(directory, "$FILE_SUFFIX.${template.id}.${UUID.randomUUID()}.tmp")
-
-        try {
-            val bytes = TemplateSerializer.serialize(template).toByteArray(Charsets.UTF_8)
-            FileOutputStream(tempFile).use { output ->
-                output.write(bytes)
-                output.flush()
-                output.fd.sync()
-            }
-            Files.move(
-                tempFile.toPath(),
-                targetFile.toPath(),
-                StandardCopyOption.ATOMIC_MOVE,
-                StandardCopyOption.REPLACE_EXISTING,
-            )
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failure: Exception) {
-            throw IOException("Failed to write template atomically", failure)
-        } finally {
-            try {
-                tempFile.delete()
-            } catch (_: SecurityException) {
-                // Preserve original save result or failure.
-            }
-        }
+        AtomicFileStore.writeUtf8Atomically(
+            directory = directory,
+            targetFile = templateFile(template.id),
+            tempPrefix = "$FILE_SUFFIX.${template.id}",
+            content = TemplateSerializer.serialize(template),
+            failureMessage = "Failed to write template atomically",
+        )
     }
 
     companion object {
