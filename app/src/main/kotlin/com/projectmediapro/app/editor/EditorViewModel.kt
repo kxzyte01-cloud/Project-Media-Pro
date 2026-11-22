@@ -1495,11 +1495,12 @@ class EditorViewModel(
         beatJob = viewModelScope.launch {
             val detectedMs = try {
                 val assembled = TimelineAudioAssembler.assemble(
-                    project = projectSnapshot,
-                    mediaStorage = mediaStorage,
+                    videoClips = projectSnapshot.videoClips(),
+                    audioClips = projectSnapshot.audioClips(),
                     extractor = extractor,
+                    resolveFile = mediaStorage::resolve,
                 )
-                OfflineBeatDetector.detectBeatsMs(assembled.audio)
+                OfflineBeatDetector.detectBeatsMs(assembled.pcm)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
