@@ -62,8 +62,11 @@ interface PcmAudioExtractor {
     ): PcmAudioData
 
     companion object {
-        // 20 minutes at 16 kHz mono 16-bit PCM caps heap usage at ~38 MB.
+        // Hard 20-minute ceiling at 16 kHz mono 16-bit PCM caps each extracted buffer at ~38.4 MB.
         const val DEFAULT_MAX_DURATION_US = 20L * 60L * CaptionTime.MICROS_PER_SEC
+
+        fun clampMaxDurationUs(requestedUs: Long): Long =
+            requestedUs.coerceIn(CaptionTime.MICROS_PER_SEC, DEFAULT_MAX_DURATION_US)
     }
 }
 
@@ -122,7 +125,7 @@ internal class ContinuousMono16kResampler(
         hasPrevSample = true
     }
 
-    fun finish(): ShortArray = output.copyOf(size)
+    fun finish(): ShortArray = if (size == output.size) output else output.copyOf(size)
 
     private fun floatToShort(sample: Float): Short {
         val scaled = (sample.coerceIn(-1f, 1f) * 32767f).roundToInt()
@@ -159,7 +162,7 @@ class MediaCodecPcmAudioExtractor(
         }
 
         val safeTrimStartUs = trimStartUs.coerceAtLeast(0L)
-        val safeMaxDurationUs = maxDurationUs.coerceAtLeast(CaptionTime.MICROS_PER_SEC)
+        val safeMaxDurationUs = PcmAudioExtractor.clampMaxDurationUs(maxDurationUs)
         val maxSamples = ((safeMaxDurationUs / CaptionTime.MICROS_PER_SEC.toDouble()) *
             PcmAudioData.TARGET_SAMPLE_RATE_HZ)
             .toInt()

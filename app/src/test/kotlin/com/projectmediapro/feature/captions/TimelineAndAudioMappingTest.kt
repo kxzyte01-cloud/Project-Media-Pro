@@ -132,4 +132,42 @@ class TimelineAndAudioMappingTest {
         repo.deleteCaptions("proj_underscore_1")
         assertEquals(null, repo.loadCaptions("proj_underscore_1"))
     }
+
+    @Test
+    fun scriptAlignment_spansQuietVerseAndLoudChorusWithoutCramming() = runTest {
+        val sampleRate = 16_000
+        val totalSeconds = 10
+        val samples = ShortArray(sampleRate * totalSeconds) { idx ->
+            val sec = idx / sampleRate
+            // 0..8s quiet verse (amplitude 5_000), 8..10s loud chorus (amplitude 28_000)
+            val amp = if (sec < 8) 5_000.0 else 28_000.0
+            (sin(2.0 * PI * 440.0 * idx / sampleRate) * amp).toInt().toShort()
+        }
+        val pcm = PcmAudioData(
+            samples = samples,
+            sampleRateHz = sampleRate,
+            channelCount = 1,
+            durationUs = totalSeconds * 1_000_000L,
+        )
+        val lyrics = """
+            First line in the quiet verse
+            Second line keeps moving slow
+
+            Chorus hits right at the end
+        """.trimIndent()
+
+        val engine = OfflineHeuristicTranscriptionEngine()
+        val result = engine.transcribe(
+            TranscriptionRequest(
+                pcmAudio = pcm,
+                clipId = "song-1",
+                providedScript = lyrics,
+            ),
+        )
+
+        assertTrue(result.words.size >= 15)
+        // Must start in the quiet verse (not wait until the 8s chorus) and span most of the 10s track.
+        assertTrue(result.words.first().startUs < 1_000_000L)
+        assertTrue(result.words.last().endUs > 8_500_000L)
+    }
 }

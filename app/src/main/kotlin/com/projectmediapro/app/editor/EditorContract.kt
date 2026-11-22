@@ -71,6 +71,7 @@ sealed interface EditorUiState {
         val previewClips: List<PreviewClip> = emptyList(),
         val previewAudioClips: List<PreviewClip> = emptyList(),
         val overlayFilePaths: Map<String, String> = emptyMap(),
+        val clipFilePaths: Map<String, String> = emptyMap(),
         val selectedClipId: String? = null,
         val canUndo: Boolean = false,
         val canRedo: Boolean = false,

@@ -242,6 +242,7 @@ private fun LoadedEditorContent(
     }
     var seekRequest by remember(state.project.id) { mutableStateOf<PreviewSeekRequest?>(null) }
     var seekRequestCounter by remember(state.project.id) { mutableLongStateOf(0L) }
+    var timelinePositionMs by remember(state.project.id) { mutableLongStateOf(0L) }
     val clips = state.project.videoClips()
     val audioClips = state.project.audioClips()
     val overlayClips = state.project.overlayClips()
@@ -269,7 +270,6 @@ private fun LoadedEditorContent(
     ) {
         Spacer(modifier = Modifier.height(MediaProSpacing.Medium))
         EditorPreviewStage(
-            projectId = state.project.id,
             videoClips = clips,
             previewClips = state.previewClips,
             previewAudioClips = state.previewAudioClips,
@@ -277,6 +277,8 @@ private fun LoadedEditorContent(
             overlayFilePaths = state.overlayFilePaths,
             textClips = textClips,
             captionDocument = state.captionDocument,
+            timelinePositionMs = timelinePositionMs,
+            onTimelinePositionChanged = { timelinePositionMs = it },
             seekRequest = seekRequest,
             previewAspectRatio = previewAspectRatio,
             previewBackground = previewBackground,
@@ -291,11 +293,24 @@ private fun LoadedEditorContent(
                 audioClips = audioClips,
                 overlayClips = overlayClips,
                 textClips = textClips,
+                clipFilePaths = state.clipFilePaths,
+                timelinePositionMs = timelinePositionMs,
+                totalDurationMs = state.project.durationMs,
                 selectedClipId = state.selectedClipId,
                 canUndo = state.canUndo,
                 canRedo = state.canRedo,
                 isEnabled = editsEnabled,
                 onSelectClip = { clipId -> onEvent(EditorEvent.SelectClip(clipId)) },
+                onSeekTimeline = { targetMs ->
+                    seekRequestCounter += 1L
+                    seekRequest = PreviewSeekRequest(
+                        timelinePositionMs = targetMs.coerceAtLeast(0L),
+                        requestId = seekRequestCounter,
+                    )
+                },
+                onTrimClip = { _, startMs, endMs ->
+                    onEvent(EditorEvent.ApplyTrim(startMs = startMs, endMs = endMs))
+                },
                 onUndo = { onEvent(EditorEvent.Undo) },
                 onRedo = { onEvent(EditorEvent.Redo) },
             )
@@ -789,7 +804,6 @@ private fun CenteredEditorStatus(
 
 @Composable
 private fun EditorPreviewStage(
-    projectId: String,
     videoClips: List<Clip>,
     previewClips: List<PreviewClip>,
     previewAudioClips: List<PreviewClip>,
@@ -797,13 +811,14 @@ private fun EditorPreviewStage(
     overlayFilePaths: Map<String, String>,
     textClips: List<Clip>,
     captionDocument: CaptionDocument?,
+    timelinePositionMs: Long,
+    onTimelinePositionChanged: (Long) -> Unit,
     seekRequest: PreviewSeekRequest?,
     previewAspectRatio: Float,
     previewBackground: Color,
     emptyPreviewTextColor: Color,
 ) {
     val hasVideoClips = videoClips.isNotEmpty()
-    var timelinePositionMs by remember(projectId) { mutableLongStateOf(0L) }
 
     Box(
         contentAlignment = Alignment.Center,
@@ -835,7 +850,7 @@ private fun EditorPreviewStage(
                         audioClips = previewAudioClips,
                         backgroundColor = previewBackground,
                         seekRequest = seekRequest,
-                        onTimelinePositionChanged = { timelinePositionMs = it },
+                        onTimelinePositionChanged = onTimelinePositionChanged,
                         modifier = Modifier.fillMaxSize(),
                     )
                     PreviewEffectsOverlay(

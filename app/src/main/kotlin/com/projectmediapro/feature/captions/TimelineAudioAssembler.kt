@@ -3,7 +3,9 @@ package com.projectmediapro.feature.captions
 import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.ProjectTimeline
 import java.io.File
+import kotlin.math.floor
 import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 import kotlinx.coroutines.CancellationException
 
 data class AssembledTimelineAudio(
@@ -13,7 +15,8 @@ data class AssembledTimelineAudio(
 
 /**
  * Assembles a single timeline-aligned 16 kHz mono [PcmAudioData] buffer by extracting and mixing
- * trimmed [videoClips] and [audioClips] (e.g., music or voiceover tracks for lyric videos).
+ * trimmed, speed-adjusted [videoClips] and [audioClips] directly into a single bounded 16-bit
+ * buffer capped at [PcmAudioExtractor.DEFAULT_MAX_DURATION_US].
  */
 object TimelineAudioAssembler {
 
@@ -39,35 +42,26 @@ object TimelineAudioAssembler {
             )
         }
 
-        val wasTruncated = targetDurationMs > maxDurationMs
+        var wasTruncated = targetDurationMs > maxDurationMs
         val clampedDurationMs = targetDurationMs.coerceAtMost(maxDurationMs)
         val totalSamples = ((clampedDurationMs * sampleRate) / 1_000L)
             .toInt()
             .coerceIn(1, maxSamples)
-        val mixBuffer = IntArray(totalSamples)
+        // Mix directly into a single ShortArray with saturating addition instead of holding both an
+        // IntArray (76.8 MB at 20 min) and ShortArray (38.4 MB) simultaneously.
+        val mixBuffer = ShortArray(totalSamples)
 
-        mixTrackInto(
-            clips = videoClips,
-            sampleRate = sampleRate,
-            mixBuffer = mixBuffer,
-            extractor = extractor,
-            resolveFile = resolveFile,
-        )
-        mixTrackInto(
-            clips = audioClips,
-            sampleRate = sampleRate,
-            mixBuffer = mixBuffer,
-            extractor = extractor,
-            resolveFile = resolveFile,
-        )
-
-        val merged = ShortArray(totalSamples) { i ->
-            mixBuffer[i].coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
+        if (mixTrackInto(videoClips, sampleRate, mixBuffer, extractor, resolveFile)) {
+            wasTruncated = true
         }
+        if (mixTrackInto(audioClips, sampleRate, mixBuffer, extractor, resolveFile)) {
+            wasTruncated = true
+        }
+
         val mergedDurationUs = (totalSamples.toLong() * CaptionTime.MICROS_PER_SEC) / sampleRate
         return AssembledTimelineAudio(
             pcm = PcmAudioData(
-                samples = merged,
+                samples = mixBuffer,
                 sampleRateHz = sampleRate,
                 channelCount = 1,
                 durationUs = mergedDurationUs,
@@ -79,35 +73,54 @@ object TimelineAudioAssembler {
     private suspend fun mixTrackInto(
         clips: List<Clip>,
         sampleRate: Int,
-        mixBuffer: IntArray,
+        mixBuffer: ShortArray,
         extractor: PcmAudioExtractor,
         resolveFile: (String) -> File?,
-    ) {
+    ): Boolean {
         var sampleCursor = 0
+        var sourceTruncated = false
         for (clip in clips) {
             if (sampleCursor >= mixBuffer.size) break
             val clipDurationMs = ProjectTimeline.effectiveDurationMs(clip)
             if (clipDurationMs <= 0L) continue
+            val remainingSamples = mixBuffer.size - sampleCursor
             val clipSamples = ((clipDurationMs * sampleRate) / 1_000L)
                 .toInt()
-                .coerceIn(1, mixBuffer.size - sampleCursor)
+                .coerceIn(1, remainingSamples)
             val gain = if (clip.isStillImage) 0f else ProjectTimeline.sanitizeVolume(clip.volume)
             val file = resolveFile(clip.mediaUri)
 
             if (!clip.isStillImage && gain > 0f && file != null && file.isFile) {
+                val speed = ProjectTimeline.effectiveSpeed(clip)
                 val (trimStartMs, trimEndMs) = ProjectTimeline.resolvedTrimBounds(clip)
                 val trimStartUs = trimStartMs * CaptionTime.MICROS_PER_MS
-                val trimEndUs = if (trimEndMs > trimStartMs) {
+
+                val timelineWindowUs = (clipSamples.toLong() * CaptionTime.MICROS_PER_SEC) / sampleRate
+                val requiredSourceUs = (timelineWindowUs.toDouble() * speed.toDouble())
+                    .roundToLong()
+                    .coerceAtLeast(CaptionTime.MICROS_PER_MS)
+                if (requiredSourceUs > PcmAudioExtractor.DEFAULT_MAX_DURATION_US) {
+                    sourceTruncated = true
+                }
+                val cappedSourceUs = requiredSourceUs.coerceAtMost(PcmAudioExtractor.DEFAULT_MAX_DURATION_US)
+
+                val explicitTrimEndUs = if (trimEndMs > trimStartMs) {
                     trimEndMs * CaptionTime.MICROS_PER_MS
                 } else {
                     Long.MAX_VALUE
                 }
+                val boundedTrimEndUs = if (trimStartUs <= Long.MAX_VALUE - cappedSourceUs) {
+                    minOf(explicitTrimEndUs, trimStartUs + cappedSourceUs)
+                } else {
+                    explicitTrimEndUs
+                }
+
                 val pcm = try {
                     extractor.extractMono16kPcm(
                         file = file,
                         trimStartUs = trimStartUs,
-                        trimEndUs = trimEndUs,
-                        maxDurationUs = clipDurationMs * CaptionTime.MICROS_PER_MS,
+                        trimEndUs = boundedTrimEndUs,
+                        maxDurationUs = cappedSourceUs,
                     )
                 } catch (cancelled: CancellationException) {
                     throw cancelled
@@ -115,18 +128,59 @@ object TimelineAudioAssembler {
                     null
                 }
                 if (pcm != null && pcm.samples.isNotEmpty()) {
-                    val count = minOf(pcm.samples.size, clipSamples)
-                    for (i in 0 until count) {
-                        val scaled = if (gain == 1f) {
-                            pcm.samples[i].toInt()
-                        } else {
-                            (pcm.samples[i] * gain).roundToInt()
-                        }
-                        mixBuffer[sampleCursor + i] += scaled
-                    }
+                    mixResampledClip(
+                        sourceSamples = pcm.samples,
+                        speed = speed,
+                        gain = gain,
+                        mixBuffer = mixBuffer,
+                        destOffset = sampleCursor,
+                        destCount = clipSamples,
+                    )
                 }
             }
             sampleCursor += clipSamples
+        }
+        return sourceTruncated
+    }
+
+    private fun mixResampledClip(
+        sourceSamples: ShortArray,
+        speed: Float,
+        gain: Float,
+        mixBuffer: ShortArray,
+        destOffset: Int,
+        destCount: Int,
+    ) {
+        if (speed == Clip.DEFAULT_PLAYBACK_SPEED) {
+            val count = minOf(sourceSamples.size, destCount)
+            for (i in 0 until count) {
+                val sample = if (gain == 1f) {
+                    sourceSamples[i].toInt()
+                } else {
+                    (sourceSamples[i] * gain).roundToInt()
+                }
+                val idx = destOffset + i
+                mixBuffer[idx] = (mixBuffer[idx].toInt() + sample)
+                    .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
+                    .toShort()
+            }
+            return
+        }
+
+        val lastSourceIndex = sourceSamples.lastIndex
+        val step = speed.toDouble()
+        for (i in 0 until destCount) {
+            val srcPos = i * step
+            val idx0 = floor(srcPos).toInt()
+            if (idx0 > lastSourceIndex) break
+            val idx1 = (idx0 + 1).coerceAtMost(lastSourceIndex)
+            val frac = (srcPos - idx0).toFloat()
+            val interpolated = sourceSamples[idx0] + (sourceSamples[idx1] - sourceSamples[idx0]) * frac
+            val scaled = (interpolated * gain).roundToInt()
+            val destIdx = destOffset + i
+            mixBuffer[destIdx] = (mixBuffer[destIdx].toInt() + scaled)
+                .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
+                .toShort()
         }
     }
 }

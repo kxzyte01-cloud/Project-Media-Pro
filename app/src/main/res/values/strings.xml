@@ -284,4 +284,8 @@
     <string name="editor_freeze_preset_seconds">%1$ds</string>
     <string name="editor_freeze_duration_value">Duration: %1$s</string>
     <string name="error_freeze_frame_failed">Could not create a freeze frame from this clip.</string>
+    <string name="editor_timeline_timecode">%1$s / %2$s</string>
+    <string name="editor_timeline_zoom_out">−</string>
+    <string name="editor_timeline_zoom_in">+</string>
+    <string name="editor_timeline_zoom_percent">%1$d%%</string>
 </resources>

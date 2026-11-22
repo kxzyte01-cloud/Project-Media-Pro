@@ -117,6 +117,19 @@ internal fun resolveOverlayFilePaths(
         }
     }
 
+internal fun resolveClipFilePaths(
+    project: Project,
+    mediaStorage: ProjectMediaStorage,
+): Map<String, String> =
+    buildMap {
+        for (clip in project.videoClips() + project.audioClips()) {
+            val file = mediaStorage.resolve(clip.mediaUri)
+            if (file != null && file.isFile) {
+                put(clip.id, file.absolutePath)
+            }
+        }
+    }
+
 internal fun resolveAudioPreview(
     clip: Clip,
     mediaStorage: ProjectMediaStorage,
@@ -181,6 +194,7 @@ internal fun EditorUiState.Loaded.withSyncedProject(
     previewClips = resolvePreviewClips(targetProject, mediaStorage),
     previewAudioClips = resolvePreviewAudioClips(targetProject, mediaStorage),
     overlayFilePaths = resolveOverlayFilePaths(targetProject, mediaStorage),
+    clipFilePaths = resolveClipFilePaths(targetProject, mediaStorage),
     selectedClipId = resolveClipSelection(
         previousProject = previousProject,
         previousSelectedId = preferredSelectedId,
@@ -203,6 +217,7 @@ internal fun EditorUiState.Loaded.withSaveFailedRollback(
     previewClips = resolvePreviewClips(previousProject, mediaStorage),
     previewAudioClips = resolvePreviewAudioClips(previousProject, mediaStorage),
     overlayFilePaths = resolveOverlayFilePaths(previousProject, mediaStorage),
+    clipFilePaths = resolveClipFilePaths(previousProject, mediaStorage),
     canUndo = history.canUndo,
     canRedo = history.canRedo,
     activeDialog = null,

@@ -87,6 +87,7 @@ class EditorViewModel(
                             previewClips = resolvePreviewClips(project, mediaStorage),
                             previewAudioClips = resolvePreviewAudioClips(project, mediaStorage),
                             overlayFilePaths = resolveOverlayFilePaths(project, mediaStorage),
+                            clipFilePaths = resolveClipFilePaths(project, mediaStorage),
                             selectedClipId = project.videoClips().firstOrNull()?.id
                                 ?: project.audioClips().firstOrNull()?.id
                                 ?: project.overlayClips().firstOrNull()?.id
@@ -857,10 +858,17 @@ class EditorViewModel(
     }
 
     private fun handleGenerateCaptions(providedScript: String?) {
-        val extractor = pcmAudioExtractor ?: return
-        val engine = transcriptionEngine ?: return
         val current = _uiState.value as? EditorUiState.Loaded ?: return
         if (current.isBusy || current.isTranscribingCaptions) return
+        val trimmedScript = providedScript?.trim().orEmpty()
+        if (trimmedScript.isNotEmpty() &&
+            (SrtCaptionCodec.isLrcFormat(trimmedScript) || SrtCaptionCodec.isSrtFormat(trimmedScript))
+        ) {
+            handleImportSrt(trimmedScript)
+            return
+        }
+        val extractor = pcmAudioExtractor ?: return
+        val engine = transcriptionEngine ?: return
         val videoClips = current.project.videoClips()
         val audioClips = current.project.audioClips()
         if (videoClips.isEmpty() && audioClips.isEmpty()) return
