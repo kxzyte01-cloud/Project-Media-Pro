@@ -336,6 +336,7 @@ fun PreviewPlayer(
     )
 }
 
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 private fun buildPreviewMediaItems(clips: List<PreviewClip>): List<MediaItem> =
     clips.mapNotNull { clip ->
         val file = File(clip.path)
