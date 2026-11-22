@@ -312,4 +312,13 @@
     <string name="editor_keyframes_easing_in">Ease In</string>
     <string name="editor_keyframes_easing_out">Ease Out</string>
     <string name="editor_keyframes_easing_smooth">Smooth</string>
+    <string name="editor_studio_export_short">Export</string>
+    <string name="editor_studio_dock_back">Tools</string>
+    <string name="editor_studio_dock_video">Video</string>
+    <string name="editor_studio_dock_audio">Audio</string>
+    <string name="editor_studio_dock_overlay">Overlay</string>
+    <string name="editor_studio_dock_text">Text</string>
+    <string name="editor_studio_dock_captions">Captions</string>
+    <string name="editor_studio_dock_canvas">Canvas</string>
+    <string name="editor_studio_empty_timeline_hint">Tap Video below to start building your timeline</string>
 </resources>

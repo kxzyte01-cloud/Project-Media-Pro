@@ -94,6 +94,7 @@ fun TimelineStrip(
     totalDurationMs: Long = 0L,
     onSeekTimeline: (Long) -> Unit = {},
     onTrimClip: (clipId: String, startMs: Long, endMs: Long) -> Unit = { _, _, _ -> },
+    showHistoryControls: Boolean = true,
 ) {
     var dpPerSecond by rememberSaveable { mutableFloatStateOf(TimelineScale.DEFAULT_DP_PER_SECOND) }
     val scrollState = rememberScrollState()
@@ -153,6 +154,7 @@ fun TimelineStrip(
                 enabled = isEnabled && dpPerSecond < TimelineScale.MAX_DP_PER_SECOND - 0.5f,
                 onClick = { dpPerSecond = TimelineScale.clampZoom(dpPerSecond * ZOOM_STEP_FACTOR) },
             )
+            if (showHistoryControls) {
             IconButton(
                 onClick = onUndo,
                 enabled = isEnabled && canUndo,
@@ -178,6 +180,7 @@ fun TimelineStrip(
                     painter = painterResource(R.drawable.ic_redo),
                     contentDescription = stringResource(R.string.cd_redo),
                 )
+            }
             }
         }
 

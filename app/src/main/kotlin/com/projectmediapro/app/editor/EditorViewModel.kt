@@ -110,6 +110,7 @@ class EditorViewModel(
             is EditorEvent.AudioPicked -> handleMediaPicked(event.sourceUri, TrackType.AUDIO)
             is EditorEvent.OverlayPicked -> handleMediaPicked(event.sourceUri, TrackType.OVERLAY)
             is EditorEvent.SelectClip -> handleSelectClip(event.clipId)
+            EditorEvent.ClearSelection -> handleClearSelection()
             EditorEvent.OpenTrim -> openSelectedClipDialog(
                 predicate = { !it.isFreeTimed && ProjectTimeline.canTrimClip(it.clip) },
                 dialogFactory = EditorDialog::Trim,
@@ -494,6 +495,16 @@ class EditorViewModel(
                 }
             }
         }
+    }
+
+    private fun handleClearSelection() {
+        val current = _uiState.value as? EditorUiState.Loaded ?: return
+        if (current.isBusy) return
+        _uiState.value = current.copy(
+            selectedClipId = null,
+            activeDialog = null,
+            audioPreview = null,
+        )
     }
 
     private fun handleSelectClip(clipId: String) {

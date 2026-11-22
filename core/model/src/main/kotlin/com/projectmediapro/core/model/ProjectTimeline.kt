@@ -642,6 +642,18 @@ object ProjectTimeline {
             ) {
                 return@modifyClipTrack null
             }
+            val dx = clampedX - clip.overlayCenterX
+            val dy = clampedY - clip.overlayCenterY
+            val shiftedKeyframes = if (clip.keyframes.isNotEmpty() && (dx != 0f || dy != 0f)) {
+                clip.keyframes.map { kf ->
+                    kf.copy(
+                        centerX = (kf.centerX + dx).coerceIn(0f, 1f),
+                        centerY = (kf.centerY + dy).coerceIn(0f, 1f),
+                    )
+                }
+            } else {
+                clip.keyframes
+            }
             clips.toMutableList().apply {
                 set(
                     clipIndex,
@@ -649,6 +661,7 @@ object ProjectTimeline {
                         overlayCenterX = clampedX,
                         overlayCenterY = clampedY,
                         overlayWidthFraction = clampedWidth,
+                        keyframes = shiftedKeyframes,
                     ),
                 )
             }

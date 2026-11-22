@@ -1,6 +1,7 @@
 package com.projectmediapro.app.editor
 
 import com.projectmediapro.core.model.CanvasAspect
+import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.CanvasBackground
 import com.projectmediapro.core.model.ClipCrop
 import com.projectmediapro.core.model.ClipVisualEffects
@@ -62,6 +63,7 @@ data class AudioPreviewState(
     val trimStartMs: Long = 0L,
     val trimEndMs: Long = 0L,
     val volume: Float = 1.0f,
+    val playbackSpeed: Float = Clip.DEFAULT_PLAYBACK_SPEED,
 )
 
 sealed interface EditorUiState {
@@ -102,6 +104,7 @@ sealed interface EditorEvent {
     data class AudioPicked(val sourceUri: String?) : EditorEvent
     data class OverlayPicked(val sourceUri: String?) : EditorEvent
     data class SelectClip(val clipId: String) : EditorEvent
+    data object ClearSelection : EditorEvent
     data object OpenTrim : EditorEvent
     data object OpenSplit : EditorEvent
     data object OpenSpeed : EditorEvent

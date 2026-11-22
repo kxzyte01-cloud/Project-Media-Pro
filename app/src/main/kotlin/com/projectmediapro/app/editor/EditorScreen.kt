@@ -7,29 +7,33 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -47,12 +51,12 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.projectmediapro.app.R
 import com.projectmediapro.app.data.export.ExportGeometry
 import com.projectmediapro.app.data.export.sanitizeExportName
 import com.projectmediapro.app.data.media.SubtitleFileIo
-import com.projectmediapro.core.designsystem.component.MediaProTopBar
 import com.projectmediapro.core.designsystem.theme.MediaProShapes
 import com.projectmediapro.core.designsystem.theme.MediaProSpacing
 import com.projectmediapro.core.model.CanvasBackground
@@ -60,7 +64,6 @@ import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.ExportQuality
 import com.projectmediapro.core.model.ProjectTimeline
 import com.projectmediapro.core.model.TextOverlayStyle
-import com.projectmediapro.core.model.TrackType
 import com.projectmediapro.core.model.audioClips
 import com.projectmediapro.core.model.overlayClips
 import com.projectmediapro.core.model.textClips
@@ -108,6 +111,7 @@ fun EditorScreen(
         }
     }
 
+    val loadedState = uiState as? EditorUiState.Loaded
     val topBarTitle = when (uiState) {
         is EditorUiState.Loaded -> uiState.project.title
         EditorUiState.Loading -> stringResource(R.string.editor_loading_title)
@@ -115,92 +119,185 @@ fun EditorScreen(
         EditorUiState.Error -> stringResource(R.string.editor_error_title)
     }
 
-    Scaffold(
+    Surface(
+        color = MaterialTheme.colorScheme.background,
         modifier = modifier.fillMaxSize(),
-        topBar = {
-            MediaProTopBar(
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            StudioTopBar(
                 title = topBarTitle,
-                navigationIcon = {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_arrow_back),
-                        contentDescription = stringResource(R.string.cd_navigate_back),
-                    )
-                },
-                onNavigationClick = onNavigateBack,
+                loadedState = loadedState,
+                onNavigateBack = onNavigateBack,
+                onUndo = { onEvent(EditorEvent.Undo) },
+                onRedo = { onEvent(EditorEvent.Redo) },
+                onExportClick = { onEvent(EditorEvent.OpenExportQuality) },
             )
-        },
-    ) { innerPadding ->
-        when (uiState) {
-            EditorUiState.Loading -> {
-                CenteredEditorStatus(modifier = Modifier.padding(innerPadding)) {
-                    CircularProgressIndicator()
-                    Text(
-                        text = stringResource(R.string.editor_loading),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = MediaProSpacing.Small),
-                    )
-                }
-            }
-            EditorUiState.NotFound -> {
-                CenteredEditorStatus(modifier = Modifier.padding(innerPadding)) {
-                    Text(
-                        text = stringResource(R.string.editor_not_found),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            EditorUiState.Error -> {
-                CenteredEditorStatus(modifier = Modifier.padding(innerPadding)) {
-                    Text(
-                        text = stringResource(R.string.editor_load_failed),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-            }
-            is EditorUiState.Loaded -> {
-                LoadedEditorContent(
-                    state = uiState,
-                    onPickVideo = {
-                        videoPickerLauncher.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly),
-                        )
-                    },
-                    onPickAudio = {
-                        audioPickerLauncher.launch("audio/*")
-                    },
-                    onPickOverlay = {
-                        overlayPickerLauncher.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                        )
-                    },
-                    onConfirmExportQuality = { quality ->
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                            onEvent(EditorEvent.StartExport(quality = quality))
-                        } else {
-                            onEvent(EditorEvent.SelectExportQuality(quality))
-                            createDocumentLauncher.launch("${sanitizeExportName(uiState.project.title)}.mp4")
+
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                when (uiState) {
+                    EditorUiState.Loading -> {
+                        CenteredEditorStatus {
+                            CircularProgressIndicator()
+                            Text(
+                                text = stringResource(R.string.editor_loading),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = MediaProSpacing.Small),
+                            )
                         }
-                    },
-                    onEvent = onEvent,
-                    modifier = Modifier.padding(innerPadding),
-                )
+                    }
+                    EditorUiState.NotFound -> {
+                        CenteredEditorStatus {
+                            Text(
+                                text = stringResource(R.string.editor_not_found),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    EditorUiState.Error -> {
+                        CenteredEditorStatus {
+                            Text(
+                                text = stringResource(R.string.editor_load_failed),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                    is EditorUiState.Loaded -> {
+                        LoadedStudioWorkspace(
+                            state = uiState,
+                            onPickVideo = {
+                                videoPickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly),
+                                )
+                            },
+                            onPickAudio = {
+                                audioPickerLauncher.launch("audio/*")
+                            },
+                            onPickOverlay = {
+                                overlayPickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                                )
+                            },
+                            onConfirmExportQuality = { quality ->
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                    onEvent(EditorEvent.StartExport(quality = quality))
+                                } else {
+                                    onEvent(EditorEvent.SelectExportQuality(quality))
+                                    createDocumentLauncher.launch("${sanitizeExportName(uiState.project.title)}.mp4")
+                                }
+                            },
+                            onEvent = onEvent,
+                        )
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun LoadedEditorContent(
+private fun StudioTopBar(
+    title: String,
+    loadedState: EditorUiState.Loaded?,
+    onNavigateBack: () -> Unit,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
+    onExportClick: () -> Unit,
+) {
+    val editsEnabled = loadedState != null && !loadedState.isBusy
+    val hasVideos = loadedState != null && loadedState.project.videoClips().isNotEmpty()
+    val isExporting = loadedState?.export is ExportUiState.Running
+
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        modifier = Modifier
+            .fillMaxWidth()
+            .statusBarsPadding(),
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp)
+                    .padding(horizontal = MediaProSpacing.ExtraSmall),
+            ) {
+                IconButton(onClick = onNavigateBack) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_arrow_back),
+                        contentDescription = stringResource(R.string.cd_navigate_back),
+                    )
+                }
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                if (loadedState != null) {
+                    IconButton(
+                        onClick = onUndo,
+                        enabled = editsEnabled && loadedState.canUndo,
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_undo),
+                            contentDescription = stringResource(R.string.cd_undo),
+                        )
+                    }
+                    IconButton(
+                        onClick = onRedo,
+                        enabled = editsEnabled && loadedState.canRedo,
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_redo),
+                            contentDescription = stringResource(R.string.cd_redo),
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(MediaProSpacing.ExtraSmall))
+                    Button(
+                        onClick = onExportClick,
+                        enabled = hasVideos && editsEnabled,
+                        shape = MediaProShapes.Small,
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                        modifier = Modifier
+                            .height(34.dp)
+                            .padding(end = MediaProSpacing.Small),
+                    ) {
+                        if (isExporting) {
+                            CircularProgressIndicator(
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(14.dp),
+                            )
+                        } else {
+                            Text(
+                                text = stringResource(R.string.editor_studio_export_short),
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                        }
+                    }
+                }
+            }
+            HorizontalDivider(
+                thickness = MediaProSpacing.BorderThin,
+                color = MaterialTheme.colorScheme.outlineVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun LoadedStudioWorkspace(
     state: EditorUiState.Loaded,
     onPickVideo: () -> Unit,
     onPickAudio: () -> Unit,
     onPickOverlay: () -> Unit,
     onConfirmExportQuality: (ExportQuality) -> Unit,
     onEvent: (EditorEvent) -> Unit,
-    modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -257,267 +354,137 @@ private fun LoadedEditorContent(
     } else {
         Color.White.copy(alpha = 0.78f)
     }
+
     AudioPreviewPlayer(
         audioPreview = state.audioPreview,
         onPlaybackEnded = { onEvent(EditorEvent.StopAudioPreview) },
     )
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = MediaProSpacing.Medium),
-    ) {
-        Spacer(modifier = Modifier.height(MediaProSpacing.Medium))
-        EditorPreviewStage(
-            videoClips = clips,
-            previewClips = state.previewClips,
-            previewAudioClips = state.previewAudioClips,
-            overlayClips = overlayClips,
-            overlayFilePaths = state.overlayFilePaths,
-            textClips = textClips,
-            captionDocument = state.captionDocument,
-            timelinePositionMs = timelinePositionMs,
-            onTimelinePositionChanged = { timelinePositionMs = it },
-            seekRequest = seekRequest,
-            previewAspectRatio = previewAspectRatio,
-            previewBackground = previewBackground,
-            emptyPreviewTextColor = emptyPreviewTextColor,
-        )
-
-        if (clips.isNotEmpty() || audioClips.isNotEmpty() || overlayClips.isNotEmpty() ||
-            textClips.isNotEmpty() || state.canUndo || state.canRedo
-        ) {
-            TimelineStrip(
-                clips = clips,
-                audioClips = audioClips,
-                overlayClips = overlayClips,
-                textClips = textClips,
-                clipFilePaths = state.clipFilePaths,
-                timelinePositionMs = timelinePositionMs,
-                totalDurationMs = state.project.durationMs,
-                selectedClipId = state.selectedClipId,
-                canUndo = state.canUndo,
-                canRedo = state.canRedo,
-                isEnabled = editsEnabled,
-                onSelectClip = { clipId -> onEvent(EditorEvent.SelectClip(clipId)) },
-                onSeekTimeline = { targetMs ->
-                    seekRequestCounter += 1L
-                    seekRequest = PreviewSeekRequest(
-                        timelinePositionMs = targetMs.coerceAtLeast(0L),
-                        requestId = seekRequestCounter,
-                    )
-                },
-                onTrimClip = { _, startMs, endMs ->
-                    onEvent(EditorEvent.ApplyTrim(startMs = startMs, endMs = endMs))
-                },
-                onUndo = { onEvent(EditorEvent.Undo) },
-                onRedo = { onEvent(EditorEvent.Redo) },
-            )
-            if (selectedLocation != null) {
-                val selectedClip = selectedLocation.clip
-                Spacer(modifier = Modifier.height(MediaProSpacing.Small))
-                ClipTools(
-                    isEnabled = editsEnabled,
-                    canTrim = !selectedLocation.isFreeTimed && ProjectTimeline.canTrimClip(selectedClip),
-                    canSplit = selectedLocation.isVideo && ProjectTimeline.canSplitClip(selectedClip),
-                    canMoveEarlier = selectedLocation.canMoveEarlier,
-                    canMoveLater = selectedLocation.canMoveLater,
-                    isAudioClip = selectedLocation.isAudio,
-                    isOverlayClip = selectedLocation.isOverlay,
-                    isTextClip = selectedLocation.isText,
-                    hasActiveEffects = selectedLocation.isVideo &&
-                        selectedClip.visualEffects?.isIdentity == false,
-                    hasActiveSpeed = !selectedLocation.isFreeTimed &&
-                        ProjectTimeline.effectiveSpeed(selectedClip) != Clip.DEFAULT_PLAYBACK_SPEED,
-                    hasActiveTransform = selectedLocation.isVideo && selectedClip.hasActiveTransform,
-                    hasActiveCrop = selectedLocation.isVideo && selectedClip.hasActiveCrop,
-                    hasKeyframes = selectedLocation.isFreeTimed && selectedClip.hasKeyframes,
-                    canFreezeFrame = selectedLocation.isVideo && !selectedClip.isStillImage,
-                    canAdjustSpeed = !selectedLocation.isFreeTimed && !selectedClip.isStillImage,
-                    canAdjustVolume = selectedLocation.isAudio || (selectedLocation.isVideo && !selectedClip.isStillImage),
-                    hasAdjustedVolume = (selectedLocation.isVideo || selectedLocation.isAudio) &&
-                        selectedClip.volume < 1.0f,
-                    canEditOverlayTiming = videoDurationMs >= ProjectTimeline.MIN_CLIP_DURATION_MS,
-                    isAudioPlaying = state.audioPreview?.clipId == selectedClip.id,
-                    onTrimClick = { onEvent(EditorEvent.OpenTrim) },
-                    onSplitClick = { onEvent(EditorEvent.OpenSplit) },
-                    onSpeedClick = { onEvent(EditorEvent.OpenSpeed) },
-                    onTransformClick = { onEvent(EditorEvent.OpenTransform) },
-                    onCropClick = { onEvent(EditorEvent.OpenCrop) },
-                    onFreezeFrameClick = { onEvent(EditorEvent.OpenFreezeFrame) },
-                    onDuplicateClick = { onEvent(EditorEvent.DuplicateSelected) },
-                    onEffectsClick = { onEvent(EditorEvent.OpenClipEffects) },
-                    onVolumeClick = { onEvent(EditorEvent.OpenVolume) },
-                    onOverlayPositionClick = { onEvent(EditorEvent.OpenOverlayPosition) },
-                    onOverlayTimingClick = { onEvent(EditorEvent.OpenOverlayTiming) },
-                    onEditTextClick = { onEvent(EditorEvent.OpenEditText) },
-                    onTextPositionClick = { onEvent(EditorEvent.OpenTextPosition) },
-                    onTextTimingClick = { onEvent(EditorEvent.OpenTextTiming) },
-                    onKeyframesClick = { onEvent(EditorEvent.OpenKeyframes) },
-                    onMoveEarlierClick = { onEvent(EditorEvent.MoveSelected(-1)) },
-                    onMoveLaterClick = { onEvent(EditorEvent.MoveSelected(1)) },
-                    onTogglePlayClick = { onEvent(EditorEvent.ToggleAudioPreview) },
-                    onRemoveClick = { onEvent(EditorEvent.RequestRemoveClip(selectedClip.id)) },
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(MediaProSpacing.Medium))
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Button(
-                onClick = onPickVideo,
-                enabled = editsEnabled,
-                shape = MediaProShapes.Small,
-                modifier = Modifier
-                    .weight(1f)
-                    .defaultMinSize(minHeight = MediaProSpacing.MinTouchTarget),
-            ) {
-                if (state.importingTrack == TrackType.VIDEO) {
-                    CircularProgressIndicator(
-                        strokeWidth = MediaProSpacing.BorderSelected,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(modifier = Modifier.width(MediaProSpacing.Small))
-                    Text(
-                        text = stringResource(R.string.editor_adding_video),
-                        style = MaterialTheme.typography.labelLarge,
-                    )
-                } else {
-                    Text(
-                        text = stringResource(R.string.editor_add_video),
-                        style = MaterialTheme.typography.labelLarge,
-                    )
-                }
-            }
-            EditorOutlinedButton(
-                label = if (state.isImportingAudio) {
-                    stringResource(R.string.editor_adding_audio)
-                } else {
-                    stringResource(R.string.editor_add_audio)
-                },
-                enabled = editsEnabled,
-                onClick = onPickAudio,
-                modifier = Modifier.weight(1f),
-                leadingContent = if (state.isImportingAudio) {
-                    {
-                        CircularProgressIndicator(
-                            strokeWidth = MediaProSpacing.BorderSelected,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(modifier = Modifier.width(MediaProSpacing.Small))
-                    }
-                } else {
-                    null
-                },
-            )
-        }
-
-        Spacer(modifier = Modifier.height(MediaProSpacing.Small))
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            EditorOutlinedButton(
-                label = if (state.isImportingOverlay) {
-                    stringResource(R.string.editor_adding_overlay)
-                } else {
-                    stringResource(R.string.editor_add_overlay)
-                },
-                enabled = editsEnabled,
-                onClick = onPickOverlay,
-                modifier = Modifier.weight(1f),
-                leadingContent = if (state.isImportingOverlay) {
-                    {
-                        CircularProgressIndicator(
-                            strokeWidth = MediaProSpacing.BorderSelected,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(modifier = Modifier.width(MediaProSpacing.Small))
-                    }
-                } else {
-                    null
-                },
-            )
-            EditorOutlinedButton(
-                label = stringResource(R.string.editor_add_text),
-                enabled = editsEnabled,
-                onClick = { onEvent(EditorEvent.OpenAddText) },
-                modifier = Modifier.weight(1f),
-            )
-        }
-
-        Spacer(modifier = Modifier.height(MediaProSpacing.Small))
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            EditorOutlinedButton(
-                label = stringResource(R.string.editor_canvas_button),
-                enabled = editsEnabled,
-                onClick = { onEvent(EditorEvent.OpenCanvas) },
-                modifier = Modifier.weight(1f),
-            )
-            EditorOutlinedButton(
-                label = stringResource(R.string.editor_captions_button),
-                enabled = editsEnabled,
-                onClick = { onEvent(EditorEvent.OpenCaptions) },
-                modifier = Modifier.weight(1f),
-            )
-        }
-
-        Spacer(modifier = Modifier.height(MediaProSpacing.Small))
-        ExportSection(
+    Column(modifier = Modifier.fillMaxSize()) {
+        StudioStatusBanners(
             exportState = state.export,
-            isExportEnabled = clips.isNotEmpty() && editsEnabled,
-            onExportClick = { onEvent(EditorEvent.OpenExportQuality) },
+            error = state.error,
             onCancelExport = { onEvent(EditorEvent.CancelExport) },
             onDismissDone = { onEvent(EditorEvent.DismissExportDone) },
         )
 
-        if (state.error != null) {
-            Spacer(modifier = Modifier.height(MediaProSpacing.Small))
-            Surface(
-                shape = MediaProShapes.Small,
-                color = MaterialTheme.colorScheme.errorContainer,
-                border = BorderStroke(
-                    MediaProSpacing.BorderThin,
-                    MaterialTheme.colorScheme.error.copy(alpha = 0.6f),
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .semantics { liveRegion = LiveRegionMode.Polite },
-            ) {
-                Text(
-                    text = stringResource(editorErrorStringRes(state.error)),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                    modifier = Modifier.padding(
-                        horizontal = MediaProSpacing.MediumSmall,
-                        vertical = MediaProSpacing.Small,
-                    ),
+        // Top Zone: Fixed Cinema Preview Stage with direct overlay/text drag & pinch
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .weight(0.47f)
+                .fillMaxWidth()
+                .background(Color(0xFF0A0C10))
+                .clickable(
+                    enabled = selectedLocation != null && editsEnabled,
+                    onClick = { onEvent(EditorEvent.ClearSelection) },
                 )
-            }
-        }
-
-        if (clips.isNotEmpty()) {
-            ClipList(
-                clips = clips,
+                .padding(horizontal = MediaProSpacing.Medium, vertical = MediaProSpacing.Small),
+        ) {
+            EditorPreviewStage(
+                videoClips = clips,
+                previewClips = state.previewClips,
+                previewAudioClips = state.previewAudioClips,
+                overlayClips = overlayClips,
+                overlayFilePaths = state.overlayFilePaths,
+                textClips = textClips,
+                captionDocument = state.captionDocument,
                 selectedClipId = state.selectedClipId,
-                isRemoveEnabled = editsEnabled,
+                isInteractive = editsEnabled,
+                timelinePositionMs = timelinePositionMs,
+                onTimelinePositionChanged = { timelinePositionMs = it },
+                seekRequest = seekRequest,
+                previewAspectRatio = previewAspectRatio,
+                previewBackground = previewBackground,
+                emptyPreviewTextColor = emptyPreviewTextColor,
                 onSelectClip = { clipId -> onEvent(EditorEvent.SelectClip(clipId)) },
-                onRequestRemoveClip = { clipId ->
-                    onEvent(EditorEvent.RequestRemoveClip(clipId))
+                onCommitOverlayTransform = { clipId, cx, cy, wf ->
+                    onEvent(EditorEvent.SelectClip(clipId))
+                    onEvent(EditorEvent.ApplyOverlayPosition(centerX = cx, centerY = cy, widthFraction = wf))
+                },
+                onCommitTextTransform = { clipId, cx, cy, wf ->
+                    onEvent(EditorEvent.SelectClip(clipId))
+                    onEvent(EditorEvent.ApplyTextPosition(centerX = cx, centerY = cy, widthFraction = wf))
                 },
             )
         }
-        Spacer(modifier = Modifier.height(MediaProSpacing.ExtraLarge))
+
+        HorizontalDivider(
+            thickness = MediaProSpacing.BorderThin,
+            color = MaterialTheme.colorScheme.outlineVariant,
+        )
+
+        // Middle Zone: Scrollable Multi-Track Timeline Workspace
+        Box(
+            modifier = Modifier
+                .weight(0.53f)
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.background),
+        ) {
+            if (clips.isNotEmpty() || audioClips.isNotEmpty() || overlayClips.isNotEmpty() ||
+                textClips.isNotEmpty() || state.canUndo || state.canRedo
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = MediaProSpacing.Small, vertical = MediaProSpacing.ExtraSmall),
+                ) {
+                    TimelineStrip(
+                        clips = clips,
+                        audioClips = audioClips,
+                        overlayClips = overlayClips,
+                        textClips = textClips,
+                        clipFilePaths = state.clipFilePaths,
+                        timelinePositionMs = timelinePositionMs,
+                        totalDurationMs = state.project.durationMs,
+                        selectedClipId = state.selectedClipId,
+                        canUndo = state.canUndo,
+                        canRedo = state.canRedo,
+                        isEnabled = editsEnabled,
+                        onSelectClip = { clipId -> onEvent(EditorEvent.SelectClip(clipId)) },
+                        onSeekTimeline = { targetMs ->
+                            seekRequestCounter += 1L
+                            seekRequest = PreviewSeekRequest(
+                                timelinePositionMs = targetMs.coerceAtLeast(0L),
+                                requestId = seekRequestCounter,
+                            )
+                        },
+                        onTrimClip = { _, startMs, endMs ->
+                            onEvent(EditorEvent.ApplyTrim(startMs = startMs, endMs = endMs))
+                        },
+                        onUndo = { onEvent(EditorEvent.Undo) },
+                        onRedo = { onEvent(EditorEvent.Redo) },
+                        showHistoryControls = false,
+                    )
+                    Spacer(modifier = Modifier.height(MediaProSpacing.Small))
+                }
+            } else {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(MediaProSpacing.Medium),
+                ) {
+                    Text(
+                        text = stringResource(R.string.editor_studio_empty_timeline_hint),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
+        // Bottom Zone: Fixed CapCut / VN Context-Aware Tool Dock
+        StudioBottomDock(
+            state = state,
+            selectedLocation = selectedLocation,
+            videoDurationMs = videoDurationMs,
+            onPickVideo = onPickVideo,
+            onPickAudio = onPickAudio,
+            onPickOverlay = onPickOverlay,
+            onEvent = onEvent,
+        )
     }
 
     when (val dialog = state.activeDialog) {
@@ -801,6 +768,105 @@ private fun LoadedEditorContent(
 }
 
 @Composable
+private fun StudioStatusBanners(
+    exportState: ExportUiState,
+    error: EditorError?,
+    onCancelExport: () -> Unit,
+    onDismissDone: () -> Unit,
+) {
+    when (exportState) {
+        is ExportUiState.Running -> {
+            val percent = exportState.percent.coerceIn(0, 100)
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics { liveRegion = LiveRegionMode.Polite },
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = MediaProSpacing.Medium, vertical = MediaProSpacing.ExtraSmall),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.editor_exporting, percent),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = onCancelExport) {
+                            Text(text = stringResource(R.string.home_cancel))
+                        }
+                    }
+                    LinearProgressIndicator(
+                        progress = { percent / 100f },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        }
+        is ExportUiState.Done -> {
+            val doneMessage = if (exportState.savedToGallery) {
+                stringResource(R.string.editor_export_done_gallery)
+            } else {
+                stringResource(R.string.editor_export_done_file)
+            }
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics { liveRegion = LiveRegionMode.Polite },
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = MediaProSpacing.Medium, vertical = MediaProSpacing.ExtraSmall),
+                ) {
+                    Text(
+                        text = doneMessage,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = onDismissDone) {
+                        Text(text = stringResource(R.string.editor_export_dismiss))
+                    }
+                }
+            }
+        }
+        ExportUiState.Idle -> Unit
+    }
+
+    if (error != null) {
+        Surface(
+            color = MaterialTheme.colorScheme.errorContainer,
+            border = BorderStroke(
+                MediaProSpacing.BorderThin,
+                MaterialTheme.colorScheme.error.copy(alpha = 0.6f),
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics { liveRegion = LiveRegionMode.Polite },
+        ) {
+            Text(
+                text = stringResource(editorErrorStringRes(error)),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.padding(
+                    horizontal = MediaProSpacing.Medium,
+                    vertical = MediaProSpacing.Small,
+                ),
+            )
+        }
+    }
+}
+
+@Composable
 private fun CenteredEditorStatus(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
@@ -825,24 +891,35 @@ private fun EditorPreviewStage(
     overlayFilePaths: Map<String, String>,
     textClips: List<Clip>,
     captionDocument: CaptionDocument?,
+    selectedClipId: String?,
+    isInteractive: Boolean,
     timelinePositionMs: Long,
     onTimelinePositionChanged: (Long) -> Unit,
     seekRequest: PreviewSeekRequest?,
     previewAspectRatio: Float,
     previewBackground: Color,
     emptyPreviewTextColor: Color,
+    onSelectClip: (String) -> Unit,
+    onCommitOverlayTransform: (clipId: String, centerX: Float, centerY: Float, widthFraction: Float) -> Unit,
+    onCommitTextTransform: (clipId: String, centerX: Float, centerY: Float, widthFraction: Float) -> Unit,
 ) {
     val hasVideoClips = videoClips.isNotEmpty()
 
-    Box(
+    BoxWithConstraints(
         contentAlignment = Alignment.Center,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxSize(),
     ) {
+        val safeAspect = previewAspectRatio.coerceIn(0.25f, 4f)
+        val availWidth = maxWidth
+        val availHeight = maxHeight
+        val stageModifier = if (availHeight.value > 0f && (availWidth.value / availHeight.value) > safeAspect) {
+            Modifier.size(width = availHeight * safeAspect, height = availHeight)
+        } else {
+            Modifier.size(width = availWidth, height = availWidth / safeAspect)
+        }
         Box(
             contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .heightIn(max = 360.dp)
-                .aspectRatio(previewAspectRatio)
+            modifier = stageModifier
                 .clip(MediaProShapes.Medium)
                 .background(previewBackground)
                 .border(
@@ -851,47 +928,55 @@ private fun EditorPreviewStage(
                     shape = MediaProShapes.Medium,
                 ),
         ) {
-            if (!hasVideoClips && textClips.isEmpty()) {
-                Text(
-                    text = stringResource(R.string.editor_empty),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = emptyPreviewTextColor,
+        if (!hasVideoClips && textClips.isEmpty()) {
+            Text(
+                text = stringResource(R.string.editor_empty),
+                style = MaterialTheme.typography.bodyMedium,
+                color = emptyPreviewTextColor,
+            )
+        } else {
+            if (hasVideoClips) {
+                PreviewPlayer(
+                    previewClips = previewClips,
+                    audioClips = previewAudioClips,
+                    backgroundColor = previewBackground,
+                    seekRequest = seekRequest,
+                    onTimelinePositionChanged = onTimelinePositionChanged,
+                    modifier = Modifier.fillMaxSize(),
                 )
-            } else {
-                if (hasVideoClips) {
-                    PreviewPlayer(
-                        previewClips = previewClips,
-                        audioClips = previewAudioClips,
-                        backgroundColor = previewBackground,
-                        seekRequest = seekRequest,
-                        onTimelinePositionChanged = onTimelinePositionChanged,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                    PreviewEffectsOverlay(
-                        videoClips = videoClips,
-                        timelinePositionMs = timelinePositionMs,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                    OverlayPreviewLayer(
-                        overlays = overlayClips,
-                        overlayFilePaths = overlayFilePaths,
-                        timelinePositionMs = timelinePositionMs,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
-                TextPreviewLayer(
-                    textClips = textClips,
+                PreviewEffectsOverlay(
+                    videoClips = videoClips,
                     timelinePositionMs = timelinePositionMs,
                     modifier = Modifier.fillMaxSize(),
                 )
-                CaptionPreviewOverlay(
-                    document = captionDocument,
-                    currentPositionUs = timelinePositionMs * CaptionTime.MICROS_PER_MS,
-                    videoWidth = 0,
-                    videoHeight = 0,
-                    modifier = Modifier.matchParentSize(),
+                OverlayPreviewLayer(
+                    overlays = overlayClips,
+                    overlayFilePaths = overlayFilePaths,
+                    timelinePositionMs = timelinePositionMs,
+                    selectedClipId = selectedClipId,
+                    isInteractive = isInteractive,
+                    onSelectOverlay = onSelectClip,
+                    onCommitOverlayTransform = onCommitOverlayTransform,
+                    modifier = Modifier.fillMaxSize(),
                 )
             }
+            TextPreviewLayer(
+                textClips = textClips,
+                timelinePositionMs = timelinePositionMs,
+                selectedClipId = selectedClipId,
+                isInteractive = isInteractive,
+                onSelectText = onSelectClip,
+                onCommitTextTransform = onCommitTextTransform,
+                modifier = Modifier.fillMaxSize(),
+            )
+            CaptionPreviewOverlay(
+                document = captionDocument,
+                currentPositionUs = timelinePositionMs * CaptionTime.MICROS_PER_MS,
+                videoWidth = 0,
+                videoHeight = 0,
+                modifier = Modifier.matchParentSize(),
+            )
         }
+    }
     }
 }

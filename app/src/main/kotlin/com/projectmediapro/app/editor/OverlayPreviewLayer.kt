@@ -18,6 +18,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.IntOffset
 import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.KeyframeInterpolator
+import com.projectmediapro.core.model.OverlayKeyframe
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -30,6 +31,10 @@ internal fun OverlayPreviewLayer(
     overlayFilePaths: Map<String, String>,
     timelinePositionMs: Long,
     modifier: Modifier = Modifier,
+    selectedClipId: String? = null,
+    isInteractive: Boolean = false,
+    onSelectOverlay: (String) -> Unit = {},
+    onCommitOverlayTransform: (clipId: String, centerX: Float, centerY: Float, widthFraction: Float) -> Unit = { _, _, _, _ -> },
 ) {
     val visibleOverlays = overlays.filter { TimelineClock.isOverlayVisibleAt(it, timelinePositionMs) }
     if (visibleOverlays.isEmpty()) return
@@ -41,48 +46,82 @@ internal fun OverlayPreviewLayer(
 
         visibleOverlays.forEach { clip ->
             key(clip.id) {
-                val path = overlayFilePaths[clip.id] ?: return@key
-                val bitmap by produceState<ImageBitmap?>(initialValue = null, key1 = path) {
-                    value = withContext(Dispatchers.IO) {
-                        decodePreviewImageBitmap(path)
+                val path = overlayFilePaths[clip.id]
+                if (path != null) {
+                    val bitmap by produceState<ImageBitmap?>(initialValue = null, key1 = path) {
+                        value = withContext(Dispatchers.IO) {
+                            decodePreviewImageBitmap(path)
+                        }
+                    }
+                    val loaded = bitmap
+                    if (loaded != null) {
+                        val baseWidthFraction = OverlayKeyframe.sanitizeFinite(
+                            clip.overlayWidthFraction,
+                            Clip.DEFAULT_OVERLAY_WIDTH_FRACTION,
+                        ).coerceIn(
+                            Clip.MIN_OVERLAY_WIDTH_FRACTION,
+                            Clip.MAX_OVERLAY_WIDTH_FRACTION,
+                        )
+                        val resolved = KeyframeInterpolator.evaluateAtTime(
+                            baseCenterX = clip.overlayCenterX,
+                            baseCenterY = clip.overlayCenterY,
+                            keyframes = clip.keyframes,
+                            elapsedTime = timelinePositionMs - clip.startTimeMs,
+                            totalDuration = clip.durationMs,
+                        )
+                        val dragState = rememberPreviewCanvasDragState(
+                            clipId = clip.id,
+                            centerX = resolved.centerX,
+                            centerY = resolved.centerY,
+                            widthFraction = baseWidthFraction,
+                        )
+
+                        val displayCenterX = if (dragState.isDragging) dragState.centerX else resolved.centerX
+                        val displayCenterY = if (dragState.isDragging) dragState.centerY else resolved.centerY
+                        val displayWidthFraction = if (dragState.isDragging) dragState.widthFraction else baseWidthFraction
+
+                        val overlayWidthPx = canvasWidthPx * displayWidthFraction
+                        val imageAspect = if (loaded.height > 0) {
+                            loaded.width.toFloat() / loaded.height.toFloat()
+                        } else {
+                            1f
+                        }
+                        val overlayHeightPx = overlayWidthPx / imageAspect
+                        val leftPx = (displayCenterX * canvasWidthPx) - (overlayWidthPx / 2f)
+                        val topPx = (displayCenterY * canvasHeightPx) - (overlayHeightPx / 2f)
+
+                        Image(
+                            bitmap = loaded,
+                            contentDescription = null,
+                            contentScale = ContentScale.FillWidth,
+                            modifier = Modifier
+                                .offset { IntOffset(leftPx.roundToInt(), topPx.roundToInt()) }
+                                .width(canvasWidthDp * displayWidthFraction)
+                                .graphicsLayer {
+                                    scaleX = resolved.scale
+                                    scaleY = resolved.scale
+                                    rotationZ = resolved.rotationDegrees
+                                    alpha = resolved.opacity
+                                }
+                                .previewCanvasSelectionBorder(
+                                    isSelected = selectedClipId == clip.id,
+                                    isInteractive = isInteractive,
+                                )
+                                .previewCanvasTransformGesture(
+                                    clipId = clip.id,
+                                    isInteractive = isInteractive,
+                                    canvasWidthPx = canvasWidthPx,
+                                    canvasHeightPx = canvasHeightPx,
+                                    baseCenterX = resolved.centerX,
+                                    baseCenterY = resolved.centerY,
+                                    baseWidthFraction = baseWidthFraction,
+                                    dragState = dragState,
+                                    onSelect = onSelectOverlay,
+                                    onCommit = onCommitOverlayTransform,
+                                ),
+                        )
                     }
                 }
-                val loaded = bitmap ?: return@key
-                val widthFraction = clip.overlayWidthFraction.coerceIn(
-                    Clip.MIN_OVERLAY_WIDTH_FRACTION,
-                    Clip.MAX_OVERLAY_WIDTH_FRACTION,
-                )
-                val resolved = KeyframeInterpolator.evaluateAtTime(
-                    baseCenterX = clip.overlayCenterX,
-                    baseCenterY = clip.overlayCenterY,
-                    keyframes = clip.keyframes,
-                    elapsedTime = timelinePositionMs - clip.startTimeMs,
-                    totalDuration = clip.durationMs,
-                )
-                val overlayWidthPx = canvasWidthPx * widthFraction
-                val imageAspect = if (loaded.height > 0) {
-                    loaded.width.toFloat() / loaded.height.toFloat()
-                } else {
-                    1f
-                }
-                val overlayHeightPx = overlayWidthPx / imageAspect
-                val leftPx = (resolved.centerX * canvasWidthPx) - (overlayWidthPx / 2f)
-                val topPx = (resolved.centerY * canvasHeightPx) - (overlayHeightPx / 2f)
-
-                Image(
-                    bitmap = loaded,
-                    contentDescription = null,
-                    contentScale = ContentScale.FillWidth,
-                    modifier = Modifier
-                        .offset { IntOffset(leftPx.roundToInt(), topPx.roundToInt()) }
-                        .width(canvasWidthDp * widthFraction)
-                        .graphicsLayer {
-                            scaleX = resolved.scale
-                            scaleY = resolved.scale
-                            rotationZ = resolved.rotationDegrees
-                            alpha = resolved.opacity
-                        },
-                )
             }
         }
     }

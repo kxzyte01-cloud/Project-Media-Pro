@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.IntOffset
 import com.projectmediapro.app.data.export.TextOverlayBitmapRenderer
 import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.KeyframeInterpolator
+import com.projectmediapro.core.model.OverlayKeyframe
 import com.projectmediapro.core.model.TextOverlayStyle
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
@@ -60,6 +61,10 @@ internal fun TextPreviewLayer(
     textClips: List<Clip>,
     timelinePositionMs: Long,
     modifier: Modifier = Modifier,
+    selectedClipId: String? = null,
+    isInteractive: Boolean = false,
+    onSelectText: (String) -> Unit = {},
+    onCommitTextTransform: (clipId: String, centerX: Float, centerY: Float, widthFraction: Float) -> Unit = { _, _, _, _ -> },
 ) {
     val visibleTexts = textClips.filter {
         it.textContent.isNotBlank() && TimelineClock.isOverlayVisibleAt(it, timelinePositionMs)
@@ -85,7 +90,10 @@ internal fun TextPreviewLayer(
         visibleTexts.forEach { clip ->
             key(clip.id) {
                 val style = clip.textStyle ?: TextOverlayStyle()
-                val widthFraction = clip.overlayWidthFraction.coerceIn(
+                val baseWidthFraction = OverlayKeyframe.sanitizeFinite(
+                    clip.overlayWidthFraction,
+                    Clip.DEFAULT_TEXT_WIDTH_FRACTION,
+                ).coerceIn(
                     Clip.MIN_OVERLAY_WIDTH_FRACTION,
                     Clip.MAX_OVERLAY_WIDTH_FRACTION,
                 )
@@ -94,39 +102,70 @@ internal fun TextPreviewLayer(
                     style = style,
                     canvasWidthPx = renderWidthPx,
                     canvasHeightPx = renderHeightPx,
-                    maxWidthFraction = widthFraction,
-                ) ?: return@key
-
-                val resolved = KeyframeInterpolator.evaluateAtTime(
-                    baseCenterX = clip.overlayCenterX,
-                    baseCenterY = clip.overlayCenterY,
-                    keyframes = clip.keyframes,
-                    elapsedTime = timelinePositionMs - clip.startTimeMs,
-                    totalDuration = clip.durationMs,
+                    maxWidthFraction = baseWidthFraction,
                 )
+                if (loaded != null) {
+                    val resolved = KeyframeInterpolator.evaluateAtTime(
+                        baseCenterX = clip.overlayCenterX,
+                        baseCenterY = clip.overlayCenterY,
+                        keyframes = clip.keyframes,
+                        elapsedTime = timelinePositionMs - clip.startTimeMs,
+                        totalDuration = clip.durationMs,
+                    )
+                    val dragState = rememberPreviewCanvasDragState(
+                        clipId = clip.id,
+                        centerX = resolved.centerX,
+                        centerY = resolved.centerY,
+                        widthFraction = baseWidthFraction,
+                    )
 
-                val displayWidthPx = loaded.width / renderScale
-                val displayHeightPx = loaded.height / renderScale
-                val leftPx = (resolved.centerX * canvasWidthPx) - (displayWidthPx / 2f)
-                val topPx = (resolved.centerY * canvasHeightPx) - (displayHeightPx / 2f)
+                    val displayCenterX = if (dragState.isDragging) dragState.centerX else resolved.centerX
+                    val displayCenterY = if (dragState.isDragging) dragState.centerY else resolved.centerY
+                    val liveZoomRatio = if (dragState.isDragging && baseWidthFraction > 0.01f) {
+                        (dragState.widthFraction / baseWidthFraction).coerceIn(0.4f, 2.5f)
+                    } else {
+                        1f
+                    }
 
-                val widthDp = with(density) { displayWidthPx.toDp() }
-                val heightDp = with(density) { displayHeightPx.toDp() }
+                    val displayWidthPx = loaded.width / renderScale
+                    val displayHeightPx = loaded.height / renderScale
+                    val leftPx = (displayCenterX * canvasWidthPx) - (displayWidthPx / 2f)
+                    val topPx = (displayCenterY * canvasHeightPx) - (displayHeightPx / 2f)
 
-                Image(
-                    bitmap = loaded,
-                    contentDescription = null,
-                    contentScale = ContentScale.FillBounds,
-                    modifier = Modifier
-                        .offset { IntOffset(leftPx.roundToInt(), topPx.roundToInt()) }
-                        .size(width = widthDp, height = heightDp)
-                        .graphicsLayer {
-                            scaleX = resolved.scale
-                            scaleY = resolved.scale
-                            rotationZ = resolved.rotationDegrees
-                            alpha = resolved.opacity
-                        },
-                )
+                    val widthDp = with(density) { displayWidthPx.toDp() }
+                    val heightDp = with(density) { displayHeightPx.toDp() }
+
+                    Image(
+                        bitmap = loaded,
+                        contentDescription = null,
+                        contentScale = ContentScale.FillBounds,
+                        modifier = Modifier
+                            .offset { IntOffset(leftPx.roundToInt(), topPx.roundToInt()) }
+                            .size(width = widthDp, height = heightDp)
+                            .graphicsLayer {
+                                scaleX = resolved.scale * liveZoomRatio
+                                scaleY = resolved.scale * liveZoomRatio
+                                rotationZ = resolved.rotationDegrees
+                                alpha = resolved.opacity
+                            }
+                            .previewCanvasSelectionBorder(
+                                isSelected = selectedClipId == clip.id,
+                                isInteractive = isInteractive,
+                            )
+                            .previewCanvasTransformGesture(
+                                clipId = clip.id,
+                                isInteractive = isInteractive,
+                                canvasWidthPx = canvasWidthPx.toFloat(),
+                                canvasHeightPx = canvasHeightPx.toFloat(),
+                                baseCenterX = resolved.centerX,
+                                baseCenterY = resolved.centerY,
+                                baseWidthFraction = baseWidthFraction,
+                                dragState = dragState,
+                                onSelect = onSelectText,
+                                onCommit = onCommitTextTransform,
+                            ),
+                    )
+                }
             }
         }
     }
