@@ -39,7 +39,7 @@ object TemplatePackCodec {
 
             val seenUris = LinkedHashSet<String>()
             template.slots.forEach { slot ->
-                val rel = slot.fixedMediaUri?.takeIf { it.isNotBlank() } ?: return@forEach
+                val rel = slot.filledMediaUri?.takeIf { it.isNotBlank() } ?: return@forEach
                 if (!seenUris.add(rel)) return@forEach
                 val file = mediaStorage.resolve(rel) ?: return@forEach
                 if (!file.isFile) return@forEach
@@ -103,7 +103,7 @@ object TemplatePackCodec {
             val source = parsedTemplate ?: throw IOException("Template pack is missing template.json")
             val now = System.currentTimeMillis()
             val remappedSlots = source.slots.map { slot ->
-                val oldUri = slot.fixedMediaUri
+                val oldUri = slot.filledMediaUri
                 val newUri = if (!oldUri.isNullOrBlank()) {
                     val oldFileName = oldUri.substringAfterLast('/')
                     extractedByFileName[oldFileName]
@@ -112,7 +112,7 @@ object TemplatePackCodec {
                 }
                 slot.copy(
                     id = idProvider(),
-                    fixedMediaUri = newUri,
+                    filledMediaUri = newUri,
                 )
             }
             return source.copy(

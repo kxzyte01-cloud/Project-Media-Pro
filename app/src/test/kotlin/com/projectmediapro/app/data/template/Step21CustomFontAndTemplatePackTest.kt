@@ -3,14 +3,14 @@ package com.projectmediapro.app.data.template
 import com.projectmediapro.app.data.media.FontHeaderValidator
 import com.projectmediapro.app.data.media.ProjectMediaStorage
 import com.projectmediapro.core.model.CanvasAspect
+import com.projectmediapro.core.model.Slot
+import com.projectmediapro.core.model.SlotRole
 import com.projectmediapro.core.model.Template
-import com.projectmediapro.core.model.TemplateSlot
-import com.projectmediapro.core.model.TemplateSlotRole
+import com.projectmediapro.core.model.TrackType
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -45,18 +45,21 @@ class Step21CustomFontAndTemplatePackTest {
             description = "9:16 lyric template",
             canvasAspect = CanvasAspect.RATIO_9_16,
             slots = listOf(
-                TemplateSlot(
+                Slot(
                     id = "s1",
                     label = "Intro Clip",
-                    role = TemplateSlotRole.MAIN_VIDEO,
-                    targetDurationMs = 2_500L,
+                    requiredType = TrackType.VIDEO,
+                    role = SlotRole.MAIN_VIDEO,
+                    durationMs = 2_500L,
                 ),
-                TemplateSlot(
+                Slot(
                     id = "s2",
                     label = "Beat Hook",
-                    role = TemplateSlotRole.FIXED_AUDIO,
-                    targetDurationMs = 15_000L,
-                    fixedMediaUri = relMedia,
+                    requiredType = TrackType.AUDIO,
+                    role = SlotRole.AUDIO,
+                    isReplaceable = false,
+                    durationMs = 15_000L,
+                    filledMediaUri = relMedia,
                 ),
             ),
         )
@@ -74,7 +77,7 @@ class Step21CustomFontAndTemplatePackTest {
         assertEquals("Viral Beat Edit", imported.name)
         assertEquals(CanvasAspect.RATIO_9_16, imported.canvasAspect)
         assertEquals(2, imported.slots.size)
-        val importedAudioUri = requireNotNull(imported.slots[1].fixedMediaUri)
+        val importedAudioUri = requireNotNull(imported.slots[1].filledMediaUri)
         val importedFile = requireNotNull(storage.resolve(importedAudioUri))
         assertTrue(importedFile.isFile)
         assertEquals("sample-audio-bytes", importedFile.readText())
