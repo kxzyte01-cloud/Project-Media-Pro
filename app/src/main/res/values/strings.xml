@@ -360,6 +360,12 @@
     <string name="settings_whisper_delete">Delete Model</string>
     <string name="settings_whisper_error">Could not download model. Check your internet connection and try again.</string>
     <string name="settings_whisper_retry">Retry Download</string>
+    <string name="captions_import_font">+ Custom Font</string>
+    <string name="captions_custom_font_active">Custom Font ✓</string>
+    <string name="editor_tool_snapshot">Snapshot</string>
+    <string name="error_snapshot_failed">Could not save a frame snapshot from this clip.</string>
+    <string name="templates_import_pack">Import .zip</string>
+    <string name="templates_export_pack">Share .zip</string>
     <string name="error_beats_detect_failed">Could not detect beats from this project audio.</string>
     <string name="editor_studio_dock_canvas">Canvas</string>
     <string name="editor_studio_empty_timeline_hint">Tap Video below to start building your timeline</string>
@@ -388,4 +394,6 @@
     <string name="editor_export_bitrate_fast">Fast</string>
     <string name="editor_export_bitrate_standard">Balanced</string>
     <string name="editor_export_bitrate_high">High</string>
+    <string name="editor_export_optical_flow_title">Optical Flow</string>
+    <string name="editor_export_optical_flow_hint">Smooths motion &amp; slow-mo frames on export</string>
 </resources>

@@ -13,7 +13,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import com.projectmediapro.app.data.export.sanitizeExportName
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -47,6 +56,33 @@ fun TemplatesScreen(
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
+    var pendingExportTemplateId by remember { mutableStateOf<String?>(null) }
+    val importPackLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            onEvent(
+                TemplatesEvent.ImportTemplatePack {
+                    context.contentResolver.openInputStream(uri)
+                },
+            )
+        }
+    }
+    val exportPackLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip"),
+    ) { uri ->
+        val templateId = pendingExportTemplateId
+        pendingExportTemplateId = null
+        if (uri != null && templateId != null) {
+            onEvent(
+                TemplatesEvent.ExportTemplatePack(templateId = templateId) {
+                    context.contentResolver.openOutputStream(uri)
+                },
+            )
+        }
+    }
+
     val defaultName = stringResource(
         R.string.templates_default_name,
         uiState.templates.size + 1,
@@ -84,14 +120,28 @@ fun TemplatesScreen(
                     )
                     Spacer(modifier = Modifier.height(MediaProSpacing.Small))
                 }
-                Button(
-                    onClick = { onEvent(TemplatesEvent.ShowCreateDialog(defaultName)) },
-                    shape = MediaProShapes.Small,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .defaultMinSize(minHeight = MediaProSpacing.MinTouchTarget),
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text(text = stringResource(R.string.templates_new_button))
+                    Button(
+                        onClick = { onEvent(TemplatesEvent.ShowCreateDialog(defaultName)) },
+                        shape = MediaProShapes.Small,
+                        modifier = Modifier
+                            .weight(1f)
+                            .defaultMinSize(minHeight = MediaProSpacing.MinTouchTarget),
+                    ) {
+                        Text(text = stringResource(R.string.templates_new_button))
+                    }
+                    OutlinedButton(
+                        onClick = { importPackLauncher.launch(arrayOf("application/zip", "*/*")) },
+                        shape = MediaProShapes.Small,
+                        modifier = Modifier
+                            .weight(1f)
+                            .defaultMinSize(minHeight = MediaProSpacing.MinTouchTarget),
+                    ) {
+                        Text(text = stringResource(R.string.templates_import_pack))
+                    }
                 }
             }
 
@@ -112,6 +162,10 @@ fun TemplatesScreen(
                         template = template,
                         onOpenBuilder = { onOpenTemplate(template.id) },
                         onUseClick = { onUseTemplate(template.id) },
+                        onExportPackClick = {
+                            pendingExportTemplateId = template.id
+                            exportPackLauncher.launch("${sanitizeExportName(template.name)}.zip")
+                        },
                         onDeleteClick = { onEvent(TemplatesEvent.RequestDelete(template.id)) },
                     )
                 }
@@ -221,6 +275,7 @@ private fun TemplateRowCard(
     template: Template,
     onOpenBuilder: () -> Unit,
     onUseClick: () -> Unit,
+    onExportPackClick: () -> Unit,
     onDeleteClick: () -> Unit,
 ) {
     Surface(
@@ -265,6 +320,11 @@ private fun TemplateRowCard(
                 enabled = true,
                 tone = EditorButtonTone.Primary,
                 onClick = onUseClick,
+            )
+            EditorOutlinedButton(
+                label = stringResource(R.string.templates_export_pack),
+                enabled = true,
+                onClick = onExportPackClick,
             )
             IconButton(
                 onClick = onDeleteClick,

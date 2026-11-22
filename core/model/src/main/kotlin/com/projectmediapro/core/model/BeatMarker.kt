@@ -2,6 +2,7 @@ package com.projectmediapro.core.model
 
 import kotlinx.serialization.Serializable
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -143,10 +144,18 @@ object BeatEffectEvaluator {
         if (scale == 1f && tx == 0f && ty == 0f && flash <= 0.001f && glitch <= 0.001f && reactiveGlow <= 0.001f) {
             return BeatEffectSample.IDENTITY
         }
+        val clampedTx = tx.coerceIn(-0.08f, 0.08f)
+        val clampedTy = ty.coerceIn(-0.08f, 0.08f)
+        // Ensure zoom always overscans past shake/glitch translation so black edge gaps never appear.
+        val minOverscanScale = if (clampedTx != 0f || clampedTy != 0f) {
+            1f + 2f * maxOf(abs(clampedTx), abs(clampedTy)) + 0.01f
+        } else {
+            1f
+        }
         return BeatEffectSample(
-            scale = scale,
-            translationXFraction = tx.coerceIn(-0.08f, 0.08f),
-            translationYFraction = ty.coerceIn(-0.08f, 0.08f),
+            scale = maxOf(scale, minOverscanScale),
+            translationXFraction = clampedTx,
+            translationYFraction = clampedTy,
             flashAlpha = flash,
             glitchAmount = glitch,
             reactiveGlow = reactiveGlow,

@@ -56,6 +56,8 @@ import androidx.compose.ui.unit.dp
 import com.projectmediapro.app.R
 import com.projectmediapro.app.data.export.ExportGeometry
 import com.projectmediapro.app.data.export.sanitizeExportName
+import com.projectmediapro.app.data.media.CustomFontStorage
+import java.io.File
 import com.projectmediapro.app.data.media.SubtitleFileIo
 import com.projectmediapro.core.designsystem.theme.MediaProShapes
 import com.projectmediapro.core.designsystem.theme.MediaProSpacing
@@ -205,13 +207,14 @@ fun EditorScreen(
                             onReplaceAudio = {
                                 replaceAudioPickerLauncher.launch("audio/*")
                             },
-                            onConfirmExportQuality = { quality, frameRate, bitrate ->
+                            onConfirmExportQuality = { quality, frameRate, bitrate, opticalFlow ->
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                                     onEvent(
                                         EditorEvent.StartExport(
                                             quality = quality,
                                             frameRate = frameRate,
                                             bitrate = bitrate,
+                                            opticalFlowEnabled = opticalFlow,
                                         ),
                                     )
                                 } else {
@@ -220,6 +223,7 @@ fun EditorScreen(
                                             quality = quality,
                                             frameRate = frameRate,
                                             bitrate = bitrate,
+                                            opticalFlowEnabled = opticalFlow,
                                         ),
                                     )
                                     createDocumentLauncher.launch("${sanitizeExportName(uiState.project.title)}.mp4")
@@ -335,11 +339,55 @@ private fun LoadedStudioWorkspace(
     onPickOverlay: () -> Unit,
     onReplaceVideo: () -> Unit,
     onReplaceAudio: () -> Unit,
-    onConfirmExportQuality: (ExportQuality, ExportFrameRate, ExportBitrate) -> Unit,
+    onConfirmExportQuality: (ExportQuality, ExportFrameRate, ExportBitrate, Boolean) -> Unit,
     onEvent: (EditorEvent) -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var pendingSnapshotPositionMs by remember { mutableStateOf<Long?>(null) }
+    val createSnapshotLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("image/png"),
+    ) { uri ->
+        val positionMs = pendingSnapshotPositionMs
+        pendingSnapshotPositionMs = null
+        if (uri != null && positionMs != null) {
+            onEvent(
+                EditorEvent.SaveFrameSnapshot(
+                    timelinePositionMs = positionMs,
+                    destinationUri = uri.toString(),
+                ),
+            )
+        }
+    }
+
+    val importFontLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) {
+            val appContext = context.applicationContext
+            scope.launch {
+                val storage = CustomFontStorage(File(appContext.filesDir, "custom_fonts"))
+                val importedFile = try {
+                    storage.importFontFromUri(appContext, uri.toString())
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    null
+                }
+                val currentDoc = state.captionDocument
+                if (importedFile != null && currentDoc != null) {
+                    onEvent(
+                        EditorEvent.UpdateCaptionStyle(
+                            currentDoc.style.copy(customFontPath = importedFile.absolutePath),
+                        ),
+                    )
+                } else {
+                    onEvent(EditorEvent.ReportCaptionError)
+                }
+            }
+        }
+    }
+
     val importSrtLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
@@ -537,6 +585,14 @@ private fun LoadedStudioWorkspace(
             onPickOverlay = onPickOverlay,
             onReplaceVideo = onReplaceVideo,
             onReplaceAudio = onReplaceAudio,
+            onSaveSnapshot = { positionMs ->
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    onEvent(EditorEvent.SaveFrameSnapshot(timelinePositionMs = positionMs))
+                } else {
+                    pendingSnapshotPositionMs = positionMs
+                    createSnapshotLauncher.launch("${sanitizeExportName(state.project.title)}_frame.png")
+                }
+            },
             onEvent = onEvent,
         )
     }
@@ -819,6 +875,7 @@ private fun LoadedStudioWorkspace(
                     onExportSrt = {
                         exportSrtLauncher.launch("${sanitizeExportName(state.project.title)}.srt")
                     },
+                    onImportCustomFont = { importFontLauncher.launch(arrayOf("*/*")) },
                 ),
                 onDismiss = { onEvent(EditorEvent.DismissDialog) },
             )
@@ -838,6 +895,7 @@ private fun LoadedStudioWorkspace(
                 initialQuality = state.project.exportQuality,
                 initialFrameRate = state.project.exportFrameRate,
                 initialBitrate = state.project.exportBitrate,
+                initialOpticalFlowEnabled = state.project.opticalFlowEnabled,
                 onConfirm = onConfirmExportQuality,
                 onDismiss = { onEvent(EditorEvent.DismissDialog) },
             )
@@ -1012,18 +1070,23 @@ private fun EditorPreviewStage(
             contentAlignment = Alignment.Center,
             modifier = stageModifier
                 .clip(MediaProShapes.Medium)
-                .graphicsLayer {
-                    scaleX = beatSample.scale
-                    scaleY = beatSample.scale
-                    translationX = size.width * beatSample.translationXFraction
-                    translationY = size.height * beatSample.translationYFraction
-                }
                 .background(previewBackground)
                 .border(
                     width = MediaProSpacing.BorderThin,
                     color = MaterialTheme.colorScheme.outlineVariant,
                     shape = MediaProShapes.Medium,
                 ),
+        ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = beatSample.scale
+                    scaleY = beatSample.scale
+                    translationX = size.width * beatSample.translationXFraction
+                    translationY = size.height * beatSample.translationYFraction
+                },
         ) {
         if (!hasVideoClips && textClips.isEmpty()) {
             Text(
@@ -1076,6 +1139,7 @@ private fun EditorPreviewStage(
                 modifier = Modifier.matchParentSize(),
             )
         }
-    }
+    
+        }}
     }
 }

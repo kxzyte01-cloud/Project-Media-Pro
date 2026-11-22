@@ -34,6 +34,7 @@ enum class EditorError {
     FREEZE_FRAME_FAILED,
     EXTRACT_AUDIO_FAILED,
     BEATS_DETECT_FAILED,
+    SNAPSHOT_FAILED,
 }
 
 sealed interface ExportUiState {
@@ -156,6 +157,10 @@ sealed interface EditorEvent {
     data class ApplyCrop(val crop: ClipCrop?) : EditorEvent
     data class ApplyFreezeFrame(val sourceTimeMs: Long, val durationMs: Long) : EditorEvent
     data object ExtractAudioFromSelected : EditorEvent
+    data class SaveFrameSnapshot(
+        val timelinePositionMs: Long,
+        val destinationUri: String? = null,
+    ) : EditorEvent
     data object DuplicateSelected : EditorEvent
     data class ReplaceClipPicked(val sourceUri: String?) : EditorEvent
     data class CopyFromHere(val playheadMs: Long) : EditorEvent
@@ -206,6 +211,7 @@ sealed interface EditorEvent {
         val quality: ExportQuality,
         val frameRate: ExportFrameRate? = null,
         val bitrate: ExportBitrate? = null,
+        val opticalFlowEnabled: Boolean? = null,
     ) : EditorEvent
     data class MoveSelected(val delta: Int) : EditorEvent
     data object ToggleAudioPreview : EditorEvent
@@ -220,6 +226,7 @@ sealed interface EditorEvent {
         val quality: ExportQuality? = null,
         val frameRate: ExportFrameRate? = null,
         val bitrate: ExportBitrate? = null,
+        val opticalFlowEnabled: Boolean? = null,
     ) : EditorEvent
     data object CancelExport : EditorEvent
     data object DismissExportDone : EditorEvent

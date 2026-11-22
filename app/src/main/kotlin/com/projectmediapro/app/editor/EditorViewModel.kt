@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.projectmediapro.app.data.export.ExportPlanner
 import com.projectmediapro.app.data.export.ExportSaver
+import com.projectmediapro.app.data.export.FrameSnapshotSaver
 import com.projectmediapro.app.data.export.VideoExportException
 import com.projectmediapro.app.data.export.VideoExporter
 import com.projectmediapro.app.data.media.AudioImporter
@@ -68,6 +69,7 @@ class EditorViewModel(
     private val transcriptionEngine: TranscriptionEngine? = null,
     private val freezeFrameExtractor: FreezeFrameExtractor? = null,
     private val videoAudioExtractor: VideoAudioExtractor? = null,
+    private val frameSnapshotSaver: FrameSnapshotSaver? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow<EditorUiState>(EditorUiState.Loading)
@@ -80,6 +82,7 @@ class EditorViewModel(
     private var freezeJob: Job? = null
     private var extractAudioJob: Job? = null
     private var beatJob: Job? = null
+    private var snapshotJob: Job? = null
     private val history = UndoRedoManager(Project(id = projectId, title = ""))
 
     init {
@@ -369,6 +372,7 @@ class EditorViewModel(
                 }
             }
             EditorEvent.ExtractAudioFromSelected -> handleExtractAudioFromSelected()
+            is EditorEvent.SaveFrameSnapshot -> handleSaveFrameSnapshot(event.timelinePositionMs, event.destinationUri)
             is EditorEvent.ApplyFreezeFrame -> {
                 val current = _uiState.value as? EditorUiState.Loaded ?: return
                 val targetId = (current.activeDialog as? EditorDialog.FreezeFrame)?.clipId
@@ -524,7 +528,7 @@ class EditorViewModel(
                     )
                 }
             }
-            is EditorEvent.SelectExportQuality -> handleSelectExportQuality(event.quality, event.frameRate, event.bitrate)
+            is EditorEvent.SelectExportQuality -> handleSelectExportQuality(event.quality, event.frameRate, event.bitrate, event.opticalFlowEnabled)
             is EditorEvent.MoveSelected -> {
                 val current = _uiState.value as? EditorUiState.Loaded ?: return
                 val targetId = current.selectedClipId ?: return
@@ -562,7 +566,7 @@ class EditorViewModel(
                 _uiState.value = current.copy(pendingRemoveClipId = null)
             }
             EditorEvent.ConfirmRemoveClip -> handleConfirmRemoveClip()
-            is EditorEvent.StartExport -> handleStartExport(event.destinationUri, event.quality, event.frameRate, event.bitrate)
+            is EditorEvent.StartExport -> handleStartExport(event.destinationUri, event.quality, event.frameRate, event.bitrate, event.opticalFlowEnabled)
             EditorEvent.CancelExport -> handleCancelExport()
             EditorEvent.DismissExportDone -> {
                 val current = _uiState.value as? EditorUiState.Loaded ?: return
@@ -711,15 +715,18 @@ class EditorViewModel(
         quality: ExportQuality,
         frameRate: ExportFrameRate? = null,
         bitrate: ExportBitrate? = null,
+        opticalFlowEnabled: Boolean? = null,
     ) {
         persistProjectTransition(
             preferredSelectedClipId = null,
             prepareTarget = { previous ->
                 val nextFrameRate = frameRate ?: previous.exportFrameRate
                 val nextBitrate = bitrate ?: previous.exportBitrate
+                val nextOpticalFlow = opticalFlowEnabled ?: previous.opticalFlowEnabled
                 if (previous.exportQuality == quality &&
                     previous.exportFrameRate == nextFrameRate &&
-                    previous.exportBitrate == nextBitrate
+                    previous.exportBitrate == nextBitrate &&
+                    previous.opticalFlowEnabled == nextOpticalFlow
                 ) {
                     null
                 } else {
@@ -727,6 +734,7 @@ class EditorViewModel(
                         exportQuality = quality,
                         exportFrameRate = nextFrameRate,
                         exportBitrate = nextBitrate,
+                        opticalFlowEnabled = nextOpticalFlow,
                     )
                 }
             },
@@ -760,6 +768,7 @@ class EditorViewModel(
                 exportQuality = previous.exportQuality,
                 exportFrameRate = previous.exportFrameRate,
                 exportBitrate = previous.exportBitrate,
+                opticalFlowEnabled = previous.opticalFlowEnabled,
             )
             },
             onSaveFailure = { rollback(history) },
@@ -966,6 +975,7 @@ class EditorViewModel(
         qualityOverride: ExportQuality?,
         frameRateOverride: ExportFrameRate? = null,
         bitrateOverride: ExportBitrate? = null,
+        opticalFlowOverride: Boolean? = null,
     ) {
         val exporter = videoExporter
         val saver = exportSaver
@@ -980,15 +990,18 @@ class EditorViewModel(
         val nextQuality = qualityOverride ?: initial.project.exportQuality
         val nextFrameRate = frameRateOverride ?: initial.project.exportFrameRate
         val nextBitrate = bitrateOverride ?: initial.project.exportBitrate
+        val nextOpticalFlow = opticalFlowOverride ?: initial.project.opticalFlowEnabled
         val effectiveProject = if (
             nextQuality != initial.project.exportQuality ||
             nextFrameRate != initial.project.exportFrameRate ||
-            nextBitrate != initial.project.exportBitrate
+            nextBitrate != initial.project.exportBitrate ||
+            nextOpticalFlow != initial.project.opticalFlowEnabled
         ) {
             initial.project.copy(
                 exportQuality = nextQuality,
                 exportFrameRate = nextFrameRate,
                 exportBitrate = nextBitrate,
+                opticalFlowEnabled = nextOpticalFlow,
             )
         } else {
             initial.project
@@ -1554,7 +1567,58 @@ class EditorViewModel(
         }
     }
 
+    private fun handleSaveFrameSnapshot(timelinePositionMs: Long, destinationUri: String?) {
+        val current = _uiState.value as? EditorUiState.Loaded ?: return
+        if (current.isBusy) return
+        val extractor = freezeFrameExtractor
+        val saver = frameSnapshotSaver
+        if (extractor == null || saver == null) {
+            _uiState.value = current.copy(error = EditorError.SNAPSHOT_FAILED)
+            return
+        }
+        val active = TimelineClock.activeClipAt(current.project.videoClips(), timelinePositionMs)
+        val clip = active?.clip ?: current.project.findClipLocation(current.selectedClipId)?.clip
+        if (clip == null || clip.isStillImage) {
+            _uiState.value = current.copy(error = EditorError.SNAPSHOT_FAILED)
+            return
+        }
+        val sourceFile = mediaStorage.resolve(clip.mediaUri)
+        if (sourceFile == null || !sourceFile.isFile) {
+            _uiState.value = current.copy(error = EditorError.SNAPSHOT_FAILED)
+            return
+        }
+        val offsetInClipMs = active?.positionInClipMs ?: 0L
+        val sourceTimeMs = (ProjectTimeline.effectiveTrimStartMs(clip) +
+            (offsetInClipMs * ProjectTimeline.effectiveSpeed(clip)).toLong()).coerceAtLeast(0L)
+        val title = current.project.title
+
+        snapshotJob?.cancel()
+        snapshotJob = viewModelScope.launch {
+            val tempPng = File(tempDirectory, "snapshot_${idProvider()}.png")
+            try {
+                extractor.extractFrame(
+                    videoFile = sourceFile,
+                    timeUs = sourceTimeMs * 1_000L,
+                    outputFile = tempPng,
+                )
+                if (destinationUri != null) {
+                    saver.savePngToUri(tempPng, destinationUri)
+                } else {
+                    saver.savePngToGallery(tempPng, title)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: IOException) {
+                val latest = _uiState.value as? EditorUiState.Loaded ?: return@launch
+                _uiState.value = latest.copy(error = EditorError.SNAPSHOT_FAILED)
+            } finally {
+                runCatching { tempPng.delete() }
+            }
+        }
+    }
+
     override fun onCleared() {
+        snapshotJob?.cancel()
         beatJob?.cancel()
         extractAudioJob?.cancel()
         freezeJob?.cancel()
@@ -1583,6 +1647,7 @@ class EditorViewModel(
             transcriptionEngine: TranscriptionEngine? = null,
             freezeFrameExtractor: FreezeFrameExtractor? = null,
             videoAudioExtractor: VideoAudioExtractor? = null,
+            frameSnapshotSaver: FrameSnapshotSaver? = null,
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -1602,6 +1667,7 @@ class EditorViewModel(
                     transcriptionEngine = transcriptionEngine,
                     freezeFrameExtractor = freezeFrameExtractor,
                     videoAudioExtractor = videoAudioExtractor,
+                    frameSnapshotSaver = frameSnapshotSaver,
                 ) as T
             }
         }

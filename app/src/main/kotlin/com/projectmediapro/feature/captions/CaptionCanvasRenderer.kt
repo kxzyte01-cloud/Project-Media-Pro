@@ -5,9 +5,11 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
+import java.io.File
 import java.util.EnumMap
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sin
 
 object CaptionCanvasRenderer {
     private const val BASE_FONT_RATIO = 0.062f
@@ -25,6 +27,7 @@ object CaptionCanvasRenderer {
     )
 
     private val typefaceCache = EnumMap<CaptionFontFamily, Typeface>(CaptionFontFamily::class.java)
+    private val customTypefaceCache = LinkedHashMap<String, Typeface>(8, 0.75f, true)
     private val editorialItalicTypeface: Typeface by lazy {
         Typeface.create(Typeface.SERIF, Typeface.BOLD_ITALIC)
     }
@@ -86,7 +89,8 @@ object CaptionCanvasRenderer {
         }
         val fontPx = minDim * BASE_FONT_RATIO * templateFontBoost *
             style.fontSizeScale.coerceIn(CaptionStyleBounds.FONT_SCALE_RANGE)
-        val typeface = when (style.templateId) {
+        val customTypeface = resolveCustomTypeface(style.customFontPath)
+        val typeface = customTypeface ?: when (style.templateId) {
             CaptionTemplateId.EDITORIAL_SCRATCH -> editorialRegularTypeface
             CaptionTemplateId.KINETIC_GRUNGE -> resolveTypeface(CaptionFontFamily.CONDENSED_DISPLAY)
             else -> resolveTypeface(style.fontFamily)
@@ -421,15 +425,51 @@ object CaptionCanvasRenderer {
         fontPx: Float,
         frameState: CaptionFrameState,
     ) {
-        // Gentle floating dust/snow bokeh particles
+        // Soft dark atmospheric card scrim behind the Music Player lyric stack for crisp contrast
+        val scrimHalfW = widthPx * 0.44f
+        scratch.boxRect.set(
+            centerX - scrimHalfW,
+            blockTop - fontPx * 1.25f,
+            centerX + scrimHalfW,
+            blockTop + blockHeight + fontPx * 2.25f,
+        )
+        scratch.boxPaint.color = applyAlpha(0x52050811.toInt(), frameState.lineAlpha)
+        canvas.drawRoundRect(scratch.boxRect, fontPx * 0.45f, fontPx * 0.45f, scratch.boxPaint)
+
+        // Viral multi-layer parallax falling rain streaks + drifting bokeh droplets
         val tSec = frameState.presentationTimeUs / 1_000_000f
         val fxPaint = scratch.fxPaint
+        val streakPaint = scratch.fxStrokePaint
         val minDim = min(widthPx, heightPx)
-        for (i in 0 until 12) {
-            val baseX = ((i * 83 + 17) % 100) / 100f
-            val baseY = (((i * 37 + 11) % 100) / 100f + tSec * (0.04f + (i % 3) * 0.015f)) % 1.0f
-            val r = minDim * (0.0025f + (i % 3) * 0.0014f)
-            fxPaint.color = applyAlpha(0xFFFFFFFF.toInt(), frameState.lineAlpha * 0.28f)
+
+        // Layer 1: Diagonal falling rain streaks at two parallax speeds
+        for (i in 0 until 28) {
+            val isForeground = (i % 3 == 0)
+            val speedY = if (isForeground) 0.58f + (i % 5) * 0.05f else 0.32f + (i % 4) * 0.04f
+            val windX = if (isForeground) -0.055f else -0.032f
+            val rawX = (((i * 67 + 13) % 100) / 100f + tSec * windX) % 1.0f
+            val normX = if (rawX < 0f) rawX + 1.0f else rawX
+            val normY = (((i * 41 + 7) % 100) / 100f + tSec * speedY) % 1.0f
+
+            val x1 = normX * widthPx
+            val y1 = normY * heightPx
+            val streakLen = minDim * (if (isForeground) 0.052f else 0.030f)
+            val dx = streakLen * -0.14f
+            val dy = streakLen
+            streakPaint.strokeWidth = max(1f, minDim * (if (isForeground) 0.0032f else 0.0018f))
+            val alpha = frameState.lineAlpha * (if (isForeground) 0.48f else 0.26f)
+            streakPaint.color = applyAlpha(0xFFE0F2FE.toInt(), alpha)
+            canvas.drawLine(x1, y1, x1 + dx, y1 + dy, streakPaint)
+        }
+
+        // Layer 2: Soft glowing snow/raindrop bokeh orbs with gentle wind sway
+        for (i in 0 until 18) {
+            val sway = sin((tSec * (1.1f + (i % 4) * 0.25f) + i * 0.9f).toDouble()).toFloat() * 0.018f
+            val baseX = ((((i * 83 + 17) % 100) / 100f) + sway).coerceIn(0f, 1f)
+            val baseY = (((i * 37 + 11) % 100) / 100f + tSec * (0.09f + (i % 4) * 0.03f)) % 1.0f
+            val r = minDim * (0.0028f + (i % 4) * 0.0016f)
+            val orbAlpha = frameState.lineAlpha * (0.20f + (i % 4) * 0.08f)
+            fxPaint.color = applyAlpha(0xFFFFFFFF.toInt(), orbAlpha)
             canvas.drawCircle(baseX * widthPx, baseY * heightPx, r, fxPaint)
         }
 
@@ -643,6 +683,23 @@ object CaptionCanvasRenderer {
             lines.add(WrappedLine(current, currentWidth))
         }
         return lines
+    }
+
+    private fun resolveCustomTypeface(path: String?): Typeface? {
+        if (path.isNullOrBlank()) return null
+        val file = File(path)
+        if (!file.isFile) return null
+        return synchronized(customTypefaceCache) {
+            customTypefaceCache[path] ?: runCatching {
+                Typeface.createFromFile(file)
+            }.getOrNull()?.also { loaded ->
+                if (customTypefaceCache.size >= 12) {
+                    val eldest = customTypefaceCache.entries.iterator().next().key
+                    customTypefaceCache.remove(eldest)
+                }
+                customTypefaceCache[path] = loaded
+            }
+        }
     }
 
     private fun resolveTypeface(family: CaptionFontFamily): Typeface =

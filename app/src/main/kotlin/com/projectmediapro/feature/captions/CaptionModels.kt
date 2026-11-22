@@ -241,6 +241,7 @@ data class CaptionStyle(
     val backgroundBoxColorArgb: Long = 0xB30F172AL,
     val uppercase: Boolean = false,
     val position: CaptionPosition = CaptionPosition(),
+    val customFontPath: String? = null,
 ) {
     fun withTemplate(newTemplateId: CaptionTemplateId): CaptionStyle {
         val template = CaptionTemplateRegistry.byId(newTemplateId)

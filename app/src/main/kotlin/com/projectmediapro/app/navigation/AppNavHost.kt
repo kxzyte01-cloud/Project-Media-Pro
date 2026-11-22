@@ -100,6 +100,7 @@ fun AppNavHost(
             val viewModel: TemplatesViewModel = viewModel(
                 factory = TemplatesViewModel.provideFactory(
                     templateRepository = container.templateRepository,
+                    templateMediaStorage = container.templateMediaStorage,
                 ),
             )
             val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -224,6 +225,7 @@ fun AppNavHost(
                     transcriptionEngine = container.transcriptionEngine,
                     freezeFrameExtractor = container.freezeFrameExtractor,
                     videoAudioExtractor = container.videoAudioExtractor,
+                    frameSnapshotSaver = container.frameSnapshotSaver,
                 ),
             )
             val uiState by viewModel.uiState.collectAsStateWithLifecycle()

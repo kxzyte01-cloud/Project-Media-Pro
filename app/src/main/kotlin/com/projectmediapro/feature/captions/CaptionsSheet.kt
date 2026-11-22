@@ -72,6 +72,7 @@ data class CaptionSheetCallbacks(
     val onGenerateWithScript: ((String) -> Unit)? = null,
     val onImportSrt: (() -> Unit)? = null,
     val onExportSrt: (() -> Unit)? = null,
+    val onImportCustomFont: (() -> Unit)? = null,
 )
 
 private data class ColorSwatch(
@@ -279,6 +280,7 @@ fun CaptionsEditorSheet(
                 StyleCustomizationSection(
                     style = document.style,
                     onUpdateStyle = callbacks.onUpdateStyle,
+                    onImportCustomFont = callbacks.onImportCustomFont,
                 )
 
                 SectionHeader(title = stringResource(R.string.captions_section_words))
@@ -393,6 +395,7 @@ private fun formatCaptionTimestamp(durationMs: Long): String {
 private fun StyleCustomizationSection(
     style: CaptionStyle,
     onUpdateStyle: (CaptionStyle) -> Unit,
+    onImportCustomFont: (() -> Unit)? = null,
 ) {
     Column(
         verticalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
@@ -406,9 +409,26 @@ private fun StyleCustomizationSection(
         ) {
             CaptionFontFamily.entries.forEach { family ->
                 FilterChip(
-                    selected = style.fontFamily == family,
-                    onClick = { onUpdateStyle(style.copy(fontFamily = family)) },
+                    selected = style.customFontPath == null && style.fontFamily == family,
+                    onClick = { onUpdateStyle(style.copy(fontFamily = family, customFontPath = null)) },
                     label = { Text(text = family.displayName) },
+                )
+            }
+            if (onImportCustomFont != null) {
+                FilterChip(
+                    selected = style.customFontPath != null,
+                    onClick = onImportCustomFont,
+                    label = {
+                        Text(
+                            text = stringResource(
+                                if (style.customFontPath != null) {
+                                    R.string.captions_custom_font_active
+                                } else {
+                                    R.string.captions_import_font
+                                },
+                            ),
+                        )
+                    },
                 )
             }
         }

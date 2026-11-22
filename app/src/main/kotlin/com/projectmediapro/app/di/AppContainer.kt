@@ -3,6 +3,8 @@ package com.projectmediapro.app.di
 import android.content.Context
 import com.projectmediapro.app.BuildConfig
 import com.projectmediapro.app.data.export.AndroidExportSaver
+import com.projectmediapro.app.data.export.AndroidFrameSnapshotSaver
+import com.projectmediapro.app.data.export.FrameSnapshotSaver
 import com.projectmediapro.app.data.export.ExportSaver
 import com.projectmediapro.app.data.export.Media3VideoExporter
 import com.projectmediapro.app.data.export.VideoExporter
@@ -94,6 +96,7 @@ class AppContainer(appContext: Context) {
     val freezeFrameExtractor: FreezeFrameExtractor = AndroidFreezeFrameExtractor()
     val videoAudioExtractor: VideoAudioExtractor = AndroidVideoAudioExtractor()
     val exportSaver: ExportSaver = AndroidExportSaver(context = appContext)
+    val frameSnapshotSaver: FrameSnapshotSaver = AndroidFrameSnapshotSaver(context = appContext)
     val exportTempDirectory: File = File(appContext.cacheDir, "exports")
     val cacheSpaceProvider: () -> Long = { usableBytesNear(exportTempDirectory) }
     val pcmAudioExtractor: PcmAudioExtractor = MediaCodecPcmAudioExtractor()

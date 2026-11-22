@@ -12,15 +12,19 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.projectmediapro.app.R
+import com.projectmediapro.core.designsystem.theme.MediaProShapes
 import com.projectmediapro.core.designsystem.theme.MediaProSpacing
 import com.projectmediapro.core.model.ExportBitrate
 import com.projectmediapro.core.model.ExportFrameRate
@@ -29,14 +33,16 @@ import com.projectmediapro.core.model.ExportQuality
 @Composable
 fun ExportQualityDialog(
     initialQuality: ExportQuality,
-    onConfirm: (ExportQuality, ExportFrameRate, ExportBitrate) -> Unit,
+    onConfirm: (ExportQuality, ExportFrameRate, ExportBitrate, Boolean) -> Unit,
     onDismiss: () -> Unit,
     initialFrameRate: ExportFrameRate = ExportFrameRate.AUTO,
     initialBitrate: ExportBitrate = ExportBitrate.STANDARD,
+    initialOpticalFlowEnabled: Boolean = false,
 ) {
     var selectedQuality by rememberSaveable { mutableStateOf(initialQuality) }
     var selectedFrameRate by rememberSaveable { mutableStateOf(initialFrameRate) }
     var selectedBitrate by rememberSaveable { mutableStateOf(initialBitrate) }
+    var opticalFlowEnabled by rememberSaveable { mutableStateOf(initialOpticalFlowEnabled) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -115,12 +121,47 @@ fun ExportQualityDialog(
                         )
                     }
                 }
+
+                Spacer(modifier = Modifier.height(MediaProSpacing.ExtraSmall))
+                Surface(
+                    shape = MediaProShapes.Medium,
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(
+                                horizontal = MediaProSpacing.MediumSmall,
+                                vertical = MediaProSpacing.Small,
+                            ),
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(R.string.editor_export_optical_flow_title),
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Text(
+                                text = stringResource(R.string.editor_export_optical_flow_hint),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Switch(
+                            checked = opticalFlowEnabled,
+                            onCheckedChange = { opticalFlowEnabled = it },
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
             DialogActionButton(
                 label = stringResource(R.string.editor_export_confirm),
-                onClick = { onConfirm(selectedQuality, selectedFrameRate, selectedBitrate) },
+                onClick = { onConfirm(selectedQuality, selectedFrameRate, selectedBitrate, opticalFlowEnabled) },
             )
         },
         dismissButton = {

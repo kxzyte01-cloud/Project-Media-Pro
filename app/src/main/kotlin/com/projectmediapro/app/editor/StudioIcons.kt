@@ -32,6 +32,7 @@ internal enum class StudioToolIconKind {
     CROP,
     FREEZE,
     EXTRACT_AUDIO,
+    SNAPSHOT,
     EFFECTS,
     POSITION,
     TIMING,
@@ -347,6 +348,19 @@ internal fun StudioToolIcon(
                     val x = w * 0.22f + (w * 0.56f) * (idx.toFloat() / wave.lastIndex.toFloat())
                     drawLine(tint, Offset(x, h * 0.74f - h * amp * 0.5f), Offset(x, h * 0.74f + h * amp * 0.5f), strokePx, StrokeCap.Round)
                 }
+            }
+            StudioToolIconKind.SNAPSHOT -> {
+                drawRoundRect(
+                    color = tint,
+                    topLeft = Offset(pad, h * 0.28f),
+                    size = Size(inner, h * 0.50f),
+                    cornerRadius = CornerRadius(w * 0.10f, w * 0.10f),
+                    style = stroke,
+                )
+                drawLine(tint, Offset(w * 0.36f, h * 0.28f), Offset(w * 0.42f, h * 0.18f), strokePx, StrokeCap.Round)
+                drawLine(tint, Offset(w * 0.42f, h * 0.18f), Offset(w * 0.58f, h * 0.18f), strokePx, StrokeCap.Round)
+                drawLine(tint, Offset(w * 0.58f, h * 0.18f), Offset(w * 0.64f, h * 0.28f), strokePx, StrokeCap.Round)
+                drawCircle(color = tint, radius = w * 0.14f, center = Offset(w * 0.50f, h * 0.53f), style = stroke)
             }
             StudioToolIconKind.BACK -> {
                 drawLine(tint, Offset(w * 0.64f, h * 0.24f), Offset(w * 0.34f, h * 0.50f), strokePx, StrokeCap.Round)

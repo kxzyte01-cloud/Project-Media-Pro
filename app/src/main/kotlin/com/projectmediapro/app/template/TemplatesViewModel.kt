@@ -3,7 +3,14 @@ package com.projectmediapro.app.template
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.projectmediapro.app.data.media.ProjectMediaStorage
+import com.projectmediapro.app.data.template.TemplatePackCodec
 import com.projectmediapro.app.data.template.TemplateRepository
+import java.io.InputStream
+import java.io.OutputStream
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.projectmediapro.core.model.StarterTemplates
 import com.projectmediapro.core.model.Template
 import java.io.IOException
@@ -41,6 +48,11 @@ sealed interface TemplatesEvent {
     data class RequestDelete(val templateId: String) : TemplatesEvent
     data object CancelDelete : TemplatesEvent
     data object ConfirmDelete : TemplatesEvent
+    data class ImportTemplatePack(val openInputStream: () -> InputStream?) : TemplatesEvent
+    data class ExportTemplatePack(
+        val templateId: String,
+        val openOutputStream: () -> OutputStream?,
+    ) : TemplatesEvent
 }
 
 sealed interface TemplatesEffect {
@@ -49,6 +61,7 @@ sealed interface TemplatesEffect {
 
 class TemplatesViewModel(
     private val templateRepository: TemplateRepository,
+    private val templateMediaStorage: ProjectMediaStorage? = null,
     private val idProvider: () -> String = { UUID.randomUUID().toString() },
 ) : ViewModel() {
 
@@ -139,6 +152,45 @@ class TemplatesViewModel(
                     refreshTemplates()
                 }
             }
+            is TemplatesEvent.ImportTemplatePack -> {
+                val storage = templateMediaStorage ?: return
+                viewModelScope.launch {
+                    try {
+                        val imported = withContext(Dispatchers.IO) {
+                            val stream = event.openInputStream()
+                                ?: throw IOException("Could not open template pack")
+                            stream.use { input ->
+                                TemplatePackCodec.importTemplatePack(input, storage, idProvider)
+                            }
+                        }
+                        templateRepository.saveTemplate(imported)
+                        refreshTemplates()
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        _uiState.update { it.copy(error = TemplatesError.LOAD_FAILED) }
+                    }
+                }
+            }
+            is TemplatesEvent.ExportTemplatePack -> {
+                val storage = templateMediaStorage ?: return
+                val target = _uiState.value.templates.firstOrNull { it.id == event.templateId } ?: return
+                viewModelScope.launch {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            val stream = event.openOutputStream()
+                                ?: throw IOException("Could not create template pack")
+                            stream.use { output ->
+                                TemplatePackCodec.exportTemplatePack(target, storage, output)
+                            }
+                        }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        _uiState.update { it.copy(error = TemplatesError.SAVE_FAILED) }
+                    }
+                }
+            }
         }
     }
 
@@ -154,10 +206,14 @@ class TemplatesViewModel(
     companion object {
         fun provideFactory(
             templateRepository: TemplateRepository,
+            templateMediaStorage: ProjectMediaStorage? = null,
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return TemplatesViewModel(templateRepository = templateRepository) as T
+                return TemplatesViewModel(
+                    templateRepository = templateRepository,
+                    templateMediaStorage = templateMediaStorage,
+                ) as T
             }
         }
     }

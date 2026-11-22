@@ -217,7 +217,7 @@ object VideoEffectFactory {
             val keep = 1f - flash
             val rBoost = keep * (1f + glitch * 0.25f)
             val gBoost = keep * (1f - glitch * 0.12f)
-            val bBoost = keep * (1f + glitch * 0.30f + sample.reactiveGlow * 0.10f)
+            val bBoost = keep * (1f + glitch * 0.30f)
             // Column-major 4x4 RGB matrix
             out[0] = rBoost; out[1] = 0f;     out[2] = 0f;     out[3] = 0f
             out[4] = 0f;     out[5] = gBoost; out[6] = 0f;     out[7] = 0f

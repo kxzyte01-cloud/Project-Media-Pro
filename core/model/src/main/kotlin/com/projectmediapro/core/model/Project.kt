@@ -56,6 +56,7 @@ data class Project(
     val exportBitrate: ExportBitrate = ExportBitrate.STANDARD,
     val beatMarkers: List<BeatMarker> = emptyList(),
     val soundReactiveEnabled: Boolean = false,
+    val opticalFlowEnabled: Boolean = false,
 ) {
     companion object {
         const val CURRENT_SCHEMA_VERSION = 1

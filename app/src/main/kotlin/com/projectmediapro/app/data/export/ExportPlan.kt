@@ -102,6 +102,7 @@ data class ExportPlan(
     val captionDocument: CaptionDocument? = null,
     val beatMarkers: List<BeatMarker> = emptyList(),
     val soundReactiveEnabled: Boolean = false,
+    val opticalFlowEnabled: Boolean = false,
 )
 
 object ExportPlanner {
@@ -186,6 +187,7 @@ object ExportPlanner {
             captionDocument = captionDocument?.takeIf { it.lines.isNotEmpty() },
             beatMarkers = project.beatMarkers.map { it.sanitized() },
             soundReactiveEnabled = project.soundReactiveEnabled,
+            opticalFlowEnabled = project.opticalFlowEnabled,
         )
     }
 
@@ -363,6 +365,7 @@ object ExportPlanner {
         if (plan.overlays.isNotEmpty() || plan.textOverlays.isNotEmpty() || plan.captionDocument != null) return false
         if (plan.beatMarkers.any { it.effect != BeatEffectKind.NONE }) return false
         if (plan.soundReactiveEnabled && plan.beatMarkers.isNotEmpty()) return false
+        if (plan.opticalFlowEnabled) return false
         if (plan.exportFrameRate != ExportFrameRate.AUTO || plan.exportBitrate != ExportBitrate.STANDARD) return false
         val longSide = sourceLongSidePx ?: return false
         if (longSide <= 0 || longSide > ExportGeometry.longSideCapFor(plan.exportQuality)) return false

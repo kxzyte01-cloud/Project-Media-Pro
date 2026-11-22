@@ -207,7 +207,12 @@ class Media3VideoExporter(
             } else {
                 val mediaItem = buildClippedMediaItem(clip.path, clip.trimStartMs, clip.trimEndMs)
                 val speedVideoEffects = VideoEffectFactory.buildSpeedEffects(clip.playbackSpeed)
-                val allVideoEffects = cropEffects + transformEffects + presentationEffects + clipEffects + speedVideoEffects + frameRateEffects
+                val opticalFlowEffects = if (!useTransmuxFastPath && plan.opticalFlowEnabled) {
+                    listOf(OpticalFlowGlEffect())
+                } else {
+                    emptyList()
+                }
+                val allVideoEffects = cropEffects + transformEffects + presentationEffects + clipEffects + speedVideoEffects + frameRateEffects + opticalFlowEffects
                 val audioProcessors = buildAudioProcessors(
                     volume = clip.volume,
                     audioBoost = clip.audioBoost,
@@ -384,11 +389,16 @@ class Media3VideoExporter(
                         .setAudioMimeType(MimeTypes.AUDIO_AAC)
                         .addListener(listener)
                     if (!useTransmuxFastPath) {
-                        val targetBitrateBps = ExportGeometry.targetBitrateBps(
+                        val baseBitrateBps = ExportGeometry.targetBitrateBps(
                             quality = plan.exportQuality,
                             frameRate = plan.exportFrameRate,
                             bitrate = plan.exportBitrate,
                         )
+                        val targetBitrateBps = if (plan.opticalFlowEnabled) {
+                            (baseBitrateBps * 1.15).toInt()
+                        } else {
+                            baseBitrateBps
+                        }
                         val encoderFactory = DefaultEncoderFactory.Builder(context)
                             .setRequestedVideoEncoderSettings(
                                 VideoEncoderSettings.Builder()

@@ -48,6 +48,7 @@ internal fun StudioBottomDock(
     onPickOverlay: () -> Unit,
     onReplaceVideo: () -> Unit,
     onReplaceAudio: () -> Unit,
+    onSaveSnapshot: (Long) -> Unit,
     onEvent: (EditorEvent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -94,6 +95,7 @@ internal fun StudioBottomDock(
                         editsEnabled = editsEnabled,
                         onReplaceVideo = onReplaceVideo,
                         onReplaceAudio = onReplaceAudio,
+                        onSaveSnapshot = onSaveSnapshot,
                         onEvent = onEvent,
                     )
                 }
@@ -171,6 +173,7 @@ private fun SelectedClipDockItems(
     editsEnabled: Boolean,
     onReplaceVideo: () -> Unit,
     onReplaceAudio: () -> Unit,
+    onSaveSnapshot: (Long) -> Unit,
     onEvent: (EditorEvent) -> Unit,
 ) {
     val clip = location.clip
@@ -369,6 +372,12 @@ private fun SelectedClipDockItems(
                 label = stringResource(R.string.editor_tool_freeze),
                 enabled = editsEnabled && !clip.isStillImage,
                 onClick = { onEvent(EditorEvent.OpenFreezeFrame) },
+            )
+            StudioDockTile(
+                icon = StudioToolIconKind.SNAPSHOT,
+                label = stringResource(R.string.editor_tool_snapshot),
+                enabled = editsEnabled && !clip.isStillImage,
+                onClick = { onSaveSnapshot(timelinePositionMs) },
             )
             StudioDockTile(
                 icon = StudioToolIconKind.EFFECTS,

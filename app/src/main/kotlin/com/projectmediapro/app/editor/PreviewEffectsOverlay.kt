@@ -61,11 +61,12 @@ internal fun PreviewEffectsOverlay(
             }
         }
 
-        if (beatSample.flashAlpha > 0.001f) {
+        val whitePulseAlpha = (beatSample.flashAlpha + beatSample.reactiveGlow * 0.08f).coerceIn(0f, 0.9f)
+        if (whitePulseAlpha > 0.001f) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.White.copy(alpha = beatSample.flashAlpha.coerceIn(0f, 0.9f))),
+                    .background(Color.White.copy(alpha = whitePulseAlpha)),
             )
         }
         if (beatSample.glitchAmount > 0.001f) {
@@ -74,14 +75,6 @@ internal fun PreviewEffectsOverlay(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color(0xFFC084FC).copy(alpha = glitchAlpha)),
-            )
-        }
-        if (beatSample.reactiveGlow > 0.001f) {
-            val glowAlpha = (beatSample.reactiveGlow * 0.16f).coerceIn(0f, 0.22f)
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color(0xFF38BDF8).copy(alpha = glowAlpha)),
             )
         }
 

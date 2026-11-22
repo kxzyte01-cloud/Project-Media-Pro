@@ -272,6 +272,7 @@ internal fun editorErrorStringRes(error: EditorError): Int = when (error) {
     EditorError.FREEZE_FRAME_FAILED -> R.string.error_freeze_frame_failed
     EditorError.EXTRACT_AUDIO_FAILED -> R.string.error_extract_audio_failed
     EditorError.BEATS_DETECT_FAILED -> R.string.error_beats_detect_failed
+    EditorError.SNAPSHOT_FAILED -> R.string.error_snapshot_failed
 }
 
 @Composable
