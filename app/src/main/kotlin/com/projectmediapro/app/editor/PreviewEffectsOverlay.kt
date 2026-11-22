@@ -18,7 +18,6 @@ import com.projectmediapro.core.designsystem.theme.MediaProSpacing
 import com.projectmediapro.core.model.BeatEffectEvaluator
 import com.projectmediapro.core.model.BeatMarker
 import com.projectmediapro.core.model.Clip
-import com.projectmediapro.core.model.ClipTransition
 import com.projectmediapro.core.model.VideoFilterPreset
 
 /**
@@ -38,27 +37,20 @@ internal fun PreviewEffectsOverlay(
     val effects = active?.clip?.visualEffects?.takeUnless { it.isIdentity }
     if (effects == null && beatSample.flashAlpha <= 0.001f && beatSample.glitchAmount <= 0.001f && beatSample.reactiveGlow <= 0.001f) return
 
-    val fade = if (effects != null && active != null) {
-        effects.fadeOverlayAt(active.positionInClipMs, active.clipDurationMs)
+    val transitionTransform = if (effects != null) {
+        effects.transitionTransformAt(active.positionInClipMs, active.clipDurationMs)
     } else {
         null
     }
 
     Box(modifier = modifier.fillMaxSize()) {
-        if (fade != null) {
-            val (transition, alpha) = fade
-            val scrimColor = when (transition) {
-                ClipTransition.FADE_BLACK -> Color.Black.copy(alpha = alpha.coerceIn(0f, 1f))
-                ClipTransition.FADE_WHITE -> Color.White.copy(alpha = alpha.coerceIn(0f, 1f))
-                ClipTransition.NONE -> Color.Transparent
-            }
-            if (scrimColor != Color.Transparent) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(scrimColor),
-                )
-            }
+        if (transitionTransform != null && transitionTransform.scrimAlpha > 0.001f) {
+            val baseColor = if (transitionTransform.scrimIsWhite) Color.White else Color.Black
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(baseColor.copy(alpha = transitionTransform.scrimAlpha.coerceIn(0f, 1f))),
+            )
         }
 
         val whitePulseAlpha = (beatSample.flashAlpha + beatSample.reactiveGlow * 0.08f).coerceIn(0f, 0.9f)

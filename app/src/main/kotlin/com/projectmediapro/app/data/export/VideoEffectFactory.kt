@@ -23,6 +23,8 @@ import com.projectmediapro.core.model.ClipTransition
 import com.projectmediapro.core.model.ClipVisualEffects
 import com.projectmediapro.core.model.FilterGradeSpec
 import com.projectmediapro.core.model.ProjectTimeline
+import com.projectmediapro.core.model.SpeedRampEvaluator
+import com.projectmediapro.core.model.SpeedRampPreset
 import com.projectmediapro.core.model.gradeSpec
 
 /**
@@ -98,10 +100,26 @@ object VideoEffectFactory {
         }
     }
 
-    fun buildSpeedEffects(playbackSpeed: Float): List<Effect> {
+    fun buildSpeedProvider(
+        playbackSpeed: Float,
+        speedRamp: SpeedRampPreset = SpeedRampPreset.NONE,
+        sourceSpanMs: Long = 0L,
+    ): SpeedProvider? {
+        if (speedRamp != SpeedRampPreset.NONE && sourceSpanMs > 0L) {
+            return RampSpeedProvider(speedRamp, sourceSpanMs * 1_000L)
+        }
         val safeSpeed = ProjectTimeline.sanitizeSpeed(playbackSpeed)
-        if (safeSpeed == Clip.DEFAULT_PLAYBACK_SPEED) return emptyList()
-        return listOf(SpeedChangeEffect(ConstantSpeedProvider(safeSpeed)))
+        if (safeSpeed == Clip.DEFAULT_PLAYBACK_SPEED) return null
+        return ConstantSpeedProvider(safeSpeed)
+    }
+
+    fun buildSpeedEffects(
+        playbackSpeed: Float,
+        speedRamp: SpeedRampPreset = SpeedRampPreset.NONE,
+        sourceSpanMs: Long = 0L,
+    ): List<Effect> {
+        val provider = buildSpeedProvider(playbackSpeed, speedRamp, sourceSpanMs) ?: return emptyList()
+        return listOf(SpeedChangeEffect(provider))
     }
 
     fun buildClipEffects(
@@ -139,6 +157,11 @@ object VideoEffectFactory {
                 )
             }
             if (clipDurationMs > 0L && safe.hasFades) {
+                val hasMotionTransition = safe.transitionIn !in listOf(ClipTransition.NONE, ClipTransition.FADE_BLACK, ClipTransition.FADE_WHITE) ||
+                    safe.transitionOut !in listOf(ClipTransition.NONE, ClipTransition.FADE_BLACK, ClipTransition.FADE_WHITE)
+                if (hasMotionTransition) {
+                    add(ClipTransitionMatrixTransformation(safe, clipDurationMs))
+                }
                 add(ClipFadeRgbMatrix(safe, clipDurationMs))
             }
         }
@@ -234,6 +257,47 @@ object VideoEffectFactory {
         override fun getNextSpeedChangeTimeUs(timeUs: Long): Long = C.TIME_UNSET
     }
 
+    private class RampSpeedProvider(
+        private val preset: SpeedRampPreset,
+        private val sourceDurationUs: Long,
+    ) : SpeedProvider {
+        override fun getSpeed(timeUs: Long): Float =
+            SpeedRampEvaluator.speedAt(preset, timeUs, sourceDurationUs)
+
+        override fun getNextSpeedChangeTimeUs(timeUs: Long): Long {
+            val next = SpeedRampEvaluator.nextChangeTimeUs(preset, timeUs, sourceDurationUs)
+            return if (next >= 0L) next else C.TIME_UNSET
+        }
+    }
+
+    private class ClipTransitionMatrixTransformation(
+        private val effects: ClipVisualEffects,
+        private val clipDurationMs: Long,
+    ) : MatrixTransformation {
+        private val matrixLocal = object : ThreadLocal<Matrix>() {
+            override fun initialValue(): Matrix = Matrix()
+        }
+
+        override fun getMatrix(presentationTimeUs: Long): Matrix {
+            val matrix = matrixLocal.get() ?: Matrix()
+            matrix.reset()
+            val posMs = (presentationTimeUs / 1_000L).coerceAtLeast(0L)
+            val transform = effects.transitionTransformAt(posMs, clipDurationMs)
+            if (!transform.isIdentity) {
+                if (transform.scale != 1f) {
+                    matrix.postScale(transform.scale, transform.scale)
+                }
+                if (transform.translationXFraction != 0f || transform.translationYFraction != 0f) {
+                    matrix.postTranslate(
+                        transform.translationXFraction * 2f,
+                        -transform.translationYFraction * 2f,
+                    )
+                }
+            }
+            return matrix
+        }
+    }
+
     private class ClipFadeRgbMatrix(
         private val effects: ClipVisualEffects,
         private val clipDurationMs: Long,
@@ -241,13 +305,11 @@ object VideoEffectFactory {
 
         override fun getMatrix(presentationTimeUs: Long, useHdr: Boolean): FloatArray {
             val posMs = (presentationTimeUs / 1_000L).coerceAtLeast(0L)
-            val fade = effects.fadeOverlayAt(posMs, clipDurationMs) ?: return IDENTITY_MATRIX
-            val (transition, overlayAlpha) = fade
+            val transform = effects.transitionTransformAt(posMs, clipDurationMs)
+            if (transform.scrimAlpha <= 0.001f) return IDENTITY_MATRIX
+            val overlayAlpha = transform.scrimAlpha.coerceIn(0f, 1f)
             val visibility = (1f - overlayAlpha).coerceIn(0f, 1f)
-            val offset = when (transition) {
-                ClipTransition.FADE_WHITE -> overlayAlpha.coerceIn(0f, 1f)
-                ClipTransition.FADE_BLACK, ClipTransition.NONE -> 0f
-            }
+            val offset = if (transform.scrimIsWhite) overlayAlpha else 0f
             return floatArrayOf(
                 visibility, 0f, 0f, 0f,
                 0f, visibility, 0f, 0f,

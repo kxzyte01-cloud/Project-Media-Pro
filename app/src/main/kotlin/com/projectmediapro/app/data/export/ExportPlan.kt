@@ -13,6 +13,7 @@ import com.projectmediapro.core.model.KeyframeInterpolator
 import com.projectmediapro.core.model.OverlayKeyframe
 import com.projectmediapro.core.model.Project
 import com.projectmediapro.core.model.ProjectTimeline
+import com.projectmediapro.core.model.SpeedRampPreset
 import com.projectmediapro.core.model.TextOverlayStyle
 import com.projectmediapro.core.model.audioClips as modelAudioClips
 import com.projectmediapro.core.model.overlayClips as modelOverlayClips
@@ -38,6 +39,8 @@ data class ExportClip(
     val audioFadeInMs: Long = 0L,
     val audioFadeOutMs: Long = 0L,
     val playbackSpeed: Float = Clip.DEFAULT_PLAYBACK_SPEED,
+    val speedRamp: SpeedRampPreset = SpeedRampPreset.NONE,
+    val sourceSpanMs: Long = 0L,
     val rotationDegrees: Int = 0,
     val flipHorizontal: Boolean = false,
     val flipVertical: Boolean = false,
@@ -145,6 +148,8 @@ object ExportPlanner {
                     audioFadeInMs = ProjectTimeline.sanitizeAudioFadeMs(clip.audioFadeInMs, clipDurationMs),
                     audioFadeOutMs = ProjectTimeline.sanitizeAudioFadeMs(clip.audioFadeOutMs, clipDurationMs),
                     playbackSpeed = ProjectTimeline.effectiveSpeed(clip),
+                    speedRamp = clip.speedRamp,
+                    sourceSpanMs = ProjectTimeline.effectiveSourceSpanMs(clip),
                     rotationDegrees = ProjectTimeline.normalizeRotationDegrees(clip.rotationDegrees),
                     flipHorizontal = clip.flipHorizontal,
                     flipVertical = clip.flipVertical,
@@ -376,7 +381,8 @@ object ExportPlanner {
             clip.rotationDegrees == 0 &&
             !clip.flipHorizontal &&
             !clip.flipVertical &&
-            clip.playbackSpeed == Clip.DEFAULT_PLAYBACK_SPEED
+            clip.playbackSpeed == Clip.DEFAULT_PLAYBACK_SPEED &&
+            clip.speedRamp == SpeedRampPreset.NONE
     }
 
     fun fitExportSize(width: Int, height: Int): Pair<Int, Int>? =

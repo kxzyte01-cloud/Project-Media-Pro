@@ -627,8 +627,8 @@ private fun LoadedStudioWorkspace(
             if (location != null && !location.isFreeTimed) {
                 ClipSpeedDialog(
                     clip = location.clip,
-                    onConfirm = { speed ->
-                        onEvent(EditorEvent.ApplySpeed(speed = speed))
+                    onConfirm = { speed, speedRamp ->
+                        onEvent(EditorEvent.ApplySpeed(speed = speed, speedRamp = speedRamp))
                     },
                     onDismiss = { onEvent(EditorEvent.DismissDialog) },
                 )
@@ -1066,6 +1066,14 @@ private fun EditorPreviewStage(
             Modifier.size(width = availWidth, height = availWidth / safeAspect)
         }
         val beatSample = BeatEffectEvaluator.evaluate(beatMarkers, timelinePositionMs, soundReactiveEnabled)
+        val activeClipAtTime = TimelineClock.activeClipAt(videoClips, timelinePositionMs)
+        val clipTransitionTransform = activeClipAtTime?.clip?.visualEffects?.transitionTransformAt(
+            positionInClipMs = activeClipAtTime.positionInClipMs,
+            clipDurationMs = activeClipAtTime.clipDurationMs,
+        )
+        val combinedScale = beatSample.scale * (clipTransitionTransform?.scale ?: 1f)
+        val combinedTx = beatSample.translationXFraction + (clipTransitionTransform?.translationXFraction ?: 0f)
+        val combinedTy = beatSample.translationYFraction + (clipTransitionTransform?.translationYFraction ?: 0f)
         Box(
             contentAlignment = Alignment.Center,
             modifier = stageModifier
@@ -1082,10 +1090,10 @@ private fun EditorPreviewStage(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    scaleX = beatSample.scale
-                    scaleY = beatSample.scale
-                    translationX = size.width * beatSample.translationXFraction
-                    translationY = size.height * beatSample.translationYFraction
+                    scaleX = combinedScale
+                    scaleY = combinedScale
+                    translationX = size.width * combinedTx
+                    translationY = size.height * combinedTy
                 },
         ) {
         if (!hasVideoClips && textClips.isEmpty()) {

@@ -31,6 +31,7 @@ data class Clip(
     val audioBoost: Float = DEFAULT_AUDIO_BOOST,
     val audioFadeInMs: Long = 0L,
     val audioFadeOutMs: Long = 0L,
+    val speedRamp: SpeedRampPreset = SpeedRampPreset.NONE,
 ) {
     val hasActiveTransform: Boolean
         get() = (rotationDegrees % 360) != 0 || flipHorizontal || flipVertical

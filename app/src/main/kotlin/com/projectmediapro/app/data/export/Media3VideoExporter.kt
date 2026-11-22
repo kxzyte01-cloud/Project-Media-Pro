@@ -14,6 +14,7 @@ import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.ChannelMixingAudioProcessor
 import androidx.media3.common.audio.ChannelMixingMatrix
 import androidx.media3.common.audio.SonicAudioProcessor
+import androidx.media3.common.audio.SpeedChangingAudioProcessor
 import androidx.media3.common.util.Size
 import androidx.media3.effect.BitmapOverlay
 import androidx.media3.effect.FrameDropEffect
@@ -39,6 +40,7 @@ import com.projectmediapro.core.model.ExportFrameRate
 import com.projectmediapro.core.model.KeyframeInterpolator
 import com.projectmediapro.core.model.OverlayKeyframe
 import com.projectmediapro.core.model.ProjectTimeline
+import com.projectmediapro.core.model.SpeedRampPreset
 import com.projectmediapro.core.model.ResolvedOverlayTransform
 import com.projectmediapro.feature.captions.CaptionOverlayEffectFactory
 import java.io.File
@@ -206,13 +208,17 @@ class Media3VideoExporter(
                     .build()
             } else {
                 val mediaItem = buildClippedMediaItem(clip.path, clip.trimStartMs, clip.trimEndMs)
-                val speedVideoEffects = VideoEffectFactory.buildSpeedEffects(clip.playbackSpeed)
+                val speedVideoEffects = VideoEffectFactory.buildSpeedEffects(
+                    playbackSpeed = clip.playbackSpeed,
+                    speedRamp = clip.speedRamp,
+                    sourceSpanMs = clip.sourceSpanMs,
+                )
                 val opticalFlowEffects = if (!useTransmuxFastPath && plan.opticalFlowEnabled) {
                     listOf(OpticalFlowGlEffect())
                 } else {
                     emptyList()
                 }
-                val allVideoEffects = cropEffects + transformEffects + presentationEffects + clipEffects + speedVideoEffects + frameRateEffects + opticalFlowEffects
+                val allVideoEffects = cropEffects + transformEffects + presentationEffects + speedVideoEffects + clipEffects + frameRateEffects + opticalFlowEffects
                 val audioProcessors = buildAudioProcessors(
                     volume = clip.volume,
                     audioBoost = clip.audioBoost,
@@ -220,6 +226,8 @@ class Media3VideoExporter(
                     fadeOutMs = clip.audioFadeOutMs,
                     clipDurationMs = clip.durationMs,
                     playbackSpeed = clip.playbackSpeed,
+                    speedRamp = clip.speedRamp,
+                    sourceSpanMs = clip.sourceSpanMs,
                 )
                 EditedMediaItem.Builder(mediaItem)
                     .setEffects(Effects(audioProcessors, allVideoEffects))
@@ -296,10 +304,17 @@ class Media3VideoExporter(
         fadeOutMs: Long = 0L,
         clipDurationMs: Long = 0L,
         playbackSpeed: Float,
+        speedRamp: SpeedRampPreset = SpeedRampPreset.NONE,
+        sourceSpanMs: Long = 0L,
     ): List<AudioProcessor> = buildList {
-        val safeSpeed = ProjectTimeline.sanitizeSpeed(playbackSpeed)
-        if (safeSpeed != Clip.DEFAULT_PLAYBACK_SPEED) {
-            add(SonicAudioProcessor().apply { setSpeed(safeSpeed) })
+        val speedProvider = VideoEffectFactory.buildSpeedProvider(playbackSpeed, speedRamp, sourceSpanMs)
+        if (speedRamp != SpeedRampPreset.NONE && speedProvider != null) {
+            add(SpeedChangingAudioProcessor(speedProvider))
+        } else {
+            val safeSpeed = ProjectTimeline.sanitizeSpeed(playbackSpeed)
+            if (safeSpeed != Clip.DEFAULT_PLAYBACK_SPEED) {
+                add(SonicAudioProcessor().apply { setSpeed(safeSpeed) })
+            }
         }
         val clampedVolume = ProjectTimeline.sanitizeVolume(volume)
         val clampedBoost = ProjectTimeline.sanitizeAudioBoost(audioBoost)

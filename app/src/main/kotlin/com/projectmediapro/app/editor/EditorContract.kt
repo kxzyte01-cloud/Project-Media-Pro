@@ -11,6 +11,7 @@ import com.projectmediapro.core.model.ExportFrameRate
 import com.projectmediapro.core.model.ExportQuality
 import com.projectmediapro.core.model.OverlayKeyframe
 import com.projectmediapro.core.model.Project
+import com.projectmediapro.core.model.SpeedRampPreset
 import com.projectmediapro.core.model.TextOverlayStyle
 import com.projectmediapro.core.model.TrackType
 import com.projectmediapro.feature.captions.CaptionDocument
@@ -141,7 +142,7 @@ sealed interface EditorEvent {
     data object DismissDialog : EditorEvent
     data class ApplyTrim(val startMs: Long, val endMs: Long) : EditorEvent
     data class ApplySplit(val offsetMs: Long) : EditorEvent
-    data class ApplySpeed(val speed: Float) : EditorEvent
+    data class ApplySpeed(val speed: Float, val speedRamp: SpeedRampPreset = SpeedRampPreset.NONE) : EditorEvent
     data class ApplyVolume(
         val volume: Float,
         val audioBoost: Float = Clip.DEFAULT_AUDIO_BOOST,

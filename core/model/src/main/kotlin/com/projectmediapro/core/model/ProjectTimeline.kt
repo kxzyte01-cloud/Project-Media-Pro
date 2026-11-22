@@ -105,7 +105,7 @@ object ProjectTimeline {
 
     fun effectiveDurationMs(clip: Clip): Long {
         val sourceSpanMs = effectiveSourceSpanMs(clip)
-        return scaledDurationMs(sourceSpanMs, clip.playbackSpeed)
+        return SpeedRampEvaluator.scaledDurationMs(sourceSpanMs, clip.playbackSpeed, clip.speedRamp)
     }
 
     fun isClipTrimmed(clip: Clip): Boolean {
@@ -381,7 +381,7 @@ object ProjectTimeline {
             return@modifyClipTrack null
         }
 
-        val timelineDurationMs = scaledDurationMs(trimmedSourceMs, clip.playbackSpeed)
+        val timelineDurationMs = SpeedRampEvaluator.scaledDurationMs(trimmedSourceMs, clip.playbackSpeed, clip.speedRamp)
         val updatedEffects = clip.visualEffects?.sanitized(timelineDurationMs)?.takeUnless { it.isIdentity }
         val updatedClip = clip.copy(
             durationMs = timelineDurationMs,
@@ -415,8 +415,8 @@ object ProjectTimeline {
             }
 
             val splitPointMs = currentStartMs + offsetMs
-            val firstTimelineDurationMs = scaledDurationMs(offsetMs, clip.playbackSpeed)
-            val secondTimelineDurationMs = scaledDurationMs(secondSourceDurationMs, clip.playbackSpeed)
+            val firstTimelineDurationMs = SpeedRampEvaluator.scaledDurationMs(offsetMs, clip.playbackSpeed, clip.speedRamp)
+            val secondTimelineDurationMs = SpeedRampEvaluator.scaledDurationMs(secondSourceDurationMs, clip.playbackSpeed, clip.speedRamp)
             val firstPart = clip.copy(
                 durationMs = firstTimelineDurationMs,
                 trimStartMs = currentStartMs,
@@ -546,8 +546,13 @@ object ProjectTimeline {
         project: Project,
         clipId: String,
         speed: Float,
+        speedRamp: SpeedRampPreset = SpeedRampPreset.NONE,
     ): Project {
-        val safeSpeed = sanitizeSpeed(speed)
+        val safeSpeed = if (speedRamp == SpeedRampPreset.NONE) {
+            sanitizeSpeed(speed)
+        } else {
+            Clip.DEFAULT_PLAYBACK_SPEED
+        }
         return modifyClipTrack(
             project = project,
             clipId = clipId,
@@ -558,10 +563,11 @@ object ProjectTimeline {
             val sourceSpanMs = effectiveSourceSpanMs(clip)
             val trimStartMs = effectiveTrimStartMs(clip)
             val trimEndMs = effectiveTrimEndMs(clip)
-            val newDurationMs = scaledDurationMs(sourceSpanMs, safeSpeed)
+            val newDurationMs = SpeedRampEvaluator.scaledDurationMs(sourceSpanMs, safeSpeed, speedRamp)
             val updatedEffects = clip.visualEffects?.sanitized(newDurationMs)?.takeUnless { it.isIdentity }
 
             if (clip.playbackSpeed == safeSpeed &&
+                clip.speedRamp == speedRamp &&
                 clip.durationMs == newDurationMs &&
                 clip.visualEffects == updatedEffects
             ) {
@@ -570,6 +576,7 @@ object ProjectTimeline {
 
             val updatedClip = clip.copy(
                 playbackSpeed = safeSpeed,
+                speedRamp = speedRamp,
                 durationMs = newDurationMs,
                 trimStartMs = trimStartMs,
                 trimEndMs = trimEndMs,
@@ -801,7 +808,7 @@ object ProjectTimeline {
                 0L to newDurationMs
             }
             val nextSourceSpan = (nextTrimEnd - nextTrimStart).coerceAtLeast(1L)
-            val nextTimelineDuration = scaledDurationMs(nextSourceSpan, clip.playbackSpeed)
+            val nextTimelineDuration = SpeedRampEvaluator.scaledDurationMs(nextSourceSpan, clip.playbackSpeed, clip.speedRamp)
             val nextEffects = clip.visualEffects?.sanitized(nextTimelineDuration)?.takeUnless { it.isIdentity }
             val replaced = clip.copy(
                 mediaUri = newMediaUri,
@@ -955,7 +962,7 @@ object ProjectTimeline {
         }
         val nextSpanMs = nextEndMs - nextStartMs
         if (nextSpanMs < MIN_CLIP_DURATION_MS) return clip.copy(id = newClipId)
-        val nextDurationMs = scaledDurationMs(nextSpanMs, speed)
+        val nextDurationMs = SpeedRampEvaluator.scaledDurationMs(nextSpanMs, speed, clip.speedRamp)
         return clip.copy(
             id = newClipId,
             durationMs = nextDurationMs,

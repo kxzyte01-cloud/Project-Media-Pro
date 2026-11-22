@@ -23,6 +23,33 @@ enum class ClipTransition {
     NONE,
     FADE_BLACK,
     FADE_WHITE,
+    ZOOM_IN,
+    ZOOM_OUT,
+    WHIP_LEFT,
+    WHIP_RIGHT,
+    SLIDE_UP,
+}
+
+/**
+ * Evaluated per-frame motion + scrim transform for a [ClipTransition], shared 1:1 between
+ * Compose live preview and Media3 GPU export.
+ */
+data class ClipTransitionTransform(
+    val scale: Float = 1f,
+    val translationXFraction: Float = 0f,
+    val translationYFraction: Float = 0f,
+    val scrimAlpha: Float = 0f,
+    val scrimIsWhite: Boolean = false,
+) {
+    val isIdentity: Boolean
+        get() = scale == 1f &&
+            translationXFraction == 0f &&
+            translationYFraction == 0f &&
+            scrimAlpha <= 0.001f
+
+    companion object {
+        val IDENTITY = ClipTransitionTransform()
+    }
 }
 
 /**
@@ -203,6 +230,67 @@ data class ClipVisualEffects(
             }
         }
         return null
+    }
+
+    fun transitionTransformAt(
+        positionInClipMs: Long,
+        clipDurationMs: Long,
+    ): ClipTransitionTransform {
+        if (clipDurationMs <= 0L) return ClipTransitionTransform.IDENTITY
+        val safe = sanitized(clipDurationMs)
+        val posMs = positionInClipMs.coerceIn(0L, clipDurationMs)
+
+        // Incoming transition (amount goes 1f -> 0f as clip enters)
+        if (safe.transitionIn != ClipTransition.NONE && safe.fadeInMs > 0L && posMs < safe.fadeInMs) {
+            val raw = (1f - posMs.toFloat() / safe.fadeInMs.toFloat()).coerceIn(0f, 1f)
+            return evalTransitionTransform(safe.transitionIn, raw, isExiting = false)
+        }
+        // Outgoing transition (amount goes 0f -> 1f as clip exits)
+        if (safe.transitionOut != ClipTransition.NONE && safe.fadeOutMs > 0L) {
+            val outStart = clipDurationMs - safe.fadeOutMs
+            if (posMs >= outStart) {
+                val raw = ((posMs - outStart).toFloat() / safe.fadeOutMs.toFloat()).coerceIn(0f, 1f)
+                return evalTransitionTransform(safe.transitionOut, raw, isExiting = true)
+            }
+        }
+        return ClipTransitionTransform.IDENTITY
+    }
+
+    private fun evalTransitionTransform(
+        transition: ClipTransition,
+        rawAmount: Float,
+        isExiting: Boolean,
+    ): ClipTransitionTransform {
+        val eased = rawAmount * rawAmount * (3f - 2f * rawAmount) // cubic smoothstep
+        val dir = if (isExiting) -1f else 1f
+        return when (transition) {
+            ClipTransition.NONE -> ClipTransitionTransform.IDENTITY
+            ClipTransition.FADE_BLACK -> ClipTransitionTransform(scrimAlpha = eased, scrimIsWhite = false)
+            ClipTransition.FADE_WHITE -> ClipTransitionTransform(scrimAlpha = eased, scrimIsWhite = true)
+            ClipTransition.ZOOM_IN -> ClipTransitionTransform(
+                scale = 1f + 0.36f * eased,
+                scrimAlpha = (eased * 0.45f).coerceIn(0f, 0.5f),
+            )
+            ClipTransition.ZOOM_OUT -> ClipTransitionTransform(
+                scale = (1f - 0.24f * eased).coerceAtLeast(0.72f),
+                scrimAlpha = (eased * 0.50f).coerceIn(0f, 0.55f),
+            )
+            ClipTransition.WHIP_LEFT -> ClipTransitionTransform(
+                scale = 1f + 0.14f * eased,
+                translationXFraction = -0.35f * eased * dir,
+                scrimAlpha = (eased * 0.35f).coerceIn(0f, 0.4f),
+            )
+            ClipTransition.WHIP_RIGHT -> ClipTransitionTransform(
+                scale = 1f + 0.14f * eased,
+                translationXFraction = 0.35f * eased * dir,
+                scrimAlpha = (eased * 0.35f).coerceIn(0f, 0.4f),
+            )
+            ClipTransition.SLIDE_UP -> ClipTransitionTransform(
+                scale = 1f + 0.10f * eased,
+                translationYFraction = -0.32f * eased * dir,
+                scrimAlpha = (eased * 0.35f).coerceIn(0f, 0.4f),
+            )
+        }
     }
 
     companion object {

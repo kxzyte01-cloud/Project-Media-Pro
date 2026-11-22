@@ -265,7 +265,7 @@ class EditorViewModel(
                 val location = current.project.findClipLocation(targetId) ?: return
                 if (location.isFreeTimed || location.clip.isStillImage) return
                 commitUndoableEdit(targetId) { project ->
-                    ProjectTimeline.setClipSpeed(project, targetId, event.speed)
+                    ProjectTimeline.setClipSpeed(project, targetId, event.speed, event.speedRamp)
                 }
             }
             is EditorEvent.ApplyVolume -> {

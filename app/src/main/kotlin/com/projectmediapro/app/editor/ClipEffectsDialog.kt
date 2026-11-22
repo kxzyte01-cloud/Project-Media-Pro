@@ -257,7 +257,9 @@ private fun FadeTransitionControl(
     EditorDialogSectionLabel(text = label)
     Row(
         horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
     ) {
         ClipTransition.entries.forEach { option ->
             EditorOptionCard(
@@ -271,19 +273,16 @@ private fun FadeTransitionControl(
                     }
                     onSelectTransition(option, nextMs)
                 },
-                modifier = Modifier.weight(1f),
             ) { contentColor ->
-                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        text = stringResource(transitionLabelRes(option)),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = contentColor,
-                        modifier = Modifier.padding(
-                            horizontal = MediaProSpacing.ExtraSmall,
-                            vertical = MediaProSpacing.Small,
-                        ),
-                    )
-                }
+                Text(
+                    text = stringResource(transitionLabelRes(option)),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = contentColor,
+                    modifier = Modifier.padding(
+                        horizontal = MediaProSpacing.MediumSmall,
+                        vertical = MediaProSpacing.Small,
+                    ),
+                )
             }
         }
     }
@@ -432,4 +431,9 @@ private fun transitionLabelRes(transition: ClipTransition): Int = when (transiti
     ClipTransition.NONE -> R.string.editor_transition_none
     ClipTransition.FADE_BLACK -> R.string.editor_transition_fade_black
     ClipTransition.FADE_WHITE -> R.string.editor_transition_fade_white
+    ClipTransition.ZOOM_IN -> R.string.editor_transition_zoom_in
+    ClipTransition.ZOOM_OUT -> R.string.editor_transition_zoom_out
+    ClipTransition.WHIP_LEFT -> R.string.editor_transition_whip_left
+    ClipTransition.WHIP_RIGHT -> R.string.editor_transition_whip_right
+    ClipTransition.SLIDE_UP -> R.string.editor_transition_slide_up
 }
