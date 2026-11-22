@@ -93,24 +93,25 @@ internal fun TextPreviewLayer(
                     canvasWidthPx = renderWidthPx,
                     canvasHeightPx = renderHeightPx,
                     maxWidthFraction = widthFraction,
-                ) ?: return@key
-
-            val displayWidthPx = loaded.width / renderScale
-            val displayHeightPx = loaded.height / renderScale
-            val leftPx = (clip.overlayCenterX.coerceIn(0f, 1f) * canvasWidthPx) - (displayWidthPx / 2f)
-            val topPx = (clip.overlayCenterY.coerceIn(0f, 1f) * canvasHeightPx) - (displayHeightPx / 2f)
-
-            val widthDp = with(density) { displayWidthPx.toDp() }
-            val heightDp = with(density) { displayHeightPx.toDp() }
-
-            Image(
-                bitmap = loaded,
-                contentDescription = null,
-                contentScale = ContentScale.FillBounds,
-                modifier = Modifier
-                    .offset { IntOffset(leftPx.roundToInt(), topPx.roundToInt()) }
-                    .size(width = widthDp, height = heightDp),
                 )
+                if (loaded != null) {
+                    val displayWidthPx = loaded.width / renderScale
+                    val displayHeightPx = loaded.height / renderScale
+                    val leftPx = (clip.overlayCenterX.coerceIn(0f, 1f) * canvasWidthPx) - (displayWidthPx / 2f)
+                    val topPx = (clip.overlayCenterY.coerceIn(0f, 1f) * canvasHeightPx) - (displayHeightPx / 2f)
+
+                    val widthDp = with(density) { displayWidthPx.toDp() }
+                    val heightDp = with(density) { displayHeightPx.toDp() }
+
+                    Image(
+                        bitmap = loaded,
+                        contentDescription = null,
+                        contentScale = ContentScale.FillBounds,
+                        modifier = Modifier
+                            .offset { IntOffset(leftPx.roundToInt(), topPx.roundToInt()) }
+                            .size(width = widthDp, height = heightDp),
+                    )
+                }
             }
         }
     }
