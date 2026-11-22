@@ -146,8 +146,8 @@ class ClipToolsATest {
             flipHorizontal = true,
             flipVertical = false,
         )
-        val encoded = ProjectSerializer.encode(project)
-        val decoded = ProjectSerializer.decode(encoded)
+        val encoded = ProjectSerializer.serialize(project)
+        val decoded = ProjectSerializer.deserialize(encoded)
         val restored = decoded.videoClips()[0]
 
         assertEquals(Project.CURRENT_SCHEMA_VERSION, decoded.schemaVersion)
@@ -157,7 +157,7 @@ class ClipToolsATest {
         assertFalse(restored.flipVertical)
 
         val legacyJson = """{"schemaVersion":1,"id":"p-old","title":"Legacy","tracks":[{"id":"t1","type":"VIDEO","clips":[{"id":"c1","mediaUri":"p-old/c1.mp4","startTimeMs":0,"durationMs":3000}]}]}"""
-        val legacyProject = ProjectSerializer.decode(legacyJson)
+        val legacyProject = ProjectSerializer.deserialize(legacyJson)
         val legacyClip = legacyProject.videoClips().first()
         assertEquals(1.0f, legacyClip.playbackSpeed, 0.0001f)
         assertEquals(1.0f, legacyClip.volume, 0.0001f)

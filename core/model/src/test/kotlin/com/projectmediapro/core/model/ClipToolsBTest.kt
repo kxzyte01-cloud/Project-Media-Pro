@@ -117,7 +117,7 @@ class ClipToolsBTest {
             imageMediaUri = "p1/freeze-1.png",
             durationMs = 2_000L,
         )
-        val restored = ProjectSerializer.decode(ProjectSerializer.encode(withFreeze))
+        val restored = ProjectSerializer.deserialize(ProjectSerializer.serialize(withFreeze))
         assertEquals(Project.CURRENT_SCHEMA_VERSION, restored.schemaVersion)
         assertEquals(0.15f, restored.videoClips()[0].crop?.left ?: -1f, 0.0001f)
         assertTrue(restored.videoClips()[1].isStillImage)
