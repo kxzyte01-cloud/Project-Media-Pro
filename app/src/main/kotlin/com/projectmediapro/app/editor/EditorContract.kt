@@ -1,5 +1,6 @@
 package com.projectmediapro.app.editor
 
+import com.projectmediapro.core.model.AudioEnhanceConfig
 import com.projectmediapro.core.model.BeatEffectKind
 import com.projectmediapro.core.model.CanvasAspect
 import com.projectmediapro.core.model.Clip
@@ -72,6 +73,8 @@ data class AudioPreviewState(
     val trimStartMs: Long = 0L,
     val trimEndMs: Long = 0L,
     val volume: Float = 1.0f,
+    val audioBoost: Float = Clip.DEFAULT_AUDIO_BOOST,
+    val audioEnhance: AudioEnhanceConfig? = null,
     val playbackSpeed: Float = Clip.DEFAULT_PLAYBACK_SPEED,
 )
 
@@ -149,6 +152,7 @@ sealed interface EditorEvent {
         val audioBoost: Float = Clip.DEFAULT_AUDIO_BOOST,
         val fadeInMs: Long = 0L,
         val fadeOutMs: Long = 0L,
+        val audioEnhance: AudioEnhanceConfig? = null,
     ) : EditorEvent
     data class ApplyTransform(
         val rotationDegrees: Int,

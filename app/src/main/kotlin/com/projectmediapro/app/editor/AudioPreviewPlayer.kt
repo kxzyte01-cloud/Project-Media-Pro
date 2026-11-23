@@ -15,6 +15,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.ProjectTimeline
 import java.io.File
 
@@ -28,10 +29,13 @@ fun AudioPreviewPlayer(
     val lifecycleOwner = LocalLifecycleOwner.current
     val currentOnEnded by rememberUpdatedState(onPlaybackEnded)
 
-    val player = remember(context) {
-        ExoPlayer.Builder(context).build().apply {
-            playWhenReady = false
-        }
+    val liveAudioProcessor = remember(context) { LiveAudioEnhanceProcessor() }
+    val player = remember(context, liveAudioProcessor) {
+        ExoPlayer.Builder(context, buildLiveAudioRenderersFactory(context, liveAudioProcessor))
+            .build()
+            .apply {
+                playWhenReady = false
+            }
     }
 
     DisposableEffect(player) {
@@ -68,6 +72,7 @@ fun AudioPreviewPlayer(
 
     LaunchedEffect(audioPreview) {
         if (audioPreview == null) {
+            liveAudioProcessor.update(Clip.DEFAULT_AUDIO_BOOST, null)
             player.playWhenReady = false
             player.stop()
             player.clearMediaItems()
@@ -94,6 +99,7 @@ fun AudioPreviewPlayer(
         } else {
             MediaItem.fromUri(uri)
         }
+        liveAudioProcessor.update(audioPreview.audioBoost, audioPreview.audioEnhance)
         player.volume = ProjectTimeline.sanitizeVolume(audioPreview.volume)
         player.setPlaybackSpeed(ProjectTimeline.sanitizeSpeed(audioPreview.playbackSpeed))
         player.setMediaItem(mediaItem)

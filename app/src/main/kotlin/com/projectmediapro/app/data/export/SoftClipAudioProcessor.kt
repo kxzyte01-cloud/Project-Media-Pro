@@ -3,6 +3,8 @@ package com.projectmediapro.app.data.export
 import androidx.media3.common.C
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.BaseAudioProcessor
+import com.projectmediapro.core.model.AudioEnhanceConfig
+import com.projectmediapro.core.model.AudioEqPreset
 import java.nio.ByteBuffer
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -37,6 +39,7 @@ object SoftClipMath {
     }
 
     fun softLimitNormalized(sample: Double): Double {
+        if (!sample.isFinite()) return 0.0
         val magnitude = abs(sample)
         if (magnitude <= KNEE_START) return sample
         val excess = (magnitude - KNEE_START) / KNEE_HEADROOM
@@ -56,8 +59,8 @@ object SoftClipMath {
 }
 
 /**
- * Media3 [BaseAudioProcessor] that applies 0–200% gain with a soft-knee anti-clipping limiter
- * and smooth linear Fade In / Fade Out envelopes during export.
+ * Media3 [BaseAudioProcessor] for export applying [AudioDspChain] (Noise Gate, RBJ Biquad EQ,
+ * soft-knee anti-clipping limiter) plus smooth linear Fade In / Fade Out envelopes.
  */
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 class SoftClipAudioProcessor(
@@ -65,21 +68,34 @@ class SoftClipAudioProcessor(
     private val fadeInMs: Long = 0L,
     private val fadeOutMs: Long = 0L,
     private val clipDurationMs: Long = 0L,
+    private val audioEnhance: AudioEnhanceConfig? = null,
 ) : BaseAudioProcessor() {
 
     private var framesProcessed: Long = 0L
+    private var dspChain: AudioDspChain? = null
 
     override fun onConfigure(
         inputAudioFormat: AudioProcessor.AudioFormat,
     ): AudioProcessor.AudioFormat {
-        if (inputAudioFormat.encoding != C.ENCODING_PCM_16BIT || inputAudioFormat.sampleRate <= 0 || inputAudioFormat.channelCount <= 0) {
+        if (inputAudioFormat.encoding != C.ENCODING_PCM_16BIT ||
+            inputAudioFormat.sampleRate <= 0 ||
+            inputAudioFormat.channelCount <= 0
+        ) {
             return AudioProcessor.AudioFormat.NOT_SET
         }
         val safeGain = gain.coerceIn(0f, 2.0f)
         val hasFades = fadeInMs > 0L || fadeOutMs > 0L
-        if (abs(safeGain - 1.0f) < 0.001f && !hasFades) {
+        val enhance = audioEnhance?.takeUnless { it.isIdentity }
+        if (abs(safeGain - 1.0f) < 0.001f && !hasFades && enhance == null) {
             return AudioProcessor.AudioFormat.NOT_SET
         }
+
+        dspChain = AudioDspChain(
+            sampleRate = inputAudioFormat.sampleRate,
+            channelCount = inputAudioFormat.channelCount,
+            eqPreset = enhance?.eqPreset ?: AudioEqPreset.NONE,
+            noiseGateEnabled = enhance?.noiseGateEnabled == true,
+        )
         return inputAudioFormat
     }
 
@@ -96,6 +112,13 @@ class SoftClipAudioProcessor(
             return
         }
 
+        val chain = dspChain ?: AudioDspChain(
+            sampleRate = sampleRate,
+            channelCount = channels,
+            eqPreset = audioEnhance?.eqPreset ?: AudioEqPreset.NONE,
+            noiseGateEnabled = audioEnhance?.noiseGateEnabled == true,
+        ).also { dspChain = it }
+
         val outBuffer = replaceOutputBuffer(frameCount * bytesPerFrame)
         val safeGain = gain.coerceIn(0f, 2.0f).toDouble()
 
@@ -107,15 +130,10 @@ class SoftClipAudioProcessor(
                 fadeInMs = fadeInMs,
                 fadeOutMs = fadeOutMs,
             )
-            for (ch in 0 until channels) {
-                val sample = inputBuffer.short
-                val processed = SoftClipMath.processPcm16Sample(sample, safeGain, fade)
-                outBuffer.putShort(processed)
-            }
+            chain.processFrame(inputBuffer, outBuffer, safeGain * fade)
             framesProcessed++
         }
 
-        // Consume any trailing odd byte safely
         if (inputBuffer.hasRemaining()) {
             inputBuffer.position(inputBuffer.limit())
         }
@@ -124,9 +142,11 @@ class SoftClipAudioProcessor(
 
     override fun onFlush() {
         framesProcessed = 0L
+        dspChain?.reset()
     }
 
     override fun onReset() {
         framesProcessed = 0L
+        dspChain = null
     }
 }

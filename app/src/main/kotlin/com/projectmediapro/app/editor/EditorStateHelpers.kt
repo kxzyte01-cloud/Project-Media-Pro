@@ -77,6 +77,8 @@ internal fun resolvePreviewClips(
             trimStartMs = trimStartMs,
             trimEndMs = trimEndMs,
             volume = clip.volume,
+            audioBoost = ProjectTimeline.sanitizeAudioBoost(clip.audioBoost),
+            audioEnhance = clip.audioEnhance?.takeUnless { it.isIdentity },
             playbackSpeed = ProjectTimeline.effectiveSpeed(clip),
             rotationDegrees = ProjectTimeline.normalizeRotationDegrees(clip.rotationDegrees),
             flipHorizontal = clip.flipHorizontal,
@@ -100,6 +102,8 @@ internal fun resolvePreviewAudioClips(
             trimStartMs = trimStartMs,
             trimEndMs = trimEndMs,
             volume = clip.volume,
+            audioBoost = ProjectTimeline.sanitizeAudioBoost(clip.audioBoost),
+            audioEnhance = clip.audioEnhance?.takeUnless { it.isIdentity },
             playbackSpeed = ProjectTimeline.effectiveSpeed(clip),
         )
     }
@@ -143,6 +147,8 @@ internal fun resolveAudioPreview(
         trimStartMs = trimStartMs,
         trimEndMs = trimEndMs,
         volume = ProjectTimeline.sanitizeVolume(clip.volume),
+        audioBoost = ProjectTimeline.sanitizeAudioBoost(clip.audioBoost),
+        audioEnhance = clip.audioEnhance?.takeUnless { it.isIdentity },
         playbackSpeed = ProjectTimeline.effectiveSpeed(clip),
     )
 }

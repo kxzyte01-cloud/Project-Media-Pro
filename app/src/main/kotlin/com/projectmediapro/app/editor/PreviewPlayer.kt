@@ -26,6 +26,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.projectmediapro.app.R
+import com.projectmediapro.core.model.AudioEnhanceConfig
 import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.ClipCrop
 import com.projectmediapro.core.model.ProjectTimeline
@@ -44,6 +45,8 @@ data class PreviewClip(
     val trimStartMs: Long = 0L,
     val trimEndMs: Long = 0L,
     val volume: Float = 1.0f,
+    val audioBoost: Float = Clip.DEFAULT_AUDIO_BOOST,
+    val audioEnhance: AudioEnhanceConfig? = null,
     val playbackSpeed: Float = Clip.DEFAULT_PLAYBACK_SPEED,
     val rotationDegrees: Int = 0,
     val flipHorizontal: Boolean = false,
@@ -77,15 +80,21 @@ fun PreviewPlayer(
     val backgroundArgb = backgroundColor.toArgb()
     val latestOnPosition by rememberUpdatedState(onTimelinePositionChanged)
 
-    val player = remember(context) {
-        ExoPlayer.Builder(context).build().apply {
-            playWhenReady = false
-        }
+    val videoAudioProcessor = remember(context) { LiveAudioEnhanceProcessor() }
+    val trackAudioProcessor = remember(context) { LiveAudioEnhanceProcessor() }
+    val player = remember(context, videoAudioProcessor) {
+        ExoPlayer.Builder(context, buildLiveAudioRenderersFactory(context, videoAudioProcessor))
+            .build()
+            .apply {
+                playWhenReady = false
+            }
     }
-    val audioPlayer = remember(context) {
-        ExoPlayer.Builder(context).build().apply {
-            playWhenReady = false
-        }
+    val audioPlayer = remember(context, trackAudioProcessor) {
+        ExoPlayer.Builder(context, buildLiveAudioRenderersFactory(context, trackAudioProcessor))
+            .build()
+            .apply {
+                playWhenReady = false
+            }
     }
 
     val activeVideoClips = remember(previewClips) {
@@ -108,6 +117,11 @@ fun PreviewPlayer(
         val targetVolume = if (clip.isStillImage) 0f else ProjectTimeline.sanitizeVolume(clip.volume)
         if (player.volume != targetVolume) {
             player.volume = targetVolume
+        }
+        if (clip.isStillImage || targetVolume <= 0f) {
+            videoAudioProcessor.update(Clip.DEFAULT_AUDIO_BOOST, null)
+        } else {
+            videoAudioProcessor.update(clip.audioBoost, clip.audioEnhance)
         }
         val targetSpeed = if (clip.isStillImage) {
             Clip.DEFAULT_PLAYBACK_SPEED
@@ -132,6 +146,28 @@ fun PreviewPlayer(
         )
     }
 
+    fun applyActiveAudioParams(index: Int): Float {
+        val clip = activeAudioClips.getOrNull(index)
+        val clipVol = clip?.let { ProjectTimeline.sanitizeVolume(it.volume) } ?: 1f
+        val clipSpeed = clip?.let { ProjectTimeline.sanitizeSpeed(it.playbackSpeed) }
+            ?: Clip.DEFAULT_PLAYBACK_SPEED
+        if (clipVol <= 0f) {
+            trackAudioProcessor.update(Clip.DEFAULT_AUDIO_BOOST, null)
+        } else {
+            trackAudioProcessor.update(
+                audioBoost = clip?.audioBoost ?: Clip.DEFAULT_AUDIO_BOOST,
+                enhance = clip?.audioEnhance,
+            )
+        }
+        if (audioPlayer.volume != clipVol) {
+            audioPlayer.volume = clipVol
+        }
+        if (audioPlayer.playbackParameters.speed != clipSpeed) {
+            audioPlayer.setPlaybackSpeed(clipSpeed)
+        }
+        return clipSpeed
+    }
+
     fun syncAudioToTimeline(timelineMs: Long, shouldPlay: Boolean) {
         if (activeAudioDurations.isEmpty() || audioPlayer.mediaItemCount == 0) {
             audioPlayer.playWhenReady = false
@@ -144,14 +180,7 @@ fun PreviewPlayer(
         }
         val mapped = TimelineClock.timelineToPlayerPosition(activeAudioDurations, timelineMs)
         if (mapped != null && mapped.first in 0 until audioPlayer.mediaItemCount) {
-            val clip = activeAudioClips.getOrNull(mapped.first)
-            val clipVol = clip?.let { ProjectTimeline.sanitizeVolume(it.volume) } ?: 1f
-            val clipSpeed = clip?.let { ProjectTimeline.sanitizeSpeed(it.playbackSpeed) }
-                ?: Clip.DEFAULT_PLAYBACK_SPEED
-            audioPlayer.volume = clipVol
-            if (audioPlayer.playbackParameters.speed != clipSpeed) {
-                audioPlayer.setPlaybackSpeed(clipSpeed)
-            }
+            val clipSpeed = applyActiveAudioParams(mapped.first)
             val sourceSeekMs = (mapped.second * clipSpeed).roundToLong().coerceAtLeast(0L)
             audioPlayer.seekTo(mapped.first, sourceSeekMs)
             audioPlayer.playWhenReady = shouldPlay
@@ -171,17 +200,7 @@ fun PreviewPlayer(
         if (syncAudioSeek) {
             syncAudioToTimeline(timelineMs, player.isPlaying)
         } else if (activeAudioClips.isNotEmpty() && audioPlayer.mediaItemCount > 0) {
-            val audioIndex = audioPlayer.currentMediaItemIndex
-            val clip = activeAudioClips.getOrNull(audioIndex)
-            val clipVol = clip?.let { ProjectTimeline.sanitizeVolume(it.volume) } ?: 1f
-            val clipSpeed = clip?.let { ProjectTimeline.sanitizeSpeed(it.playbackSpeed) }
-                ?: Clip.DEFAULT_PLAYBACK_SPEED
-            if (audioPlayer.volume != clipVol) {
-                audioPlayer.volume = clipVol
-            }
-            if (audioPlayer.playbackParameters.speed != clipSpeed) {
-                audioPlayer.setPlaybackSpeed(clipSpeed)
-            }
+            applyActiveAudioParams(audioPlayer.currentMediaItemIndex)
         }
     }
 
@@ -191,6 +210,7 @@ fun PreviewPlayer(
         audioPlayer.playWhenReady = false
         currentVideoIndex = 0
         if (mediaItems.isEmpty()) {
+            videoAudioProcessor.update(Clip.DEFAULT_AUDIO_BOOST, null)
             player.clearMediaItems()
             latestOnPosition(0L)
         } else {
@@ -205,6 +225,7 @@ fun PreviewPlayer(
         val mediaItems = buildPreviewMediaItems(activeAudioClips)
         audioPlayer.playWhenReady = false
         if (mediaItems.isEmpty()) {
+            trackAudioProcessor.update(Clip.DEFAULT_AUDIO_BOOST, null)
             audioPlayer.clearMediaItems()
         } else {
             audioPlayer.setMediaItems(mediaItems)
