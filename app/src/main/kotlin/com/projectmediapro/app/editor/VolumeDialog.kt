@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -25,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.projectmediapro.app.R
 import com.projectmediapro.core.designsystem.theme.MediaProSpacing
@@ -43,6 +45,7 @@ private val AUDIO_FADE_PRESETS_MS = listOf(0L, 500L, 1_000L, 2_000L)
 @Composable
 fun VolumeDialog(
     clip: Clip,
+    isAudioTrack: Boolean = false,
     onConfirm: (
         volume: Float,
         audioBoost: Float,
@@ -73,6 +76,9 @@ fun VolumeDialog(
     var noiseGateEnabled by rememberSaveable(clip.id, initialEnhance.noiseGateEnabled) {
         mutableStateOf(initialEnhance.noiseGateEnabled)
     }
+    var autoDuckEnabled by rememberSaveable(clip.id, initialEnhance.autoDuckMusicEnabled) {
+        mutableStateOf(initialEnhance.autoDuckMusicEnabled)
+    }
 
     val selectedEq = AudioEqPreset.entries.firstOrNull { it.name == eqPresetName } ?: AudioEqPreset.NONE
 
@@ -94,6 +100,7 @@ fun VolumeDialog(
             val enhance = AudioEnhanceConfig(
                 eqPreset = selectedEq,
                 noiseGateEnabled = noiseGateEnabled,
+                autoDuckMusicEnabled = if (isAudioTrack) autoDuckEnabled else false,
             )
             onConfirm(vol, boost, fadeInMs.coerceIn(0L, maxFadeMs), fadeOutMs.coerceIn(0L, maxFadeMs), enhance)
         },
@@ -179,21 +186,16 @@ fun VolumeDialog(
             }
         }
         Spacer(modifier = Modifier.height(MediaProSpacing.ExtraSmall))
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .fillMaxWidth()
-                .defaultMinSize(minHeight = 48.dp),
-        ) {
-            Text(
-                text = stringResource(R.string.editor_audio_noise_gate_label),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f),
-            )
-            Switch(
-                checked = noiseGateEnabled,
-                onCheckedChange = { noiseGateEnabled = it },
+        VolumeToggleRow(
+            label = stringResource(R.string.editor_audio_noise_gate_label),
+            checked = noiseGateEnabled,
+            onCheckedChange = { noiseGateEnabled = it },
+        )
+        if (isAudioTrack) {
+            VolumeToggleRow(
+                label = stringResource(R.string.editor_audio_auto_duck_label),
+                checked = autoDuckEnabled,
+                onCheckedChange = { autoDuckEnabled = it },
             )
         }
         Spacer(modifier = Modifier.height(MediaProSpacing.Small))
@@ -201,7 +203,8 @@ fun VolumeDialog(
             fadeInMs > 0L ||
             fadeOutMs > 0L ||
             selectedEq != AudioEqPreset.NONE ||
-            noiseGateEnabled
+            noiseGateEnabled ||
+            (isAudioTrack && autoDuckEnabled)
         Row(
             horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
             modifier = Modifier.fillMaxWidth(),
@@ -227,6 +230,7 @@ fun VolumeDialog(
                         fadeOutMs = 0L
                         eqPresetName = AudioEqPreset.NONE.name
                         noiseGateEnabled = false
+                        autoDuckEnabled = false
                     },
                     modifier = Modifier
                         .weight(1f)
@@ -252,4 +256,34 @@ private fun formatFadeChipLabel(ms: Long): String = when (ms) {
     500L -> stringResource(R.string.editor_audio_fade_half_s)
     1_000L -> stringResource(R.string.editor_audio_fade_1s)
     else -> stringResource(R.string.editor_audio_fade_2s)
+}
+
+@Composable
+private fun VolumeToggleRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = 48.dp)
+            .toggleable(
+                value = checked,
+                role = Role.Switch,
+                onValueChange = onCheckedChange,
+            ),
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        Switch(
+            checked = checked,
+            onCheckedChange = null,
+        )
+    }
 }

@@ -434,4 +434,5 @@
     <string name="editor_audio_eq_studio_warmth">Studio Warmth</string>
     <string name="editor_audio_eq_lofi_radio">Lo-Fi Radio</string>
     <string name="editor_audio_noise_gate_label">Noise gate (reduce background hum)</string>
+    <string name="editor_audio_auto_duck_label">Auto-duck music under speech</string>
 </resources>

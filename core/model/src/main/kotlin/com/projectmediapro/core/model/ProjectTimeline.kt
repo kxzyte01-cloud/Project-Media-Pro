@@ -503,9 +503,11 @@ object ProjectTimeline {
         audioBoost: Float = Clip.DEFAULT_AUDIO_BOOST,
         fadeInMs: Long = 0L,
         fadeOutMs: Long = 0L,
+        audioEnhance: AudioEnhanceConfig? = null,
     ): Project {
         val clampedVolume = sanitizeVolume(volume)
         val clampedBoost = if (clampedVolume < 1.0f) Clip.DEFAULT_AUDIO_BOOST else sanitizeAudioBoost(audioBoost)
+        val normalizedEnhance = audioEnhance?.takeUnless { it.isIdentity }
         var changed = false
         val updatedTracks = project.tracks.map { track ->
             if (track.type != TrackType.VIDEO && track.type != TrackType.AUDIO) {
@@ -518,10 +520,12 @@ object ProjectTimeline {
                         val durMs = effectiveDurationMs(clip)
                         val cleanIn = sanitizeAudioFadeMs(fadeInMs, durMs)
                         val cleanOut = sanitizeAudioFadeMs(fadeOutMs, durMs)
+                        val resolvedEnhance = if (audioEnhance != null) normalizedEnhance else clip.audioEnhance
                         if (clip.volume == clampedVolume &&
                             clip.audioBoost == clampedBoost &&
                             clip.audioFadeInMs == cleanIn &&
-                            clip.audioFadeOutMs == cleanOut
+                            clip.audioFadeOutMs == cleanOut &&
+                            clip.audioEnhance == resolvedEnhance
                         ) {
                             clip
                         } else {
@@ -531,6 +535,7 @@ object ProjectTimeline {
                                 audioBoost = clampedBoost,
                                 audioFadeInMs = cleanIn,
                                 audioFadeOutMs = cleanOut,
+                                audioEnhance = resolvedEnhance,
                             )
                         }
                     }

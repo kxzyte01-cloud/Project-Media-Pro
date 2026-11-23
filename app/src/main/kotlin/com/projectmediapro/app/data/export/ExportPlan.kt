@@ -1,5 +1,8 @@
 package com.projectmediapro.app.data.export
 
+import com.projectmediapro.core.model.AudioDuckingEnvelope
+import com.projectmediapro.core.model.AudioEnhanceConfig
+import com.projectmediapro.core.model.SpeechWindowMs
 import com.projectmediapro.core.model.BeatEffectKind
 import com.projectmediapro.core.model.BeatMarker
 import com.projectmediapro.core.model.CanvasAspect
@@ -39,6 +42,7 @@ data class ExportClip(
     val audioBoost: Float = Clip.DEFAULT_AUDIO_BOOST,
     val audioFadeInMs: Long = 0L,
     val audioFadeOutMs: Long = 0L,
+    val audioEnhance: AudioEnhanceConfig? = null,
     val playbackSpeed: Float = Clip.DEFAULT_PLAYBACK_SPEED,
     val speedRamp: SpeedRampPreset = SpeedRampPreset.NONE,
     val sourceSpanMs: Long = 0L,
@@ -57,10 +61,12 @@ data class ExportAudioClip(
     val trimStartMs: Long,
     val trimEndMs: Long,
     val durationMs: Long = 0L,
+    val timelineStartMs: Long = 0L,
     val volume: Float = 1.0f,
     val audioBoost: Float = Clip.DEFAULT_AUDIO_BOOST,
     val audioFadeInMs: Long = 0L,
     val audioFadeOutMs: Long = 0L,
+    val audioEnhance: AudioEnhanceConfig? = null,
     val playbackSpeed: Float = Clip.DEFAULT_PLAYBACK_SPEED,
 )
 
@@ -105,6 +111,7 @@ data class ExportPlan(
     val exportFrameRate: ExportFrameRate = ExportFrameRate.AUTO,
     val exportBitrate: ExportBitrate = ExportBitrate.STANDARD,
     val captionDocument: CaptionDocument? = null,
+    val duckingWindowsMs: List<SpeechWindowMs> = emptyList(),
     val beatMarkers: List<BeatMarker> = emptyList(),
     val soundReactiveEnabled: Boolean = false,
     val opticalFlowEnabled: Boolean = false,
@@ -149,6 +156,7 @@ object ExportPlanner {
                     audioBoost = ProjectTimeline.sanitizeAudioBoost(clip.audioBoost),
                     audioFadeInMs = ProjectTimeline.sanitizeAudioFadeMs(clip.audioFadeInMs, clipDurationMs),
                     audioFadeOutMs = ProjectTimeline.sanitizeAudioFadeMs(clip.audioFadeOutMs, clipDurationMs),
+                    audioEnhance = clip.audioEnhance?.takeUnless { it.isIdentity },
                     playbackSpeed = ProjectTimeline.effectiveSpeed(clip),
                     speedRamp = clip.speedRamp,
                     sourceSpanMs = ProjectTimeline.effectiveSourceSpanMs(clip),
@@ -192,6 +200,7 @@ object ExportPlanner {
             exportFrameRate = project.exportFrameRate,
             exportBitrate = project.exportBitrate,
             captionDocument = captionDocument?.takeIf { it.lines.isNotEmpty() },
+            duckingWindowsMs = extractSpeechWindows(captionDocument),
             beatMarkers = project.beatMarkers.map { it.sanitized() },
             soundReactiveEnabled = project.soundReactiveEnabled,
             opticalFlowEnabled = project.opticalFlowEnabled,
@@ -241,10 +250,12 @@ object ExportPlanner {
                     trimStartMs = if (shouldSpecifyBounds) clipStartMs else 0L,
                     trimEndMs = if (shouldSpecifyBounds) clipStartMs + exportedSourceMs else 0L,
                     durationMs = exportedTimelineMs,
+                    timelineStartMs = timelineMs,
                     volume = ProjectTimeline.sanitizeVolume(clip.volume),
                     audioBoost = ProjectTimeline.sanitizeAudioBoost(clip.audioBoost),
                     audioFadeInMs = ProjectTimeline.sanitizeAudioFadeMs(clip.audioFadeInMs, exportedTimelineMs),
                     audioFadeOutMs = ProjectTimeline.sanitizeAudioFadeMs(clip.audioFadeOutMs, exportedTimelineMs),
+                    audioEnhance = clip.audioEnhance?.takeUnless { it.isIdentity },
                     playbackSpeed = speed,
                 ),
             )
@@ -386,6 +397,17 @@ object ExportPlanner {
             !clip.flipVertical &&
             clip.playbackSpeed == Clip.DEFAULT_PLAYBACK_SPEED &&
             clip.speedRamp == SpeedRampPreset.NONE
+    }
+
+    fun extractSpeechWindows(captionDocument: CaptionDocument?): List<SpeechWindowMs> {
+        val doc = captionDocument?.takeIf { it.lines.isNotEmpty() } ?: return emptyList()
+        val offsetMs = doc.globalOffsetUs / 1_000L
+        val raw = doc.lines.mapNotNull { line ->
+            val startMs = (line.startUs / 1_000L + offsetMs).coerceAtLeast(0L)
+            val endMs = (line.endUs / 1_000L + offsetMs).coerceAtLeast(0L)
+            if (endMs > startMs) SpeechWindowMs(startMs, endMs) else null
+        }
+        return AudioDuckingEnvelope.mergeWindows(raw)
     }
 
     fun fitExportSize(width: Int, height: Int): Pair<Int, Int>? =

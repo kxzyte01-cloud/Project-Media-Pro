@@ -283,6 +283,7 @@ class EditorViewModel(
                         audioBoost = event.audioBoost,
                         fadeInMs = event.fadeInMs,
                         fadeOutMs = event.fadeOutMs,
+                        audioEnhance = event.audioEnhance,
                     )
                 }
             }

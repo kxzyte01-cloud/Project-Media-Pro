@@ -55,6 +55,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.projectmediapro.app.R
 import com.projectmediapro.app.data.export.ExportGeometry
+import com.projectmediapro.app.data.export.ExportPlanner
 import com.projectmediapro.app.data.export.sanitizeExportName
 import com.projectmediapro.app.data.media.CustomFontStorage
 import java.io.File
@@ -639,13 +640,15 @@ private fun LoadedStudioWorkspace(
             if (location != null && (location.isAudio || location.isVideo)) {
                 VolumeDialog(
                     clip = location.clip,
-                    onConfirm = { volume, audioBoost, fadeInMs, fadeOutMs ->
+                    isAudioTrack = location.isAudio,
+                    onConfirm = { volume, audioBoost, fadeInMs, fadeOutMs, audioEnhance ->
                         onEvent(
                             EditorEvent.ApplyVolume(
                                 volume = volume,
                                 audioBoost = audioBoost,
                                 fadeInMs = fadeInMs,
                                 fadeOutMs = fadeOutMs,
+                                audioEnhance = audioEnhance,
                             ),
                         )
                     },
@@ -1105,9 +1108,13 @@ private fun EditorPreviewStage(
             )
         } else {
             if (hasVideoClips) {
+                val speechWindowsMs = remember(captionDocument) {
+                    ExportPlanner.extractSpeechWindows(captionDocument)
+                }
                 PreviewPlayer(
                     previewClips = previewClips,
                     audioClips = previewAudioClips,
+                    speechWindowsMs = speechWindowsMs,
                     backgroundColor = previewBackground,
                     seekRequest = seekRequest,
                     onTimelinePositionChanged = onTimelinePositionChanged,

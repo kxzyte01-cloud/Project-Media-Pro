@@ -26,7 +26,9 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.projectmediapro.app.R
+import com.projectmediapro.core.model.AudioDuckingEnvelope
 import com.projectmediapro.core.model.AudioEnhanceConfig
+import com.projectmediapro.core.model.SpeechWindowMs
 import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.ClipCrop
 import com.projectmediapro.core.model.ProjectTimeline
@@ -71,6 +73,7 @@ fun PreviewPlayer(
     previewClips: List<PreviewClip>,
     modifier: Modifier = Modifier,
     audioClips: List<PreviewClip> = emptyList(),
+    speechWindowsMs: List<SpeechWindowMs> = emptyList(),
     backgroundColor: Color = Color.Black,
     seekRequest: PreviewSeekRequest? = null,
     onTimelinePositionChanged: (Long) -> Unit = {},
@@ -146,12 +149,18 @@ fun PreviewPlayer(
         )
     }
 
-    fun applyActiveAudioParams(index: Int): Float {
+    fun applyActiveAudioParams(index: Int, timelineMs: Long): Float {
         val clip = activeAudioClips.getOrNull(index)
-        val clipVol = clip?.let { ProjectTimeline.sanitizeVolume(it.volume) } ?: 1f
+        val baseVol = clip?.let { ProjectTimeline.sanitizeVolume(it.volume) } ?: 1f
+        val duckMult = if (clip?.audioEnhance?.autoDuckMusicEnabled == true && speechWindowsMs.isNotEmpty()) {
+            AudioDuckingEnvelope.gainAt(timelineMs, speechWindowsMs).toFloat()
+        } else {
+            1f
+        }
+        val effectiveVol = (baseVol * duckMult).coerceIn(0f, 1f)
         val clipSpeed = clip?.let { ProjectTimeline.sanitizeSpeed(it.playbackSpeed) }
             ?: Clip.DEFAULT_PLAYBACK_SPEED
-        if (clipVol <= 0f) {
+        if (effectiveVol <= 0f) {
             trackAudioProcessor.update(Clip.DEFAULT_AUDIO_BOOST, null)
         } else {
             trackAudioProcessor.update(
@@ -159,8 +168,8 @@ fun PreviewPlayer(
                 enhance = clip?.audioEnhance,
             )
         }
-        if (audioPlayer.volume != clipVol) {
-            audioPlayer.volume = clipVol
+        if (audioPlayer.volume != effectiveVol) {
+            audioPlayer.volume = effectiveVol
         }
         if (audioPlayer.playbackParameters.speed != clipSpeed) {
             audioPlayer.setPlaybackSpeed(clipSpeed)
@@ -180,7 +189,7 @@ fun PreviewPlayer(
         }
         val mapped = TimelineClock.timelineToPlayerPosition(activeAudioDurations, timelineMs)
         if (mapped != null && mapped.first in 0 until audioPlayer.mediaItemCount) {
-            val clipSpeed = applyActiveAudioParams(mapped.first)
+            val clipSpeed = applyActiveAudioParams(mapped.first, timelineMs)
             val sourceSeekMs = (mapped.second * clipSpeed).roundToLong().coerceAtLeast(0L)
             audioPlayer.seekTo(mapped.first, sourceSeekMs)
             audioPlayer.playWhenReady = shouldPlay
@@ -200,7 +209,7 @@ fun PreviewPlayer(
         if (syncAudioSeek) {
             syncAudioToTimeline(timelineMs, player.isPlaying)
         } else if (activeAudioClips.isNotEmpty() && audioPlayer.mediaItemCount > 0) {
-            applyActiveAudioParams(audioPlayer.currentMediaItemIndex)
+            applyActiveAudioParams(audioPlayer.currentMediaItemIndex, timelineMs)
         }
     }
 

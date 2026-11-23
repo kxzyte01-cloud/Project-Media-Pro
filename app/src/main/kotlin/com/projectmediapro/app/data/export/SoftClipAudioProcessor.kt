@@ -4,7 +4,9 @@ import androidx.media3.common.C
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.BaseAudioProcessor
 import com.projectmediapro.core.model.AudioEnhanceConfig
+import com.projectmediapro.core.model.AudioDuckingEnvelope
 import com.projectmediapro.core.model.AudioEqPreset
+import com.projectmediapro.core.model.SpeechWindowMs
 import java.nio.ByteBuffer
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -69,6 +71,8 @@ class SoftClipAudioProcessor(
     private val fadeOutMs: Long = 0L,
     private val clipDurationMs: Long = 0L,
     private val audioEnhance: AudioEnhanceConfig? = null,
+    private val duckingWindowsMs: List<SpeechWindowMs> = emptyList(),
+    private val timelineOffsetMs: Long = 0L,
 ) : BaseAudioProcessor() {
 
     private var framesProcessed: Long = 0L
@@ -86,7 +90,9 @@ class SoftClipAudioProcessor(
         val safeGain = gain.coerceIn(0f, 2.0f)
         val hasFades = fadeInMs > 0L || fadeOutMs > 0L
         val enhance = audioEnhance?.takeUnless { it.isIdentity }
-        if (abs(safeGain - 1.0f) < 0.001f && !hasFades && enhance == null) {
+        val hasEqOrGate = enhance != null && (enhance.eqPreset != AudioEqPreset.NONE || enhance.noiseGateEnabled)
+        val hasActiveDucking = enhance?.autoDuckMusicEnabled == true && duckingWindowsMs.isNotEmpty()
+        if (abs(safeGain - 1.0f) < 0.001f && !hasFades && !hasEqOrGate && !hasActiveDucking) {
             return AudioProcessor.AudioFormat.NOT_SET
         }
 
@@ -121,6 +127,7 @@ class SoftClipAudioProcessor(
 
         val outBuffer = replaceOutputBuffer(frameCount * bytesPerFrame)
         val safeGain = gain.coerceIn(0f, 2.0f).toDouble()
+        val applyDucking = audioEnhance?.autoDuckMusicEnabled == true && duckingWindowsMs.isNotEmpty()
 
         for (f in 0 until frameCount) {
             val timeMs = (framesProcessed * 1_000L) / sampleRate.toLong()
@@ -130,7 +137,12 @@ class SoftClipAudioProcessor(
                 fadeInMs = fadeInMs,
                 fadeOutMs = fadeOutMs,
             )
-            chain.processFrame(inputBuffer, outBuffer, safeGain * fade)
+            val duck = if (applyDucking) {
+                AudioDuckingEnvelope.gainAt(timelineOffsetMs + timeMs, duckingWindowsMs)
+            } else {
+                1.0
+            }
+            chain.processFrame(inputBuffer, outBuffer, safeGain * fade * duck)
             framesProcessed++
         }
 

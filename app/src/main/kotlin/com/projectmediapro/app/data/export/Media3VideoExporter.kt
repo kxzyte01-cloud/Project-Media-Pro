@@ -35,6 +35,8 @@ import androidx.media3.transformer.VideoEncoderSettings
 import com.google.common.collect.ImmutableList
 import com.projectmediapro.app.data.export.VideoExportException.Reason
 import com.projectmediapro.core.model.CanvasAspect
+import com.projectmediapro.core.model.AudioEnhanceConfig
+import com.projectmediapro.core.model.SpeechWindowMs
 import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.ExportFrameRate
 import com.projectmediapro.core.model.KeyframeInterpolator
@@ -228,6 +230,7 @@ class Media3VideoExporter(
                     playbackSpeed = clip.playbackSpeed,
                     speedRamp = clip.speedRamp,
                     sourceSpanMs = clip.sourceSpanMs,
+                    audioEnhance = clip.audioEnhance,
                 )
                 EditedMediaItem.Builder(mediaItem)
                     .setEffects(Effects(audioProcessors, allVideoEffects))
@@ -250,6 +253,13 @@ class Media3VideoExporter(
                     fadeOutMs = audioClip.audioFadeOutMs,
                     clipDurationMs = audioClip.durationMs,
                     playbackSpeed = audioClip.playbackSpeed,
+                    audioEnhance = audioClip.audioEnhance,
+                    duckingWindowsMs = if (audioClip.audioEnhance?.autoDuckMusicEnabled == true) {
+                        plan.duckingWindowsMs
+                    } else {
+                        emptyList()
+                    },
+                    timelineOffsetMs = audioClip.timelineStartMs,
                 )
                 EditedMediaItem.Builder(mediaItem)
                     .setRemoveVideo(true)
@@ -306,6 +316,9 @@ class Media3VideoExporter(
         playbackSpeed: Float,
         speedRamp: SpeedRampPreset = SpeedRampPreset.NONE,
         sourceSpanMs: Long = 0L,
+        audioEnhance: AudioEnhanceConfig? = null,
+        duckingWindowsMs: List<SpeechWindowMs> = emptyList(),
+        timelineOffsetMs: Long = 0L,
     ): List<AudioProcessor> = buildList {
         val speedProvider = VideoEffectFactory.buildSpeedProvider(playbackSpeed, speedRamp, sourceSpanMs)
         if (speedRamp != SpeedRampPreset.NONE && speedProvider != null) {
@@ -320,13 +333,17 @@ class Media3VideoExporter(
         val clampedBoost = ProjectTimeline.sanitizeAudioBoost(audioBoost)
         val effectiveGain = (clampedVolume * clampedBoost).coerceIn(0f, Clip.MAX_AUDIO_BOOST)
         val hasFades = fadeInMs > 0L || fadeOutMs > 0L
-        if (effectiveGain > 1.0f || hasFades) {
+        val hasEnhance = audioEnhance != null && !audioEnhance.isIdentity
+        if (effectiveGain > 1.0f || hasFades || hasEnhance) {
             add(
                 SoftClipAudioProcessor(
                     gain = effectiveGain,
                     fadeInMs = fadeInMs,
                     fadeOutMs = fadeOutMs,
                     clipDurationMs = clipDurationMs,
+                    audioEnhance = audioEnhance,
+                    duckingWindowsMs = duckingWindowsMs,
+                    timelineOffsetMs = timelineOffsetMs,
                 ),
             )
         } else if (clampedVolume < 1.0f) {
