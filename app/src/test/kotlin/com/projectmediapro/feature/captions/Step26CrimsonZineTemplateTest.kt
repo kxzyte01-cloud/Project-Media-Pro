@@ -1,6 +1,9 @@
 package com.projectmediapro.feature.captions
 
 import com.projectmediapro.core.model.StarterTemplates
+import com.projectmediapro.core.model.audioSlots
+import com.projectmediapro.core.model.mainVideoSlots
+import com.projectmediapro.core.model.overlaySlots
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals

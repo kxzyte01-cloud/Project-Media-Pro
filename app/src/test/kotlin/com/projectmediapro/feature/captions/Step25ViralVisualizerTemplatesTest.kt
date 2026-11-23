@@ -1,6 +1,7 @@
 package com.projectmediapro.feature.captions
 
 import com.projectmediapro.core.model.StarterTemplates
+import com.projectmediapro.core.model.mainVideoSlots
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
