@@ -32,6 +32,7 @@ data class HomeUiState(
     val isCreateDialogVisible: Boolean = false,
     val draftTitle: String = "",
     val pendingDeleteId: String? = null,
+    val duplicatingProjectId: String? = null,
     val error: HomeError? = null,
 )
 
@@ -43,6 +44,7 @@ sealed interface HomeEvent {
     data class UpdateDraftTitle(val title: String) : HomeEvent
     data object DismissCreateDialog : HomeEvent
     data class ConfirmCreate(val fallbackTitle: String) : HomeEvent
+    data class DuplicateProject(val projectId: String, val copySuffix: String) : HomeEvent
     data class RequestDelete(val projectId: String) : HomeEvent
     data object CancelDelete : HomeEvent
     data object ConfirmDelete : HomeEvent
@@ -123,6 +125,28 @@ class HomeViewModel(
                     }
                     refreshProjects()
                     _effects.send(HomeEffect.OpenProject(created.id))
+                }
+            }
+
+            is HomeEvent.DuplicateProject -> {
+                if (_uiState.value.duplicatingProjectId != null) return
+                _uiState.update { it.copy(duplicatingProjectId = event.projectId, error = null) }
+                viewModelScope.launch {
+                    try {
+                        val duplicated = projectRepository.duplicateProject(
+                            id = event.projectId,
+                            copySuffix = event.copySuffix,
+                        )
+                        if (duplicated == null) {
+                            _uiState.update { it.copy(error = HomeError.SAVE_FAILED) }
+                        } else {
+                            refreshProjects()
+                        }
+                    } catch (_: IOException) {
+                        _uiState.update { it.copy(error = HomeError.SAVE_FAILED) }
+                    } finally {
+                        _uiState.update { it.copy(duplicatingProjectId = null) }
+                    }
                 }
             }
 

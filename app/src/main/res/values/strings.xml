@@ -6,6 +6,8 @@
     <string name="cd_open_settings">Settings</string>
     <string name="cd_navigate_back">Back</string>
     <string name="cd_delete_project">Delete project</string>
+    <string name="cd_duplicate_project">Duplicate project</string>
+    <string name="home_copy_suffix">Copy</string>
     <string name="cd_remove_clip">Remove clip</string>
     <string name="cd_timeline_clip">Clip %1$d, %2$s</string>
     <string name="cd_timeline_audio_clip">Music %1$d, %2$s</string>

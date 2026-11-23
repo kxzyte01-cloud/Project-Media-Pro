@@ -26,6 +26,7 @@ class FileProjectRepository(
     private val clock: () -> Long = System::currentTimeMillis,
     private val mediaStorage: ProjectMediaStorage? = null,
     private val onProjectDeleted: (suspend (String) -> Unit)? = null,
+    private val onProjectDuplicated: (suspend (sourceProjectId: String, targetProjectId: String) -> Unit)? = null,
 ) : ProjectRepository {
 
     private val mutex = Mutex()
@@ -125,6 +126,76 @@ class FileProjectRepository(
                 )
                 writeProjectAtomically(updated)
             }
+        }
+    }
+
+    override suspend fun duplicateProject(id: String, copySuffix: String): Project? {
+        if (!isValidId(id)) return null
+
+        return runOnIo {
+            val source = mutex.withLock {
+                if (!directory.isDirectory) return@withLock null
+                val file = projectFile(id)
+                if (!file.isFile) return@withLock null
+                val parsed = readProjectSafely(file) ?: return@withLock null
+                if (parsed.id != id || !isSupportedSchema(parsed.schemaVersion)) return@withLock null
+                parsed
+            } ?: return@runOnIo null
+
+            val newId = idProvider()
+            if (!isValidId(newId) || newId == id) {
+                throw IOException("Generated duplicate project ID is invalid.")
+            }
+
+            mediaStorage?.copyProjectMedia(sourceProjectId = id, targetProjectId = newId)
+
+            val oldPrefix = "$id/"
+            val newPrefix = "$newId/"
+            val rewrittenTracks = source.tracks.map { track ->
+                track.copy(
+                    clips = track.clips.map { clip ->
+                        val updatedUri = if (clip.mediaUri.startsWith(oldPrefix)) {
+                            newPrefix + clip.mediaUri.removePrefix(oldPrefix)
+                        } else {
+                            clip.mediaUri
+                        }
+                        clip.copy(mediaUri = updatedUri)
+                    },
+                )
+            }
+
+            val suffix = copySuffix.trim().ifEmpty { "Copy" }
+            val maxBaseLen = (ProjectRepository.MAX_TITLE_LENGTH - suffix.length - 3).coerceAtLeast(1)
+            val clonedTitle = "${source.title.trim().take(maxBaseLen)} ($suffix)"
+            val now = clock()
+            val cloned = source.copy(
+                id = newId,
+                title = normalizeTitle(clonedTitle),
+                tracks = rewrittenTracks,
+                createdAt = now,
+                updatedAt = now,
+            )
+
+            try {
+                mutex.withLock {
+                    AtomicFileStore.ensureDirectory(directory, "projects")
+                    if (projectFile(newId).exists()) {
+                        throw IOException("Generated duplicate project ID already exists: $newId")
+                    }
+                    writeProjectAtomically(cloned)
+                }
+            } catch (ex: IOException) {
+                mediaStorage?.deleteProjectMedia(newId)
+                throw ex
+            }
+            try {
+                onProjectDuplicated?.invoke(id, newId)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Best-effort caption clone: failure must not fail duplicateProject.
+            }
+            cloned
         }
     }
 

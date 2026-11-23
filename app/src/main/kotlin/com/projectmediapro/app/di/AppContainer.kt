@@ -64,6 +64,11 @@ class AppContainer(appContext: Context) {
         directory = File(appContext.filesDir, "projects"),
         mediaStorage = mediaStorage,
         onProjectDeleted = { projectId -> captionRepository.deleteCaptions(projectId) },
+        onProjectDuplicated = { sourceProjectId, targetProjectId ->
+            captionRepository.loadCaptions(sourceProjectId)?.let { document ->
+                captionRepository.saveCaptions(document.copy(projectId = targetProjectId))
+            }
+        },
     )
     val templateMediaStorage: ProjectMediaStorage = ProjectMediaStorage(
         rootDirectory = File(appContext.filesDir, "template_media"),

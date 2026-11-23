@@ -77,6 +77,36 @@ class ProjectMediaStorage(
     }
 
     /**
+     * Copies all media files from [sourceProjectId] into [targetProjectId] inside [rootDirectory].
+     * Cleans up [targetProjectId] if an I/O failure occurs mid-copy.
+     */
+    fun copyProjectMedia(sourceProjectId: String, targetProjectId: String) {
+        require(ID_REGEX.matches(sourceProjectId)) { "Invalid sourceProjectId: $sourceProjectId" }
+        require(ID_REGEX.matches(targetProjectId)) { "Invalid targetProjectId: $targetProjectId" }
+        if (sourceProjectId == targetProjectId) return
+
+        val sourceDir = resolve(sourceProjectId) ?: return
+        if (!sourceDir.isDirectory) return
+        val targetDir = resolve(targetProjectId)
+            ?: throw IOException("Could not resolve target media directory for $targetProjectId")
+
+        try {
+            if (!targetDir.exists() && !targetDir.mkdirs()) {
+                throw IOException("Could not create target media directory: ${targetDir.name}")
+            }
+            val children = sourceDir.listFiles() ?: return
+            for (child in children) {
+                if (!child.isFile) continue
+                val dest = File(targetDir, child.name)
+                child.copyTo(dest, overwrite = true)
+            }
+        } catch (io: IOException) {
+            deleteProjectMedia(targetProjectId)
+            throw io
+        }
+    }
+
+    /**
      * Recursively deletes the project media folder for [projectId] inside [rootDirectory].
      * Never throws for missing folders or invalid IDs.
      */
