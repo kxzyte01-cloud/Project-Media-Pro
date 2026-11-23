@@ -9,7 +9,7 @@ class TemplateApplierTest {
     @Test
     fun starterTemplates_provideMusicLyricsAndCreatorPresets() {
         val starters = StarterTemplates.all()
-        assertEquals(4, starters.size)
+        assertEquals(7, starters.size)
         assertTrue(starters.all { it.isStarterTemplate() })
         val reel = StarterTemplates.findById(StarterTemplates.MUSIC_LYRICS_REEL_ID)
         assertEquals(CanvasAspect.RATIO_9_16, reel?.canvasAspect)

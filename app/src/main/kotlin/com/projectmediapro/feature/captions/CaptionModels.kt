@@ -129,6 +129,9 @@ enum class CaptionTemplateId {
     EDITORIAL_SCRATCH,
     NEON_GLOW_STACK,
     MUSIC_PLAYER,
+    KINETIC_COLLAGE,
+    KNOCKOUT_MASK,
+    CRIMSON_ZINE,
 }
 
 data class CaptionTemplate(
@@ -191,6 +194,30 @@ object CaptionTemplateRegistry {
             defaultBackgroundBox = false,
         ),
         CaptionTemplate(
+            id = CaptionTemplateId.KINETIC_COLLAGE,
+            displayName = "Misty Kinetic",
+            popScaleFactor = 1.22f,
+            entranceDurationUs = 125_000L,
+            activeWordScaleBoost = 0.16f,
+            defaultBackgroundBox = false,
+        ),
+        CaptionTemplate(
+            id = CaptionTemplateId.KNOCKOUT_MASK,
+            displayName = "Video Mask",
+            popScaleFactor = 1.18f,
+            entranceDurationUs = 140_000L,
+            activeWordScaleBoost = 0.12f,
+            defaultBackgroundBox = false,
+        ),
+        CaptionTemplate(
+            id = CaptionTemplateId.CRIMSON_ZINE,
+            displayName = "Crimson Zine",
+            popScaleFactor = 1.20f,
+            entranceDurationUs = 105_000L,
+            activeWordScaleBoost = 0.15f,
+            defaultBackgroundBox = false,
+        ),
+        CaptionTemplate(
             id = CaptionTemplateId.TYPEWRITER,
             displayName = "Typewriter",
             popScaleFactor = 1.0f,
@@ -245,9 +272,15 @@ data class CaptionStyle(
 ) {
     fun withTemplate(newTemplateId: CaptionTemplateId): CaptionStyle {
         val template = CaptionTemplateRegistry.byId(newTemplateId)
+        val adjustedPosition = if (newTemplateId == CaptionTemplateId.KNOCKOUT_MASK) {
+            position.copy(yFraction = 0.5f)
+        } else {
+            position
+        }
         return copy(
             templateId = newTemplateId,
             backgroundBoxEnabled = template.defaultBackgroundBox,
+            position = adjustedPosition,
         )
     }
 

@@ -12,12 +12,18 @@ object StarterTemplates {
     const val AESTHETIC_LYRIC_SQUARE_ID = "starter-aesthetic-lyric-square"
     const val YOUTUBE_INTRO_OUTRO_ID = "starter-youtube-intro-outro"
     const val QUICK_BEAT_MONTAGE_ID = "starter-quick-beat-montage"
+    const val MISTY_KINETIC_LYRICS_ID = "starter-misty-kinetic-lyrics"
+    const val SUNSET_MASK_MONTAGE_ID = "starter-sunset-mask-montage"
+    const val CRIMSON_ZINE_EDIT_ID = "starter-crimson-zine-edit"
 
     fun all(): List<Template> = listOf(
         musicLyricsReel(),
         aestheticLyricSquare(),
         youtubeIntroOutro(),
         quickBeatMontage(),
+        mistyKineticLyrics(),
+        sunsetMaskMontage(),
+        crimsonZineEdit(),
     )
 
     fun findById(id: String): Template? = all().firstOrNull { it.id == id }
@@ -99,6 +105,60 @@ object StarterTemplates {
             Slot(id = "sqm-v4", label = "Clip 4", requiredType = TrackType.VIDEO, role = SlotRole.MAIN_VIDEO, isReplaceable = true),
             Slot(id = "sqm-out", label = "Outro", requiredType = TrackType.VIDEO, role = SlotRole.OUTRO, isReplaceable = false),
             Slot(id = "sqm-a1", label = "Beat Track", requiredType = TrackType.AUDIO, role = SlotRole.AUDIO, isReplaceable = true),
+        ),
+    )
+
+    private fun mistyKineticLyrics(): Template = Template(
+        id = MISTY_KINETIC_LYRICS_ID,
+        name = "Misty Nature Lyrics (9:16)",
+        description = "Single continuous aerial or nature clip paired with your song for Misty Kinetic typography.",
+        canvasAspect = CanvasAspect.RATIO_9_16,
+        canvasBackground = CanvasBackground.BLACK,
+        createdAt = 0L,
+        updatedAt = 0L,
+        slots = listOf(
+            Slot(id = "smk-v1", label = "Aerial / Nature Clip", requiredType = TrackType.VIDEO, role = SlotRole.MAIN_VIDEO, isReplaceable = true),
+            Slot(id = "smk-a1", label = "Song Track", requiredType = TrackType.AUDIO, role = SlotRole.AUDIO, isReplaceable = true),
+        ),
+    )
+
+    private fun sunsetMaskMontage(): Template = Template(
+        id = SUNSET_MASK_MONTAGE_ID,
+        name = "Sunset Mask Montage (9:16)",
+        description = "Video-through-text intro clip followed by 4 aesthetic sky montage cuts and a song track.",
+        canvasAspect = CanvasAspect.RATIO_9_16,
+        canvasBackground = CanvasBackground.BLACK,
+        createdAt = 0L,
+        updatedAt = 0L,
+        slots = listOf(
+            Slot(id = "ssm-v1", label = "Text Mask Clip (Clouds)", requiredType = TrackType.VIDEO, role = SlotRole.MAIN_VIDEO, isReplaceable = true),
+            Slot(id = "ssm-v2", label = "Montage Shot 1", requiredType = TrackType.VIDEO, role = SlotRole.MAIN_VIDEO, isReplaceable = true),
+            Slot(id = "ssm-v3", label = "Montage Shot 2", requiredType = TrackType.VIDEO, role = SlotRole.MAIN_VIDEO, isReplaceable = true),
+            Slot(id = "ssm-v4", label = "Montage Shot 3", requiredType = TrackType.VIDEO, role = SlotRole.MAIN_VIDEO, isReplaceable = true),
+            Slot(id = "ssm-v5", label = "Montage Shot 4", requiredType = TrackType.VIDEO, role = SlotRole.MAIN_VIDEO, isReplaceable = true),
+            Slot(id = "ssm-a1", label = "Song Track", requiredType = TrackType.AUDIO, role = SlotRole.AUDIO, isReplaceable = true),
+        ),
+    )
+
+    private fun crimsonZineEdit(): Template = Template(
+        id = CRIMSON_ZINE_EDIT_ID,
+        name = "Crimson Zine Edit (9:16)",
+        description = "Dark-romantic paper sketch or clip backdrop paired with your song for Crimson Zine typography.",
+        canvasAspect = CanvasAspect.RATIO_9_16,
+        canvasBackground = CanvasBackground.BLACK,
+        createdAt = 0L,
+        updatedAt = 0L,
+        slots = listOf(
+            Slot(id = "scz-v1", label = "Sketch / Art Backdrop", requiredType = TrackType.VIDEO, role = SlotRole.MAIN_VIDEO, isReplaceable = true),
+            Slot(id = "scz-a1", label = "Song Track", requiredType = TrackType.AUDIO, role = SlotRole.AUDIO, isReplaceable = true),
+            Slot(
+                id = "scz-ov1",
+                label = "Paper / Sketch Overlay",
+                requiredType = TrackType.OVERLAY,
+                role = SlotRole.OVERLAY,
+                isReplaceable = true,
+                durationMs = TemplateBuilder.DEFAULT_OVERLAY_DURATION_MS,
+            ),
         ),
     )
 }

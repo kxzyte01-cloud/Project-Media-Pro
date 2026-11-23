@@ -76,7 +76,7 @@ object CaptionFrameEvaluator {
         var anyActiveWord = false
 
         val forceUppercase = document.style.uppercase ||
-            document.style.templateId == CaptionTemplateId.KINETIC_GRUNGE
+            (document.style.templateId == CaptionTemplateId.KINETIC_GRUNGE || document.style.templateId == CaptionTemplateId.KINETIC_COLLAGE || document.style.templateId == CaptionTemplateId.KNOCKOUT_MASK)
 
         val wordStates = activeLine.words.map { word ->
             val state = evaluateWord(
@@ -177,6 +177,8 @@ object CaptionFrameEvaluator {
 
             CaptionTemplateId.POP_IN,
             CaptionTemplateId.KINETIC_GRUNGE,
+            CaptionTemplateId.KINETIC_COLLAGE,
+            CaptionTemplateId.CRIMSON_ZINE,
             CaptionTemplateId.NEON_GLOW_STACK,
             -> {
                 if (adjustedTimeUs < word.startUs) {
@@ -251,6 +253,36 @@ object CaptionFrameEvaluator {
                     isActive = isActive,
                     isSpoken = isSpoken,
                 )
+            }
+
+            CaptionTemplateId.KNOCKOUT_MASK -> {
+                if (!isActive) {
+                    WordRenderState(
+                        wordId = word.id,
+                        displayText = displayText,
+                        visibleCharCount = 0,
+                        fillProgress = 0f,
+                        scale = 0.72f,
+                        alpha = 0f,
+                        isActive = false,
+                        isSpoken = isSpoken,
+                    )
+                } else {
+                    val entranceUs = min(template.entranceDurationUs, durationUs)
+                    val t = ((adjustedTimeUs - word.startUs).toFloat() / max(1L, entranceUs).toFloat())
+                        .coerceIn(0f, 1f)
+                    val revealScale = 0.74f + 0.26f * easeOutBack(t, overshoot = template.popScaleFactor)
+                    WordRenderState(
+                        wordId = word.id,
+                        displayText = displayText,
+                        visibleCharCount = displayText.length,
+                        fillProgress = rawProgress,
+                        scale = revealScale + activePulse(isActive = true, rawProgress = rawProgress, boost = template.activeWordScaleBoost),
+                        alpha = min(1f, t * 3.0f),
+                        isActive = true,
+                        isSpoken = false,
+                    )
+                }
             }
 
             CaptionTemplateId.CLEAN_SUBTITLE -> WordRenderState(
