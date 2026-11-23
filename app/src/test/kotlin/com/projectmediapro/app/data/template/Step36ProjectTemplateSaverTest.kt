@@ -76,7 +76,7 @@ class Step36ProjectTemplateSaverTest {
                                 mediaUri = audioRel,
                                 startTimeMs = 0L,
                                 durationMs = 8_000L,
-                                audioEnhance = AudioEnhanceConfig(eqPreset = AudioEqPreset.WARM_BROADCAST),
+                                audioEnhance = AudioEnhanceConfig(eqPreset = AudioEqPreset.BASS_BOOST),
                             ),
                         ),
                     ),
@@ -120,7 +120,7 @@ class Step36ProjectTemplateSaverTest {
             val copiedAudioFile = requireNotNull(templateMedia.resolve(requireNotNull(audioSlot.filledMediaUri)))
             assertTrue(copiedAudioFile.isFile)
             assertEquals("locked-song-bytes", copiedAudioFile.readText())
-            assertEquals(AudioEqPreset.WARM_BROADCAST, audioSlot.audioEnhance?.eqPreset)
+            assertEquals(AudioEqPreset.BASS_BOOST, audioSlot.audioEnhance?.eqPreset)
         } finally {
             tempRoot.deleteRecursively()
         }
