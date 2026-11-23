@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -49,9 +51,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.projectmediapro.app.R
 import com.projectmediapro.core.designsystem.component.SectionHeader
 import com.projectmediapro.core.designsystem.theme.MediaProShapes
@@ -223,17 +234,18 @@ fun CaptionsEditorSheet(
                 }
 
                 SectionHeader(title = stringResource(R.string.captions_section_template))
-                Row(
+                LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
-                    CaptionTemplateRegistry.all.forEach { template ->
-                        FilterChip(
-                            selected = document.style.templateId == template.id,
+                    items(
+                        items = CaptionTemplateRegistry.all,
+                        key = { it.id.name },
+                    ) { template ->
+                        CaptionTemplatePreviewCard(
+                            template = template,
+                            isSelected = document.style.templateId == template.id,
                             onClick = { callbacks.onSelectTemplate(template.id) },
-                            label = { Text(text = template.displayName) },
                         )
                     }
                 }
@@ -242,7 +254,7 @@ fun CaptionsEditorSheet(
                 val offsetMs = (document.globalOffsetUs / CaptionTime.MICROS_PER_MS).toFloat()
                 Text(
                     text = stringResource(R.string.captions_offset_label, offsetMs.toLong()),
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum"),
                 )
                 Slider(
                     value = offsetMs.coerceIn(CaptionStyleBounds.OFFSET_MS_RANGE),
@@ -258,19 +270,25 @@ fun CaptionsEditorSheet(
                 ) {
                     OutlinedButton(
                         onClick = { callbacks.onUpdateOffsetUs(document.globalOffsetUs - CaptionTime.NUDGE_STEP_US) },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .defaultMinSize(minHeight = 48.dp),
                     ) {
                         Text(text = stringResource(R.string.captions_nudge_earlier))
                     }
                     OutlinedButton(
                         onClick = { callbacks.onUpdateOffsetUs(0L) },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .defaultMinSize(minHeight = 48.dp),
                     ) {
                         Text(text = stringResource(R.string.captions_nudge_reset))
                     }
                     OutlinedButton(
                         onClick = { callbacks.onUpdateOffsetUs(document.globalOffsetUs + CaptionTime.NUDGE_STEP_US) },
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .defaultMinSize(minHeight = 48.dp),
                     ) {
                         Text(text = stringResource(R.string.captions_nudge_later))
                     }
@@ -297,7 +315,7 @@ fun CaptionsEditorSheet(
                             Column(modifier = Modifier.padding(MediaProSpacing.Small)) {
                                 Text(
                                     text = formatCaptionTimestamp(line.startUs / CaptionTime.MICROS_PER_MS),
-                                    style = MaterialTheme.typography.labelSmall,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
                                     color = MaterialTheme.colorScheme.primary,
                                 )
                                 Spacer(modifier = Modifier.height(MediaProSpacing.ExtraSmall))
@@ -410,7 +428,15 @@ private fun StyleCustomizationSection(
             CaptionFontFamily.entries.forEach { family ->
                 FilterChip(
                     selected = style.customFontPath == null && style.fontFamily == family,
-                    onClick = { onUpdateStyle(style.copy(fontFamily = family, customFontPath = null)) },
+                    onClick = {
+                        onUpdateStyle(
+                            style.copy(
+                                fontFamily = family,
+                                customFontPath = null,
+                                rainFontEnabled = if (family == CaptionFontFamily.RAIN_GLASS) true else style.rainFontEnabled,
+                            ),
+                        )
+                    },
                     label = { Text(text = family.displayName) },
                 )
             }
@@ -515,6 +541,11 @@ private fun StyleCustomizationSection(
             checked = style.uppercase,
             onCheckedChange = { onUpdateStyle(style.copy(uppercase = it)) },
         )
+        StyleToggleRow(
+            label = stringResource(R.string.captions_rain_font_toggle),
+            checked = style.rainFontEnabled,
+            onCheckedChange = { onUpdateStyle(style.copy(rainFontEnabled = it)) },
+        )
     }
 }
 
@@ -607,4 +638,267 @@ private fun PasteScriptDialog(
             }
         },
     )
+}
+
+@Composable
+private fun CaptionTemplatePreviewCard(
+    template: CaptionTemplate,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+) {
+    val borderColor = if (isSelected) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.outlineVariant
+    }
+    val containerColor = if (isSelected) {
+        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.28f)
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+    }
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .width(108.dp)
+            .clip(MediaProShapes.Medium)
+            .background(containerColor)
+            .border(
+                width = if (isSelected) 2.dp else 1.dp,
+                color = borderColor,
+                shape = MediaProShapes.Medium,
+            )
+            .semantics(mergeDescendants = true) { selected = isSelected }
+            .clickable(role = Role.RadioButton, onClick = onClick)
+            .padding(6.dp),
+    ) {
+        TemplateMiniSwatch(templateId = template.id)
+        Spacer(modifier = Modifier.height(5.dp))
+        Text(
+            text = template.displayName,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun TemplateMiniSwatch(templateId: CaptionTemplateId) {
+    val previewBrush = when (templateId) {
+        CaptionTemplateId.KINETIC_COLLAGE -> Brush.verticalGradient(
+            listOf(Color(0xFF0F291E), Color(0xFF07140F)),
+        )
+        CaptionTemplateId.KNOCKOUT_MASK -> Brush.verticalGradient(
+            listOf(Color(0xFF000000), Color(0xFF0A0A0A)),
+        )
+        CaptionTemplateId.CRIMSON_ZINE -> Brush.verticalGradient(
+            listOf(Color(0xFF3B0505), Color(0xFF8B0000)),
+        )
+        CaptionTemplateId.COLD_INVERT -> Brush.horizontalGradient(
+            listOf(Color(0xFF060608), Color(0xFFF4F4F0)),
+        )
+        CaptionTemplateId.CODE_POEM -> Brush.verticalGradient(
+            listOf(Color(0xFF0E1118), Color(0xFF141821)),
+        )
+        CaptionTemplateId.BLACKOUT_KINETIC -> Brush.verticalGradient(
+            listOf(Color(0xFF000000), Color(0xFF000000)),
+        )
+        CaptionTemplateId.NEON_GLOW_STACK -> Brush.verticalGradient(
+            listOf(Color(0xFF0F172A), Color(0xFF1E1B4B)),
+        )
+        CaptionTemplateId.MUSIC_PLAYER -> Brush.verticalGradient(
+            listOf(Color(0xFF111827), Color(0xFF1E293B)),
+        )
+        CaptionTemplateId.EDITORIAL_SCRATCH -> Brush.verticalGradient(
+            listOf(Color(0xFF1C1917), Color(0xFF292524)),
+        )
+        else -> Brush.verticalGradient(
+            listOf(Color(0xFF111827), Color(0xFF0B0F17)),
+        )
+    }
+
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(44.dp)
+            .clip(MediaProShapes.Small)
+            .background(previewBrush),
+    ) {
+        when (templateId) {
+            CaptionTemplateId.KINETIC_COLLAGE -> {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "BEG",
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                    )
+                    Text(
+                        text = "YOU",
+                        color = Color(0xFF4ADE80),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                    )
+                }
+            }
+            CaptionTemplateId.KNOCKOUT_MASK -> {
+                Text(
+                    text = "DREAM",
+                    color = Color(0xFFF59E0B),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Black,
+                    letterSpacing = 0.8.sp,
+                )
+            }
+            CaptionTemplateId.CRIMSON_ZINE -> {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFFF5EFE0))
+                        .padding(vertical = 2.dp),
+                ) {
+                    Text(
+                        text = "DIVINE",
+                        color = Color(0xFF8B0000),
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Serif,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+            CaptionTemplateId.NEON_GLOW_STACK -> {
+                Text(
+                    text = "NEON",
+                    color = Color(0xFF22D3EE),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+            }
+            CaptionTemplateId.EDITORIAL_SCRATCH -> {
+                Text(
+                    text = "Cinema",
+                    color = Color(0xFFFDE68A),
+                    fontSize = 12.sp,
+                    fontFamily = FontFamily.Serif,
+                    fontStyle = FontStyle.Italic,
+                )
+            }
+            CaptionTemplateId.MUSIC_PLAYER -> {
+                Text(
+                    text = "Lyrics ♪",
+                    color = Color(0xFFE2E8F0),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            CaptionTemplateId.TYPEWRITER -> {
+                Text(
+                    text = "type|",
+                    color = Color(0xFFF8FAFC),
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                )
+            }
+            CaptionTemplateId.KARAOKE_HIGHLIGHT -> {
+                Text(
+                    text = "Sing",
+                    color = Color(0xFFFACC15),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            CaptionTemplateId.POP_IN -> {
+                Text(
+                    text = "POP!",
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+            }
+            CaptionTemplateId.KINETIC_GRUNGE -> {
+                Text(
+                    text = "KINETIC",
+                    color = Color(0xFFFACC15),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Black,
+                )
+            }
+            CaptionTemplateId.COLD_INVERT -> {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "CO",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Black,
+                    )
+                    Text(
+                        text = "LD",
+                        color = Color(0xFF0A0A0C),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Black,
+                    )
+                }
+            }
+            CaptionTemplateId.CODE_POEM -> {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "me.",
+                        color = Color(0xFFE06C75),
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = "js()",
+                        color = Color(0xFF61AFEF),
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+            CaptionTemplateId.BLACKOUT_KINETIC -> {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "PURE",
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                    )
+                    Text(
+                        text = "bold",
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Serif,
+                        fontStyle = FontStyle.Italic,
+                    )
+                }
+            }
+            CaptionTemplateId.CLEAN_SUBTITLE -> {
+                Text(
+                    text = "Clean",
+                    color = Color(0xFFE2E8F0),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+        }
+    }
 }

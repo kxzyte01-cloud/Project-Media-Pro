@@ -424,6 +424,9 @@ internal fun filterPresetLabelRes(preset: VideoFilterPreset): Int = when (preset
     VideoFilterPreset.RETRO_FILM -> R.string.editor_filter_retro_film
     VideoFilterPreset.CYBER_NEON -> R.string.editor_filter_cyber_neon
     VideoFilterPreset.NOIR_PUNCH -> R.string.editor_filter_noir_punch
+    VideoFilterPreset.MISTY_MOSS -> R.string.editor_filter_misty_moss
+    VideoFilterPreset.GOLDEN_SUNSET -> R.string.editor_filter_golden_sunset
+    VideoFilterPreset.CRIMSON_MOOD -> R.string.editor_filter_crimson_mood
 }
 
 @StringRes
