@@ -71,9 +71,9 @@ class Step23OverlayStyleTest {
     fun projectTimelineUpdateOverlayStyleNormalizesIdentityAndPreservesSchemaV1() {
         val base = Project(
             id = "p1",
-            name = "Overlay Test",
-            createdAtMs = 1L,
-            updatedAtMs = 1L,
+            title = "Overlay Test",
+            createdAt = 1L,
+            updatedAt = 1L,
             tracks = listOf(
                 Track(
                     id = "v1",
