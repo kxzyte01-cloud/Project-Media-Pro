@@ -827,51 +827,63 @@ object CaptionCanvasRenderer {
             val timeSec = frameState.presentationTimeUs / 1_000_000f
 
             if (visibleWords.size >= 3) {
-                // Escalating left-aligned vertical stack (e.g., "Never / ever / get bored")
+                // Escalating left-aligned vertical stack with pre-fitted exact vertical centering
                 val stackLeft = widthPx * 0.14f
                 val maxStackW = widthPx * 0.74f
-                val rowSizes = visibleWords.mapIndexed { idx, _ ->
-                    val factor = when {
-                        idx == visibleWords.lastIndex -> 1.28f
-                        idx == visibleWords.lastIndex - 1 -> 0.88f
-                        else -> 0.72f
-                    }
-                    baseSize * factor
-                }
-                val totalH = rowSizes.sumOf { (it * 1.18f).toDouble() }.toFloat()
-                var cursorY = centerY - totalH * 0.5f
-
                 fillPaint.textAlign = Paint.Align.LEFT
+
+                val fittedSizes = FloatArray(visibleWords.size)
+                val fittedWidths = FloatArray(visibleWords.size)
+                var totalH = 0f
                 visibleWords.forEachIndexed { idx, w ->
                     val raw = w.displayText.take(w.visibleCharCount)
                     val isLast = idx == visibleWords.lastIndex
+                    val factor = when {
+                        isLast -> 1.28f
+                        idx == visibleWords.lastIndex - 1 -> 0.88f
+                        else -> 0.72f
+                    }
                     fillPaint.typeface = if (idx == 1 && visibleWords.size == 3) scriptFace else displayFace
                     fillPaint.letterSpacing = if (isLast) 0.06f else 0.02f
-                    var sz = rowSizes[idx]
+                    var sz = baseSize * factor
                     fillPaint.textSize = sz
                     val measured = fillPaint.measureText(raw).coerceAtLeast(1f)
                     if (measured > maxStackW) {
                         sz *= (maxStackW / measured)
                         fillPaint.textSize = sz
                     }
+                    fittedSizes[idx] = sz
+                    fittedWidths[idx] = min(measured, maxStackW)
+                    totalH += sz * 1.18f
+                }
+
+                var cursorY = centerY - totalH * 0.5f
+                visibleWords.forEachIndexed { idx, w ->
+                    val raw = w.displayText.take(w.visibleCharCount)
+                    val isLast = idx == visibleWords.lastIndex
+                    val sz = fittedSizes[idx]
+                    val drawW = fittedWidths[idx]
+                    fillPaint.typeface = if (idx == 1 && visibleWords.size == 3) scriptFace else displayFace
+                    fillPaint.letterSpacing = if (isLast) 0.06f else 0.02f
+                    fillPaint.textSize = sz
                     val fm = fillPaint.fontMetrics
                     val rowH = sz * 1.18f
                     val baselineY = cursorY + rowH * 0.5f - (fm.ascent + fm.descent) * 0.5f
 
                     canvas.save()
                     val pop = if (w.isActive) w.scale.coerceIn(0.8f, 1.3f) else 1f
-                    canvas.scale(pop, pop, stackLeft + min(measured, maxStackW) * 0.5f, cursorY + rowH * 0.5f)
+                    canvas.scale(pop, pop, stackLeft + drawW * 0.5f, cursorY + rowH * 0.5f)
                     fillPaint.color = applyAlpha(0xFFFFFFFF.toInt(), alpha * w.alpha)
                     canvas.drawText(raw, stackLeft, baselineY, fillPaint)
                     canvas.restore()
 
-                    if (style.rainFontEnabled || style.fontFamily == CaptionFontFamily.RAIN_GLASS) {
+                    if (style.rainFontEnabled) {
                         drawRainGlyphEffect(
                             canvas = canvas,
                             scratch = scratch,
                             drawX = stackLeft,
                             baselineY = baselineY,
-                            wordWidth = min(measured, maxStackW),
+                            wordWidth = drawW,
                             fontMetrics = fm,
                             fontPx = sz,
                             wordIndex = frameState.activeLineIndex * 7 + idx,
@@ -882,9 +894,9 @@ object CaptionCanvasRenderer {
                     cursorY += rowH
                 }
             } else {
-                // Single-word or 2-word dramatic focal layout
+                // Single-word or 2-word dramatic focal layout (measure exact drawn casing)
                 val activeWord = visibleWords.lastOrNull { it.isActive } ?: visibleWords.last()
-                val text = if (visibleWords.size == 2) {
+                val rawText = if (visibleWords.size == 2) {
                     visibleWords.joinToString(" ") { it.displayText.take(it.visibleCharCount) }
                 } else {
                     activeWord.displayText.take(activeWord.visibleCharCount)
@@ -893,6 +905,7 @@ object CaptionCanvasRenderer {
                 val role = ordinal % 4
                 val isScriptContrast = role == 2 && visibleWords.size == 1
                 val isWideTracked = role == 3
+                val displayText = if (isScriptContrast) rawText.lowercase(Locale.US) else rawText
 
                 fillPaint.typeface = if (isScriptContrast) scriptFace else displayFace
                 fillPaint.letterSpacing = when {
@@ -908,7 +921,7 @@ object CaptionCanvasRenderer {
                 var sz = baseSize * roleScale
                 fillPaint.textAlign = Paint.Align.CENTER
                 fillPaint.textSize = sz
-                val measured = fillPaint.measureText(text).coerceAtLeast(1f)
+                val measured = fillPaint.measureText(displayText).coerceAtLeast(1f)
                 val maxW = widthPx * 0.86f
                 if (measured > maxW) {
                     sz *= (maxW / measured)
@@ -922,15 +935,10 @@ object CaptionCanvasRenderer {
                 canvas.save()
                 canvas.scale(pop, pop, centerX, centerY)
                 fillPaint.color = applyAlpha(0xFFFFFFFF.toInt(), alpha * activeWord.alpha)
-                canvas.drawText(
-                    if (isScriptContrast) text.lowercase(Locale.US) else text,
-                    centerX,
-                    baselineY,
-                    fillPaint,
-                )
+                canvas.drawText(displayText, centerX, baselineY, fillPaint)
                 canvas.restore()
 
-                if (style.rainFontEnabled || style.fontFamily == CaptionFontFamily.RAIN_GLASS) {
+                if (style.rainFontEnabled) {
                     val drawW = min(measured, maxW)
                     drawRainGlyphEffect(
                         canvas = canvas,
@@ -984,19 +992,22 @@ object CaptionCanvasRenderer {
                 scanY += scanStep
             }
 
-            // 2. IDE window card geometry
+            // 2. IDE window card geometry (auto-expands cleanly on 16:9 landscape so 3 lines never clip)
+            val monoTypeface = resolveCustomTypeface(style.customFontPath)
+                ?: resolveTypeface(CaptionFontFamily.MONOSPACE)
+            var codeFontPx = minDim * 0.044f * style.fontSizeScale.coerceIn(0.75f, 1.35f)
+            val tabBarH = codeFontPx * 1.45f
+            val lineStep = codeFontPx * 1.52f
             val cardW = widthPx * 0.90f
-            val cardH = min(heightPx * 0.42f, minDim * 0.62f)
+            val minRequiredCardH = tabBarH + lineStep * 3.5f
+            val cardH = max(min(heightPx * 0.42f, minDim * 0.62f), minRequiredCardH)
+                .coerceAtMost(heightPx * 0.72f)
             val cardLeft = (widthPx - cardW) * 0.5f
             val cardCenterY = heightPx * style.position.yFraction.coerceIn(0.30f, 0.70f)
             val cardTop = cardCenterY - cardH * 0.5f
             val cardRight = cardLeft + cardW
             val cardBottom = cardTop + cardH
             val cornerR = minDim * 0.025f
-
-            val monoTypeface = resolveCustomTypeface(style.customFontPath)
-                ?: resolveTypeface(CaptionFontFamily.MONOSPACE)
-            val codeFontPx = minDim * 0.044f * style.fontSizeScale.coerceIn(0.75f, 1.35f)
 
             // Detect fire-border twist ("burn", "fire", "dark", "age" or final 20% of track)
             val joinedLower = frameState.words.joinToString(" ") { it.displayText }.lowercase(Locale.US)
@@ -1019,11 +1030,11 @@ object CaptionCanvasRenderer {
             )
             canvas.drawRoundRect(scratch.boxRect, cornerR, cornerR, scratch.fxStrokePaint)
 
-            // Top VS Code tab bar (`lyrics.js`)
-            val tabBarH = codeFontPx * 1.45f
+            // Top VS Code tab bar (`lyrics.js`) with flat bottom seam
             scratch.boxRect.set(cardLeft, cardTop, cardRight, cardTop + tabBarH)
             scratch.boxPaint.color = applyAlpha(0xFF0E1118.toInt(), alpha)
             canvas.drawRoundRect(scratch.boxRect, cornerR, cornerR, scratch.boxPaint)
+            canvas.drawRect(cardLeft, cardTop + tabBarH * 0.5f, cardRight, cardTop + tabBarH, scratch.boxPaint)
 
             val dotY = cardTop + tabBarH * 0.5f
             val dotR = max(3f, codeFontPx * 0.16f)
@@ -1050,8 +1061,7 @@ object CaptionCanvasRenderer {
             // 3. Code lines (gutter + previous comment + active syntax-highlighted typewriter line + next preview)
             val gutterX = cardLeft + codeFontPx * 0.75f
             val codeX = cardLeft + codeFontPx * 2.35f
-            val maxCodeW = cardRight - codeX - codeFontPx * 0.75f
-            val lineStep = codeFontPx * 1.52f
+            val maxCodeW = (cardRight - codeX - codeFontPx * 0.75f).coerceAtLeast(1f)
             val firstLineY = cardTop + tabBarH + codeFontPx * 1.55f
 
             val codePaint = scratch.fillPaint.apply {
@@ -1076,15 +1086,28 @@ object CaptionCanvasRenderer {
             codePaint.color = applyAlpha(0xFF9CA3AF.toInt(), alpha)
             canvas.drawText(String.format(Locale.US, "%02d", lineNumBase + 1), gutterX, activeY, codePaint)
 
-            var cursorX = codeX
             val visibleWords = frameState.words.filter { it.alpha > 0.01f && it.visibleCharCount > 0 }
-            visibleWords.forEachIndexed { idx, w ->
+            val activeTokens = visibleWords.mapIndexed { idx, w ->
                 val raw = w.displayText.take(w.visibleCharCount)
-                val token = when {
+                when {
                     idx == 0 -> raw.lowercase(Locale.US)
                     idx == visibleWords.lastIndex && w.isSpoken -> ".${raw.lowercase(Locale.US)}();"
                     else -> ".${raw.lowercase(Locale.US)}"
                 }
+            }
+            val fullLineText = activeTokens.joinToString("")
+            val measuredActiveW = codePaint.measureText(fullLineText)
+            val activeFontPx = if (measuredActiveW > maxCodeW && measuredActiveW > 1f) {
+                (codeFontPx * (maxCodeW / measuredActiveW)).coerceAtLeast(codeFontPx * 0.62f)
+            } else {
+                codeFontPx
+            }
+            codePaint.textSize = activeFontPx
+
+            var cursorX = codeX
+            visibleWords.forEachIndexed { idx, w ->
+                val raw = w.displayText.take(w.visibleCharCount)
+                val token = activeTokens[idx]
                 val tokenLower = raw.lowercase(Locale.US)
                 val tokenColor = when {
                     w.isActive -> 0xFFE5C07B.toInt() // Warm yellow active typing highlight
@@ -1101,6 +1124,21 @@ object CaptionCanvasRenderer {
                 }
             }
 
+            if (style.rainFontEnabled && cursorX > codeX) {
+                drawRainGlyphEffect(
+                    canvas = canvas,
+                    scratch = scratch,
+                    drawX = codeX,
+                    baselineY = activeY,
+                    wordWidth = cursorX - codeX,
+                    fontMetrics = codePaint.fontMetrics,
+                    fontPx = codeFontPx,
+                    wordIndex = frameState.activeLineIndex,
+                    timeSec = timeSec,
+                    alpha = alpha,
+                )
+            }
+
             // Blinking red terminal cursor
             val blinkOn = ((timeSec * 3.2f).toInt() and 1) == 0
             if (frameState.showCursor || blinkOn) {
@@ -1115,6 +1153,7 @@ object CaptionCanvasRenderer {
                 )
             }
 
+            codePaint.textSize = codeFontPx
             // Next line preview dimmed in slate
             val nextY = activeY + lineStep
             codePaint.color = applyAlpha(0xFF4B5563.toInt(), alpha * 0.7f)
@@ -1221,103 +1260,107 @@ object CaptionCanvasRenderer {
             resolveTypeface(CaptionFontFamily.CONDENSED_DISPLAY)
         }
         val desiredSize = minDim * 0.21f * style.fontSizeScale.coerceIn(CaptionStyleBounds.FONT_SCALE_RANGE)
-        val prevFillAlign = scratch.fillPaint.textAlign
-        val prevStrokeAlign = scratch.strokePaint.textAlign
-        val prevLetterSpacing = scratch.fillPaint.letterSpacing
+        val fillPaint = scratch.fillPaint
+        val strokePaint = scratch.strokePaint
+        val prevFillAlign = fillPaint.textAlign
+        val prevStrokeAlign = strokePaint.textAlign
+        val prevLetterSpacing = fillPaint.letterSpacing
+        val prevFillTypeface = fillPaint.typeface
+        val prevStrokeTypeface = strokePaint.typeface
 
-        val fillPaint = scratch.fillPaint.apply {
-            this.typeface = typeface
-            textSize = desiredSize
-            textAlign = Paint.Align.CENTER
-            letterSpacing = if (useDistressedSerif) 0.01f else -0.025f
-            clearShadowLayer()
-        }
-        val measuredW = fillPaint.measureText(wordText).coerceAtLeast(1f)
-        val maxAllowedW = widthPx * 0.86f
-        val fittedSize = if (measuredW > maxAllowedW) {
-            desiredSize * (maxAllowedW / measuredW)
-        } else {
-            desiredSize
-        }
-        fillPaint.textSize = fittedSize
-
-        val strokePaint = scratch.strokePaint.apply {
-            this.typeface = typeface
-            textSize = fittedSize
-            textAlign = Paint.Align.CENTER
-            letterSpacing = fillPaint.letterSpacing
-            strokeWidth = max(2f, fittedSize * 0.032f)
-        }
-
-        val fm = fillPaint.fontMetrics
-        val timeSec = frameState.presentationTimeUs / 1_000_000f
-        // Handheld wiggle(8, 5) micro-shake
-        val wiggleAmp = minDim * 0.0055f
-        val wiggleX = (sin((timeSec * 24.0 + wordOrdinal * 1.7)).toFloat() * 0.65f +
-            cos((timeSec * 37.0 + wordOrdinal * 2.3)).toFloat() * 0.35f) * wiggleAmp
-        val wiggleY = (cos((timeSec * 21.0 + wordOrdinal * 1.1)).toFloat() * 0.65f +
-            sin((timeSec * 33.0 + wordOrdinal * 3.1)).toFloat() * 0.35f) * wiggleAmp
-
-        val centerX = widthPx * style.position.xFraction.coerceIn(CaptionStyleBounds.POSITION_X_RANGE) + wiggleX
-        val centerY = heightPx * style.position.yFraction.coerceIn(0.25f, 0.75f) + wiggleY
-        val baselineY = centerY - (fm.ascent + fm.descent) / 2f
-        val wordScale = if (activeWord.isActive) activeWord.scale.coerceIn(0.85f, 1.25f) else 1.0f
-
-        canvas.save()
         try {
-            canvas.scale(wordScale, wordScale, centerX, centerY)
+            fillPaint.apply {
+                this.typeface = typeface
+                textSize = desiredSize
+                textAlign = Paint.Align.CENTER
+                letterSpacing = if (useDistressedSerif) 0.01f else -0.025f
+                clearShadowLayer()
+            }
+            val measuredW = fillPaint.measureText(wordText).coerceAtLeast(1f)
+            val maxAllowedW = widthPx * 0.86f
+            val fittedSize = if (measuredW > maxAllowedW) {
+                desiredSize * (maxAllowedW / measuredW)
+            } else {
+                desiredSize
+            }
+            fillPaint.textSize = fittedSize
 
-            // Brief RGB Twitch split on the first 25% of each word entrance
-            if (activeWord.isActive && activeWord.fillProgress < 0.25f) {
-                val twitchStrength = (1f - activeWord.fillProgress / 0.25f)
-                val rgbShift = fittedSize * 0.042f * twitchStrength
-                fillPaint.color = applyAlpha(0xB822D3EE.toInt(), alpha * twitchStrength)
-                canvas.drawText(wordText, centerX - rgbShift, baselineY, fillPaint)
-                fillPaint.color = applyAlpha(0xB8FB7185.toInt(), alpha * twitchStrength)
-                canvas.drawText(wordText, centerX + rgbShift, baselineY, fillPaint)
+            strokePaint.apply {
+                this.typeface = typeface
+                textSize = fittedSize
+                textAlign = Paint.Align.CENTER
+                letterSpacing = fillPaint.letterSpacing
+                strokeWidth = max(2f, fittedSize * 0.032f)
             }
 
-            // Crisp contrast outline + primary distressed fill
-            strokePaint.color = applyAlpha(strokeColor, alpha)
-            canvas.drawText(wordText, centerX, baselineY, strokePaint)
-            fillPaint.color = applyAlpha(fgColor, alpha)
-            canvas.drawText(wordText, centerX, baselineY, fillPaint)
+            val fm = fillPaint.fontMetrics
+            val timeSec = frameState.presentationTimeUs / 1_000_000f
+            val wiggleAmp = minDim * 0.0055f
+            val wiggleX = (sin((timeSec * 24.0 + wordOrdinal * 1.7)).toFloat() * 0.65f +
+                cos((timeSec * 37.0 + wordOrdinal * 2.3)).toFloat() * 0.35f) * wiggleAmp
+            val wiggleY = (cos((timeSec * 21.0 + wordOrdinal * 1.1)).toFloat() * 0.65f +
+                sin((timeSec * 33.0 + wordOrdinal * 3.1)).toFloat() * 0.35f) * wiggleAmp
 
-            // Photocopied grunge speckles punched across the glyph bounding box
-            val textW = fillPaint.measureText(wordText)
-            val boxLeft = centerX - textW * 0.52f
-            val boxTop = baselineY + fm.ascent * 0.88f
-            val boxH = (fm.descent - fm.ascent).coerceAtLeast(fittedSize * 0.6f)
-            val speckleColor = bgColor
-            for (s in 0 until 26) {
-                val h = (wordOrdinal * 41 + s * 73 + 19)
-                val sx = boxLeft + textW * (((h * 29) % 100) / 100f)
-                val sy = boxTop + boxH * (((h * 47) % 100) / 100f)
-                val sr = max(1f, fittedSize * (0.008f + (s % 4) * 0.0045f))
-                scratch.fxPaint.color = applyAlpha(speckleColor, alpha * (0.45f + (s % 3) * 0.18f))
-                canvas.drawCircle(sx, sy, sr, scratch.fxPaint)
-            }
+            val centerX = widthPx * style.position.xFraction.coerceIn(CaptionStyleBounds.POSITION_X_RANGE) + wiggleX
+            val centerY = heightPx * style.position.yFraction.coerceIn(0.25f, 0.75f) + wiggleY
+            val baselineY = centerY - (fm.ascent + fm.descent) / 2f
+            val wordScale = if (activeWord.isActive) activeWord.scale.coerceIn(0.85f, 1.25f) else 1.0f
 
-            if (style.rainFontEnabled || style.fontFamily == CaptionFontFamily.RAIN_GLASS) {
-                drawRainGlyphEffect(
-                    canvas = canvas,
-                    scratch = scratch,
-                    drawX = centerX - textW * 0.5f,
-                    baselineY = baselineY,
-                    wordWidth = textW,
-                    fontMetrics = fm,
-                    fontPx = fittedSize,
-                    wordIndex = wordOrdinal,
-                    timeSec = timeSec,
-                    alpha = alpha,
-                )
+            canvas.save()
+            try {
+                canvas.scale(wordScale, wordScale, centerX, centerY)
+
+                if (activeWord.isActive && activeWord.fillProgress < 0.25f) {
+                    val twitchStrength = (1f - activeWord.fillProgress / 0.25f)
+                    val rgbShift = fittedSize * 0.042f * twitchStrength
+                    fillPaint.color = applyAlpha(0xB822D3EE.toInt(), alpha * twitchStrength)
+                    canvas.drawText(wordText, centerX - rgbShift, baselineY, fillPaint)
+                    fillPaint.color = applyAlpha(0xB8FB7185.toInt(), alpha * twitchStrength)
+                    canvas.drawText(wordText, centerX + rgbShift, baselineY, fillPaint)
+                }
+
+                strokePaint.color = applyAlpha(strokeColor, alpha)
+                canvas.drawText(wordText, centerX, baselineY, strokePaint)
+                fillPaint.color = applyAlpha(fgColor, alpha)
+                canvas.drawText(wordText, centerX, baselineY, fillPaint)
+
+                val textW = fillPaint.measureText(wordText)
+                val boxLeft = centerX - textW * 0.5f
+                val boxTop = baselineY + fm.ascent * 0.88f
+                val boxH = (fm.descent - fm.ascent).coerceAtLeast(fittedSize * 0.6f)
+                for (s in 0 until 26) {
+                    val h = (wordOrdinal * 41 + s * 73 + 19) and 0x7FFFFFFF
+                    val sx = boxLeft + textW * (((h * 29) and 0x7FFFFFFF) % 100 / 100f)
+                    val sy = boxTop + boxH * (((h * 47) and 0x7FFFFFFF) % 100 / 100f)
+                    val sr = max(1f, fittedSize * (0.008f + (s % 4) * 0.0045f))
+                    scratch.fxPaint.color = applyAlpha(bgColor, alpha * (0.45f + (s % 3) * 0.18f))
+                    canvas.drawCircle(sx, sy, sr, scratch.fxPaint)
+                }
+
+                if (style.rainFontEnabled) {
+                    drawRainGlyphEffect(
+                        canvas = canvas,
+                        scratch = scratch,
+                        drawX = centerX - textW * 0.5f,
+                        baselineY = baselineY,
+                        wordWidth = textW,
+                        fontMetrics = fm,
+                        fontPx = fittedSize,
+                        wordIndex = wordOrdinal,
+                        timeSec = timeSec,
+                        alpha = alpha,
+                    )
+                }
+            } finally {
+                canvas.restore()
             }
         } finally {
-            canvas.restore()
             fillPaint.textAlign = prevFillAlign
             fillPaint.letterSpacing = prevLetterSpacing
+            fillPaint.typeface = prevFillTypeface
             strokePaint.textAlign = prevStrokeAlign
             strokePaint.letterSpacing = prevLetterSpacing
+            strokePaint.typeface = prevStrokeTypeface
         }
     }
 

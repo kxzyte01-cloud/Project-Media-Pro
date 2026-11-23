@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.foundation.verticalScroll
@@ -145,15 +147,26 @@ fun ClipEffectsDialog(
                             isSelected = currentEffects.filter == preset,
                             onClick = { effectsState = currentEffects.copy(filter = preset) },
                         ) { contentColor ->
-                            Text(
-                                text = stringResource(filterPresetLabelRes(preset)),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = contentColor,
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 modifier = Modifier.padding(
                                     horizontal = MediaProSpacing.MediumSmall,
                                     vertical = MediaProSpacing.Small,
                                 ),
-                            )
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(10.dp)
+                                        .clip(CircleShape)
+                                        .background(filterPresetSwatchColor(preset)),
+                                )
+                                Text(
+                                    text = stringResource(filterPresetLabelRes(preset)),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = contentColor,
+                                )
+                            }
                         }
                     }
                 }
@@ -439,4 +452,22 @@ private fun transitionLabelRes(transition: ClipTransition): Int = when (transiti
     ClipTransition.WHIP_LEFT -> R.string.editor_transition_whip_left
     ClipTransition.WHIP_RIGHT -> R.string.editor_transition_whip_right
     ClipTransition.SLIDE_UP -> R.string.editor_transition_slide_up
+}
+
+private fun filterPresetSwatchColor(preset: VideoFilterPreset): Color = when (preset) {
+    VideoFilterPreset.NONE -> Color(0xFF94A3B8)
+    VideoFilterPreset.VIVID -> Color(0xFFEC4899)
+    VideoFilterPreset.WARM -> Color(0xFFFB923C)
+    VideoFilterPreset.COOL -> Color(0xFF38BDF8)
+    VideoFilterPreset.CINEMA -> Color(0xFF0EA5E9)
+    VideoFilterPreset.VINTAGE -> Color(0xFFD97706)
+    VideoFilterPreset.BW -> Color(0xFFE2E8F0)
+    VideoFilterPreset.FADE_FILM -> Color(0xFFA8A29E)
+    VideoFilterPreset.DREAMY_GLOW -> Color(0xFFF472B6)
+    VideoFilterPreset.RETRO_FILM -> Color(0xFFEAB308)
+    VideoFilterPreset.CYBER_NEON -> Color(0xFFA855F7)
+    VideoFilterPreset.NOIR_PUNCH -> Color(0xFF334155)
+    VideoFilterPreset.MISTY_MOSS -> Color(0xFF22C55E)
+    VideoFilterPreset.GOLDEN_SUNSET -> Color(0xFFF59E0B)
+    VideoFilterPreset.CRIMSON_MOOD -> Color(0xFFDC2626)
 }

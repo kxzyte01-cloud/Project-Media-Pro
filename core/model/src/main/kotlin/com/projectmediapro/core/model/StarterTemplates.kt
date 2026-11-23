@@ -15,6 +15,9 @@ object StarterTemplates {
     const val MISTY_KINETIC_LYRICS_ID = "starter-misty-kinetic-lyrics"
     const val SUNSET_MASK_MONTAGE_ID = "starter-sunset-mask-montage"
     const val CRIMSON_ZINE_EDIT_ID = "starter-crimson-zine-edit"
+    const val COLD_INVERT_EDIT_ID = "starter-cold-invert-edit"
+    const val CODE_POEM_EDIT_ID = "starter-code-poem-edit"
+    const val BLACKOUT_LYRICS_16_9_ID = "starter-blackout-lyrics-16-9"
 
     fun all(): List<Template> = listOf(
         musicLyricsReel(),
@@ -24,6 +27,9 @@ object StarterTemplates {
         mistyKineticLyrics(),
         sunsetMaskMontage(),
         crimsonZineEdit(),
+        coldInvertEdit(),
+        codePoemEdit(),
+        blackoutLyrics16x9(),
     )
 
     fun findById(id: String): Template? = all().firstOrNull { it.id == id }
@@ -159,6 +165,48 @@ object StarterTemplates {
                 isReplaceable = true,
                 durationMs = TemplateBuilder.DEFAULT_OVERLAY_DURATION_MS,
             ),
+        ),
+    )
+
+    private fun coldInvertEdit(): Template = Template(
+        id = COLD_INVERT_EDIT_ID,
+        name = "Cold Invert Edit (9:16)",
+        description = "High-contrast black/white strobe lyric edit paired with your beat track for Cold Invert typography.",
+        canvasAspect = CanvasAspect.RATIO_9_16,
+        canvasBackground = CanvasBackground.BLACK,
+        createdAt = 0L,
+        updatedAt = 0L,
+        slots = listOf(
+            Slot(id = "sci-v1", label = "Backdrop Clip", requiredType = TrackType.VIDEO, role = SlotRole.MAIN_VIDEO, isReplaceable = true),
+            Slot(id = "sci-a1", label = "Song Track", requiredType = TrackType.AUDIO, role = SlotRole.AUDIO, isReplaceable = true),
+        ),
+    )
+
+    private fun codePoemEdit(): Template = Template(
+        id = CODE_POEM_EDIT_ID,
+        name = "Code Poem Edit (9:16)",
+        description = "Dark-room IDE lyric edit with syntax-highlighted JS code, CRT scanlines, and glowing bridge markers.",
+        canvasAspect = CanvasAspect.RATIO_9_16,
+        canvasBackground = CanvasBackground.BLACK,
+        createdAt = 0L,
+        updatedAt = 0L,
+        slots = listOf(
+            Slot(id = "scp-v1", label = "Dark Ambient Backdrop", requiredType = TrackType.VIDEO, role = SlotRole.MAIN_VIDEO, isReplaceable = true),
+            Slot(id = "scp-a1", label = "Song Track", requiredType = TrackType.AUDIO, role = SlotRole.AUDIO, isReplaceable = true),
+        ),
+    )
+
+    private fun blackoutLyrics16x9(): Template = Template(
+        id = BLACKOUT_LYRICS_16_9_ID,
+        name = "Blackout Lyrics (16:9)",
+        description = "Pure black 16:9 canvas with crisp white kinetic lyrics and song track.",
+        canvasAspect = CanvasAspect.RATIO_16_9,
+        canvasBackground = CanvasBackground.BLACK,
+        createdAt = 0L,
+        updatedAt = 0L,
+        slots = listOf(
+            Slot(id = "sbl-v1", label = "Black / Ambient Clip", requiredType = TrackType.VIDEO, role = SlotRole.MAIN_VIDEO, isReplaceable = true),
+            Slot(id = "sbl-a1", label = "Song Track", requiredType = TrackType.AUDIO, role = SlotRole.AUDIO, isReplaceable = true),
         ),
     )
 }

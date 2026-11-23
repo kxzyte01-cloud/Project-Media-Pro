@@ -25,6 +25,7 @@
     <string name="captions_shadow_toggle">Drop shadow</string>
     <string name="captions_box_toggle">Background pill</string>
     <string name="captions_uppercase_toggle">Uppercase lyrics</string>
+    <string name="captions_rain_font_toggle">Rain-glass font (droplet streaks)</string>
     <string name="captions_section_words">Tap a word to seek &amp; edit</string>
     <string name="captions_clear">Remove captions</string>
     <string name="captions_edit_word_title">Edit Word / Lyric</string>

@@ -132,6 +132,9 @@ enum class CaptionTemplateId {
     KINETIC_COLLAGE,
     KNOCKOUT_MASK,
     CRIMSON_ZINE,
+    COLD_INVERT,
+    CODE_POEM,
+    BLACKOUT_KINETIC,
 }
 
 data class CaptionTemplate(
@@ -218,6 +221,30 @@ object CaptionTemplateRegistry {
             defaultBackgroundBox = false,
         ),
         CaptionTemplate(
+            id = CaptionTemplateId.COLD_INVERT,
+            displayName = "Cold Invert",
+            popScaleFactor = 1.24f,
+            entranceDurationUs = 85_000L,
+            activeWordScaleBoost = 0.12f,
+            defaultBackgroundBox = false,
+        ),
+        CaptionTemplate(
+            id = CaptionTemplateId.CODE_POEM,
+            displayName = "Code Poem",
+            popScaleFactor = 1.0f,
+            entranceDurationUs = 90_000L,
+            activeWordScaleBoost = 0.0f,
+            defaultBackgroundBox = false,
+        ),
+        CaptionTemplate(
+            id = CaptionTemplateId.BLACKOUT_KINETIC,
+            displayName = "Blackout",
+            popScaleFactor = 1.26f,
+            entranceDurationUs = 120_000L,
+            activeWordScaleBoost = 0.08f,
+            defaultBackgroundBox = false,
+        ),
+        CaptionTemplate(
             id = CaptionTemplateId.TYPEWRITER,
             displayName = "Typewriter",
             popScaleFactor = 1.0f,
@@ -245,6 +272,7 @@ enum class CaptionFontFamily(val displayName: String) {
     CONDENSED_DISPLAY("Display"),
     MONOSPACE("Monospace"),
     SERIF_EDITORIAL("Editorial"),
+    RAIN_GLASS("Rain Glass"),
 }
 
 @Serializable
@@ -269,10 +297,16 @@ data class CaptionStyle(
     val uppercase: Boolean = false,
     val position: CaptionPosition = CaptionPosition(),
     val customFontPath: String? = null,
+    val rainFontEnabled: Boolean = false,
 ) {
     fun withTemplate(newTemplateId: CaptionTemplateId): CaptionStyle {
         val template = CaptionTemplateRegistry.byId(newTemplateId)
-        val adjustedPosition = if (newTemplateId == CaptionTemplateId.KNOCKOUT_MASK) {
+        val adjustedPosition = if (
+            newTemplateId == CaptionTemplateId.KNOCKOUT_MASK ||
+            newTemplateId == CaptionTemplateId.COLD_INVERT ||
+            newTemplateId == CaptionTemplateId.CODE_POEM ||
+            newTemplateId == CaptionTemplateId.BLACKOUT_KINETIC
+        ) {
             position.copy(yFraction = 0.5f)
         } else {
             position
@@ -281,6 +315,7 @@ data class CaptionStyle(
             templateId = newTemplateId,
             backgroundBoxEnabled = template.defaultBackgroundBox,
             position = adjustedPosition,
+            rainFontEnabled = if (newTemplateId == CaptionTemplateId.MUSIC_PLAYER) true else rainFontEnabled,
         )
     }
 

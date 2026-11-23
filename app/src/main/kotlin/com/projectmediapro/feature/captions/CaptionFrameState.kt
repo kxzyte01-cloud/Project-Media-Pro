@@ -76,7 +76,7 @@ object CaptionFrameEvaluator {
         var anyActiveWord = false
 
         val forceUppercase = document.style.uppercase ||
-            (document.style.templateId == CaptionTemplateId.KINETIC_GRUNGE || document.style.templateId == CaptionTemplateId.KINETIC_COLLAGE || document.style.templateId == CaptionTemplateId.KNOCKOUT_MASK)
+            (document.style.templateId == CaptionTemplateId.KINETIC_GRUNGE || document.style.templateId == CaptionTemplateId.KINETIC_COLLAGE || document.style.templateId == CaptionTemplateId.KNOCKOUT_MASK || document.style.templateId == CaptionTemplateId.COLD_INVERT || document.style.templateId == CaptionTemplateId.BLACKOUT_KINETIC)
 
         val wordStates = activeLine.words.map { word ->
             val state = evaluateWord(
@@ -91,7 +91,7 @@ object CaptionFrameEvaluator {
             state
         }
 
-        val showCursor = document.style.templateId == CaptionTemplateId.TYPEWRITER && anyActiveWord
+        val showCursor = (document.style.templateId == CaptionTemplateId.TYPEWRITER || document.style.templateId == CaptionTemplateId.CODE_POEM) && anyActiveWord
         val prevText = document.lines.getOrNull(activeIndex - 1)?.let { line ->
             formatLinePreview(line, forceUppercase)
         }
@@ -179,6 +179,7 @@ object CaptionFrameEvaluator {
             CaptionTemplateId.KINETIC_GRUNGE,
             CaptionTemplateId.KINETIC_COLLAGE,
             CaptionTemplateId.CRIMSON_ZINE,
+            CaptionTemplateId.BLACKOUT_KINETIC,
             CaptionTemplateId.NEON_GLOW_STACK,
             -> {
                 if (adjustedTimeUs < word.startUs) {
@@ -235,7 +236,8 @@ object CaptionFrameEvaluator {
                 )
             }
 
-            CaptionTemplateId.TYPEWRITER -> {
+            CaptionTemplateId.TYPEWRITER,
+            CaptionTemplateId.CODE_POEM -> {
                 val hasStarted = adjustedTimeUs >= word.startUs
                 val visibleChars = when {
                     !hasStarted -> 0
@@ -255,7 +257,8 @@ object CaptionFrameEvaluator {
                 )
             }
 
-            CaptionTemplateId.KNOCKOUT_MASK -> {
+            CaptionTemplateId.KNOCKOUT_MASK,
+            CaptionTemplateId.COLD_INVERT -> {
                 if (!isActive) {
                     WordRenderState(
                         wordId = word.id,

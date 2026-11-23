@@ -360,6 +360,9 @@
     <string name="editor_filter_retro_film">Retro Film</string>
     <string name="editor_filter_cyber_neon">Cyber Neon</string>
     <string name="editor_filter_noir_punch">Noir Punch</string>
+    <string name="editor_filter_misty_moss">Misty Moss</string>
+    <string name="editor_filter_golden_sunset">Golden Sunset</string>
+    <string name="editor_filter_crimson_mood">Crimson Mood</string>
     <string name="settings_section_whisper">Offline Auto-Captions (Open Whisper)</string>
     <string name="settings_whisper_title">Open Whisper Tiny (Multilingual)</string>
     <string name="settings_whisper_description">Optional ~32 MB on-device AI model (English, Hindi &amp; 99+ languages). Downloads once over HTTPS, then transcribes 100% offline with zero cloud uploads.</string>
@@ -424,4 +427,11 @@
     <string name="settings_whisper_variant_size">~%1$d MB</string>
     <string name="settings_whisper_variant_ready">Ready</string>
     <string name="settings_whisper_download_variant">Download %1$s (~%2$d MB)</string>
+    <string name="editor_audio_eq_label">Audio EQ preset</string>
+    <string name="editor_audio_eq_none">Off</string>
+    <string name="editor_audio_eq_vocal_clarity">Vocal Clarity</string>
+    <string name="editor_audio_eq_bass_boost">Bass Boost</string>
+    <string name="editor_audio_eq_studio_warmth">Studio Warmth</string>
+    <string name="editor_audio_eq_lofi_radio">Lo-Fi Radio</string>
+    <string name="editor_audio_noise_gate_label">Noise gate (reduce background hum)</string>
 </resources>

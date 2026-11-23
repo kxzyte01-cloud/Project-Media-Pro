@@ -460,28 +460,22 @@ private fun StyleCustomizationSection(
         }
 
         Row(
-            horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
+            horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.ExtraSmall),
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
         ) {
             CAPTION_COLOR_SWATCHES.forEach { swatch ->
                 val isSelected = style.primaryColorArgb == swatch.primaryArgb &&
                     style.highlightColorArgb == swatch.highlightArgb
                 Box(
+                    contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(48.dp)
                         .clip(CircleShape)
-                        .background(Color(swatch.highlightArgb))
-                        .border(
-                            width = if (isSelected) 3.dp else 1.dp,
-                            color = if (isSelected) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.outline
-                            },
-                            shape = CircleShape,
-                        )
-                        .clickable {
+                        .semantics { selected = isSelected }
+                        .clickable(role = Role.RadioButton) {
                             onUpdateStyle(
                                 style.copy(
                                     primaryColorArgb = swatch.primaryArgb,
@@ -490,13 +484,29 @@ private fun StyleCustomizationSection(
                                 ),
                             )
                         },
-                )
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(Color(swatch.highlightArgb))
+                            .border(
+                                width = if (isSelected) 3.dp else 1.dp,
+                                color = if (isSelected) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.outline
+                                },
+                                shape = CircleShape,
+                            ),
+                    )
+                }
             }
         }
 
         Text(
             text = stringResource(R.string.captions_size_label, (style.fontSizeScale * 100).toInt()),
-            style = MaterialTheme.typography.bodySmall,
+            style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
         )
         Slider(
             value = style.fontSizeScale.coerceIn(CaptionStyleBounds.FONT_SCALE_RANGE),
@@ -506,7 +516,7 @@ private fun StyleCustomizationSection(
 
         Text(
             text = stringResource(R.string.captions_position_y_label, (style.position.yFraction * 100).toInt()),
-            style = MaterialTheme.typography.bodySmall,
+            style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
         )
         Slider(
             value = style.position.yFraction.coerceIn(CaptionStyleBounds.POSITION_Y_RANGE),
@@ -518,7 +528,7 @@ private fun StyleCustomizationSection(
 
         Text(
             text = stringResource(R.string.captions_stroke_label, (style.strokeWidthFraction * 100).toInt()),
-            style = MaterialTheme.typography.bodySmall,
+            style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
         )
         Slider(
             value = style.strokeWidthFraction.coerceIn(CaptionStyleBounds.STROKE_WIDTH_RANGE),
@@ -832,22 +842,37 @@ private fun TemplateMiniSwatch(templateId: CaptionTemplateId) {
                 )
             }
             CaptionTemplateId.COLD_INVERT -> {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = "CO",
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Black,
-                    )
-                    Text(
-                        text = "LD",
-                        color = Color(0xFF0A0A0C),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Black,
-                    )
+                Row(modifier = Modifier.fillMaxWidth().height(44.dp)) {
+                    Box(
+                        contentAlignment = Alignment.CenterEnd,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                            .background(Color(0xFF060608))
+                            .padding(end = 1.dp),
+                    ) {
+                        Text(
+                            text = "CO",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Black,
+                        )
+                    }
+                    Box(
+                        contentAlignment = Alignment.CenterStart,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                            .background(Color(0xFFF4F4F0))
+                            .padding(start = 1.dp),
+                    ) {
+                        Text(
+                            text = "LD",
+                            color = Color(0xFF0A0A0C),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Black,
+                        )
+                    }
                 }
             }
             CaptionTemplateId.CODE_POEM -> {
@@ -869,12 +894,23 @@ private fun TemplateMiniSwatch(templateId: CaptionTemplateId) {
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
                     )
+                    Box(
+                        modifier = Modifier
+                            .width(2.dp)
+                            .height(12.dp)
+                            .background(Color(0xFFEF4444)),
+                    )
                 }
             }
             CaptionTemplateId.BLACKOUT_KINETIC -> {
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(3.dp),
+                    horizontalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterHorizontally),
                     verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp)
+                        .border(1.dp, Color(0xFF2A2A2E), MediaProShapes.Small)
+                        .padding(horizontal = 6.dp),
                 ) {
                     Text(
                         text = "PURE",

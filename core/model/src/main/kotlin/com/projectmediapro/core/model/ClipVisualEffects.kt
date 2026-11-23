@@ -16,6 +16,9 @@ enum class VideoFilterPreset {
     RETRO_FILM,
     CYBER_NEON,
     NOIR_PUNCH,
+    MISTY_MOSS,
+    GOLDEN_SUNSET,
+    CRIMSON_MOOD,
 }
 
 @Serializable
@@ -147,6 +150,30 @@ fun VideoFilterPreset.gradeSpec(): FilterGradeSpec = when (this) {
         contrastDelta = 0.34f,
         brightnessDelta = -0.04f,
         isGrayscale = true,
+    )
+    VideoFilterPreset.MISTY_MOSS -> FilterGradeSpec(
+        redScale = 0.88f,
+        greenScale = 1.04f,
+        blueScale = 0.96f,
+        saturationDelta = -22f,
+        contrastDelta = 0.10f,
+        brightnessDelta = -0.04f,
+    )
+    VideoFilterPreset.GOLDEN_SUNSET -> FilterGradeSpec(
+        redScale = 1.14f,
+        greenScale = 1.02f,
+        blueScale = 0.84f,
+        saturationDelta = 24f,
+        contrastDelta = 0.08f,
+        brightnessDelta = 0.03f,
+    )
+    VideoFilterPreset.CRIMSON_MOOD -> FilterGradeSpec(
+        redScale = 1.18f,
+        greenScale = 0.84f,
+        blueScale = 0.86f,
+        saturationDelta = -18f,
+        contrastDelta = 0.18f,
+        brightnessDelta = -0.06f,
     )
 }
 

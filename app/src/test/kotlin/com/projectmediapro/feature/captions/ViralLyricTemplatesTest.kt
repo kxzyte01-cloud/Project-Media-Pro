@@ -44,7 +44,10 @@ class ViralLyricTemplatesTest {
         assertTrue(CaptionTemplateId.KINETIC_COLLAGE in ids)
         assertTrue(CaptionTemplateId.KNOCKOUT_MASK in ids)
         assertTrue(CaptionTemplateId.CRIMSON_ZINE in ids)
-        assertEquals(11, ids.size)
+        assertTrue(CaptionTemplateId.COLD_INVERT in ids)
+        assertTrue(CaptionTemplateId.CODE_POEM in ids)
+        assertTrue(CaptionTemplateId.BLACKOUT_KINETIC in ids)
+        assertEquals(14, ids.size)
     }
 
     @Test
