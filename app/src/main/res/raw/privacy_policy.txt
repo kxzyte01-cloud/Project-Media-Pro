@@ -1,8 +1,8 @@
-DRAFT PRIVACY POLICY (Owner must review before publishing)
+PRIVACY POLICY (Project Media Pro 1.0)
 
-Project Media Pro operates completely offline on your device.
+Project Media Pro is built offline-first so your videos, audio, captions, and projects stay on your device.
 
-1. Data Collection: Project Media Pro does not collect, record, or transmit any personal information, usage telemetry, analytics, or crash reports.
-2. Network Access: The application does not request the Android INTERNET permission and cannot connect to any remote server.
-3. Media and Projects: All video, audio, image files, and project templates stay strictly in your device storage under your control.
-4. Backups: Automatic cloud backup is disabled (allowBackup="false").
+1. Data Collection: Project Media Pro does not collect, record, or transmit personal information, usage telemetry, analytics, ads, or crash reports.
+2. Optional Network Access: Video editing, playback, captions, and export run 100% offline on your device. The Android INTERNET permission is used exclusively when you explicitly tap Download in Settings to fetch an optional Open Whisper speech-to-text model over HTTPS (cleartext HTTP is disabled). No background network requests are ever made.
+3. Media and Projects: All video, audio, image files, captions, and project templates remain strictly in your device storage under your control.
+4. Backups: Automatic Android cloud backup is disabled (allowBackup="false").

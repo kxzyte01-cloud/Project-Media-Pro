@@ -16,4 +16,5 @@ interface ProjectRepository {
     suspend fun saveProject(project: Project)
     suspend fun deleteProject(id: String)
     suspend fun duplicateProject(id: String, copySuffix: String = "Copy"): Project? = null
+    suspend fun renameProject(id: String, newTitle: String): Project? = null
 }

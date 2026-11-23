@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.projectmediapro.app.data.project.ProjectRepository
 import com.projectmediapro.core.model.Project
 import java.io.IOException
+import java.util.Locale
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,25 +26,61 @@ enum class HomeError {
 }
 
 /**
+ * Display ordering for projects on the Home screen.
+ */
+enum class HomeSortOrder {
+    RECENT,
+    TITLE_ASC,
+}
+
+/**
  * Immutable UI state for the Home screen.
  */
 data class HomeUiState(
     val projects: List<Project> = emptyList(),
+    val searchQuery: String = "",
+    val sortOrder: HomeSortOrder = HomeSortOrder.RECENT,
     val isCreateDialogVisible: Boolean = false,
     val draftTitle: String = "",
+    val pendingRenameId: String? = null,
+    val renameDraftTitle: String = "",
     val pendingDeleteId: String? = null,
     val duplicatingProjectId: String? = null,
     val error: HomeError? = null,
-)
+) {
+    val visibleProjects: List<Project>
+        get() {
+            val trimmed = searchQuery.trim()
+            val filtered = if (trimmed.isEmpty()) {
+                projects
+            } else {
+                projects.filter { it.title.contains(trimmed, ignoreCase = true) }
+            }
+            return when (sortOrder) {
+                HomeSortOrder.RECENT -> filtered.sortedWith(
+                    compareByDescending<Project> { it.updatedAt }.thenBy { it.id },
+                )
+                HomeSortOrder.TITLE_ASC -> filtered.sortedWith(
+                    compareBy<Project> { it.title.lowercase(Locale.ROOT) }.thenBy { it.id },
+                )
+            }
+        }
+}
 
 /**
  * User events emitted from the Home screen.
  */
 sealed interface HomeEvent {
+    data class UpdateSearchQuery(val query: String) : HomeEvent
+    data class SelectSortOrder(val sortOrder: HomeSortOrder) : HomeEvent
     data class ShowCreateDialog(val defaultTitle: String) : HomeEvent
     data class UpdateDraftTitle(val title: String) : HomeEvent
     data object DismissCreateDialog : HomeEvent
     data class ConfirmCreate(val fallbackTitle: String) : HomeEvent
+    data class RequestRename(val projectId: String) : HomeEvent
+    data class UpdateRenameTitle(val title: String) : HomeEvent
+    data object DismissRenameDialog : HomeEvent
+    data object ConfirmRename : HomeEvent
     data class DuplicateProject(val projectId: String, val copySuffix: String) : HomeEvent
     data class RequestDelete(val projectId: String) : HomeEvent
     data object CancelDelete : HomeEvent
@@ -78,6 +115,18 @@ class HomeViewModel(
 
     fun onEvent(event: HomeEvent) {
         when (event) {
+            is HomeEvent.UpdateSearchQuery -> {
+                _uiState.update { state ->
+                    state.copy(searchQuery = event.query.take(ProjectRepository.MAX_TITLE_LENGTH))
+                }
+            }
+
+            is HomeEvent.SelectSortOrder -> {
+                _uiState.update { state ->
+                    state.copy(sortOrder = event.sortOrder)
+                }
+            }
+
             is HomeEvent.ShowCreateDialog -> {
                 _uiState.update { state ->
                     state.copy(
@@ -128,6 +177,61 @@ class HomeViewModel(
                 }
             }
 
+            is HomeEvent.RequestRename -> {
+                if (_uiState.value.duplicatingProjectId == event.projectId) return
+                val existing = _uiState.value.projects.firstOrNull { it.id == event.projectId } ?: return
+                _uiState.update { state ->
+                    state.copy(
+                        pendingRenameId = existing.id,
+                        renameDraftTitle = existing.title.take(ProjectRepository.MAX_TITLE_LENGTH),
+                        error = null,
+                    )
+                }
+            }
+
+            is HomeEvent.UpdateRenameTitle -> {
+                _uiState.update { state ->
+                    state.copy(
+                        renameDraftTitle = event.title.take(ProjectRepository.MAX_TITLE_LENGTH),
+                    )
+                }
+            }
+
+            is HomeEvent.DismissRenameDialog -> {
+                _uiState.update { state ->
+                    state.copy(
+                        pendingRenameId = null,
+                        renameDraftTitle = "",
+                    )
+                }
+            }
+
+            is HomeEvent.ConfirmRename -> {
+                val targetId = _uiState.value.pendingRenameId ?: return
+                if (_uiState.value.duplicatingProjectId == targetId) return
+                val newTitle = _uiState.value.renameDraftTitle.trim().take(ProjectRepository.MAX_TITLE_LENGTH)
+                if (newTitle.isEmpty()) return
+                _uiState.update { state ->
+                    state.copy(
+                        pendingRenameId = null,
+                        renameDraftTitle = "",
+                        error = null,
+                    )
+                }
+                viewModelScope.launch {
+                    try {
+                        val renamed = projectRepository.renameProject(targetId, newTitle)
+                        if (renamed == null) {
+                            _uiState.update { it.copy(error = HomeError.SAVE_FAILED) }
+                        } else {
+                            refreshProjects()
+                        }
+                    } catch (_: IOException) {
+                        _uiState.update { it.copy(error = HomeError.SAVE_FAILED) }
+                    }
+                }
+            }
+
             is HomeEvent.DuplicateProject -> {
                 if (_uiState.value.duplicatingProjectId != null) return
                 _uiState.update { it.copy(duplicatingProjectId = event.projectId, error = null) }
@@ -151,6 +255,7 @@ class HomeViewModel(
             }
 
             is HomeEvent.RequestDelete -> {
+                if (_uiState.value.duplicatingProjectId == event.projectId) return
                 _uiState.update { state ->
                     state.copy(
                         pendingDeleteId = event.projectId,
@@ -167,6 +272,7 @@ class HomeViewModel(
 
             is HomeEvent.ConfirmDelete -> {
                 val targetId = _uiState.value.pendingDeleteId ?: return
+                if (_uiState.value.duplicatingProjectId == targetId) return
                 _uiState.update { state ->
                     state.copy(
                         pendingDeleteId = null,

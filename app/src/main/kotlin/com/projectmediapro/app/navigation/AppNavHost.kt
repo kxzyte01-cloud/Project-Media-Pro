@@ -243,6 +243,7 @@ fun AppNavHost(
                     privacyPolicyDataSource = container.privacyPolicyDataSource,
                     appVersionName = container.appVersionName,
                     whisperModelManager = container.whisperModelManager,
+                    storageInspector = container.storageInspector,
                 ),
             )
             val uiState by viewModel.uiState.collectAsStateWithLifecycle()

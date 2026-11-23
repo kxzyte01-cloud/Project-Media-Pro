@@ -25,6 +25,7 @@ import com.projectmediapro.app.data.project.ProjectRepository
 import com.projectmediapro.app.data.template.FileTemplateRepository
 import com.projectmediapro.app.data.template.TemplateProjectCreator
 import com.projectmediapro.app.data.template.TemplateRepository
+import com.projectmediapro.app.settings.AppStorageInspector
 import com.projectmediapro.app.settings.DataStoreThemePreferencesStore
 import com.projectmediapro.app.settings.PrivacyPolicyDataSource
 import com.projectmediapro.app.settings.RawResourcePrivacyPolicyDataSource
@@ -111,6 +112,17 @@ class AppContainer(appContext: Context) {
     val transcriptionEngine: TranscriptionEngine = WhisperTranscriptionEngine(
         modelManager = whisperModelManager,
         fallbackEngine = OfflineHeuristicTranscriptionEngine(),
+    )
+    val storageInspector: AppStorageInspector = AppStorageInspector(
+        projectsMediaDirs = listOf(
+            File(appContext.filesDir, "projects"),
+            File(appContext.filesDir, "media"),
+            File(appContext.filesDir, "captions"),
+            File(appContext.filesDir, "templates"),
+            File(appContext.filesDir, "template_media"),
+        ),
+        whisperModelsDir = File(appContext.filesDir, "whisper_models"),
+        exportCacheDir = exportTempDirectory,
     )
     val appVersionName: String = BuildConfig.VERSION_NAME
 }

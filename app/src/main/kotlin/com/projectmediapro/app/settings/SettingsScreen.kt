@@ -15,7 +15,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
@@ -32,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.dp
 import com.projectmediapro.app.R
 import com.projectmediapro.core.designsystem.component.MediaProTopBar
 import com.projectmediapro.core.designsystem.component.SectionHeader
@@ -83,6 +86,16 @@ fun SettingsScreen(
                 onCancel = { onEvent(SettingsEvent.CancelWhisperDownload) },
                 onDelete = { onEvent(SettingsEvent.DeleteWhisperModel) },
             )
+
+            if (uiState.storageSnapshot != null) {
+                SectionHeader(title = stringResource(R.string.settings_section_storage))
+                StorageDiagnosticsCard(
+                    snapshot = uiState.storageSnapshot,
+                    isClearingCache = uiState.isClearingCache,
+                    lastClearedCacheBytes = uiState.lastClearedCacheBytes,
+                    onClearCache = { onEvent(SettingsEvent.ClearExportCache) },
+                )
+            }
 
             SectionHeader(title = stringResource(R.string.settings_section_privacy))
             Surface(
@@ -349,4 +362,92 @@ private fun whisperVariantNameRes(variant: WhisperModelVariant): Int = when (var
     WhisperModelVariant.TINY -> R.string.settings_whisper_variant_tiny
     WhisperModelVariant.BASE -> R.string.settings_whisper_variant_base
     WhisperModelVariant.SMALL -> R.string.settings_whisper_variant_small
+}
+
+@Composable
+private fun StorageDiagnosticsCard(
+    snapshot: AppStorageSnapshot,
+    isClearingCache: Boolean,
+    lastClearedCacheBytes: Long?,
+    onClearCache: () -> Unit,
+) {
+    Surface(
+        shape = MediaProShapes.Medium,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(MediaProSpacing.Medium),
+        ) {
+            StorageMetricRow(
+                label = stringResource(R.string.settings_storage_projects_label),
+                value = AppStorageInspector.formatBytes(snapshot.projectsMediaBytes),
+            )
+            StorageMetricRow(
+                label = stringResource(R.string.settings_storage_whisper_label),
+                value = AppStorageInspector.formatBytes(snapshot.whisperModelsBytes),
+            )
+            StorageMetricRow(
+                label = stringResource(R.string.settings_storage_cache_label),
+                value = AppStorageInspector.formatBytes(snapshot.exportCacheBytes),
+            )
+            if (lastClearedCacheBytes != null && lastClearedCacheBytes > 0L) {
+                Text(
+                    text = stringResource(
+                        R.string.settings_storage_cache_cleared,
+                        AppStorageInspector.formatBytes(lastClearedCacheBytes),
+                    ),
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontFeatureSettings = "tnum",
+                    ),
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            OutlinedButton(
+                onClick = onClearCache,
+                enabled = !isClearingCache && snapshot.exportCacheBytes > 0L,
+                shape = MediaProShapes.Small,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .defaultMinSize(minHeight = MediaProSpacing.MinTouchTarget),
+            ) {
+                if (isClearingCache) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                    )
+                } else {
+                    Text(text = stringResource(R.string.settings_storage_clear_cache))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StorageMetricRow(
+    label: String,
+    value: String,
+) {
+    Row(
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium.copy(
+                fontFeatureSettings = "tnum",
+            ),
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+    }
 }

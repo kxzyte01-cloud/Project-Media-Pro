@@ -129,6 +129,30 @@ class FileProjectRepository(
         }
     }
 
+    override suspend fun renameProject(id: String, newTitle: String): Project? {
+        if (!isValidId(id)) return null
+        val normalized = normalizeTitle(newTitle)
+        if (normalized.isEmpty()) return null
+
+        return runOnIo {
+            mutex.withLock {
+                if (!directory.isDirectory) return@withLock null
+                val file = projectFile(id)
+                if (!file.isFile) return@withLock null
+                val existing = readProjectSafely(file) ?: return@withLock null
+                if (existing.id != id || !isSupportedSchema(existing.schemaVersion)) {
+                    return@withLock null
+                }
+                val renamed = existing.copy(
+                    title = normalized,
+                    updatedAt = clock(),
+                )
+                writeProjectAtomically(renamed)
+                renamed
+            }
+        }
+    }
+
     override suspend fun duplicateProject(id: String, copySuffix: String): Project? {
         if (!isValidId(id)) return null
 

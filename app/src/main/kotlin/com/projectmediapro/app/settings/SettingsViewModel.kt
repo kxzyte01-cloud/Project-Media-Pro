@@ -26,6 +26,9 @@ data class SettingsUiState(
     val whisperModelState: WhisperModelState = WhisperModelState.NotInstalled,
     val selectedWhisperVariant: WhisperModelVariant = WhisperModelVariant.TINY,
     val installedWhisperVariants: Set<WhisperModelVariant> = emptySet(),
+    val storageSnapshot: AppStorageSnapshot? = null,
+    val isClearingCache: Boolean = false,
+    val lastClearedCacheBytes: Long? = null,
 )
 
 /**
@@ -37,39 +40,58 @@ sealed interface SettingsEvent {
     data object DownloadWhisperModel : SettingsEvent
     data object CancelWhisperDownload : SettingsEvent
     data object DeleteWhisperModel : SettingsEvent
+    data object ClearExportCache : SettingsEvent
 }
 
+private data class StorageUiSlice(
+    val snapshot: AppStorageSnapshot? = null,
+    val isClearingCache: Boolean = false,
+    val lastClearedCacheBytes: Long? = null,
+)
+
 /**
- * Unidirectional ViewModel for Settings. Loads the offline privacy policy via [PrivacyPolicyDataSource]
- * and manages optional on-device Open Whisper models (`Tiny`, `Base`, `Small`).
+ * Unidirectional ViewModel for Settings. Loads the offline privacy policy via [PrivacyPolicyDataSource],
+ * inspects on-device storage via [AppStorageInspector], and manages optional Open Whisper models.
  */
 class SettingsViewModel(
     private val themePreferencesStore: ThemePreferencesStore,
     private val privacyPolicyDataSource: PrivacyPolicyDataSource,
     private val appVersionName: String,
     private val whisperModelManager: WhisperModelManager? = null,
+    private val storageInspector: AppStorageInspector? = null,
 ) : ViewModel() {
 
     private val privacyPolicyFlow = MutableStateFlow("")
     private val fallbackWhisperFlow = MutableStateFlow<WhisperModelState>(WhisperModelState.NotInstalled)
     private val fallbackVariantFlow = MutableStateFlow(WhisperModelVariant.TINY)
     private val fallbackInstalledFlow = MutableStateFlow<Set<WhisperModelVariant>>(emptySet())
+    private val storageSliceFlow = MutableStateFlow(StorageUiSlice())
     private var whisperDownloadJob: Job? = null
+
+    private val whisperSliceFlow = combine(
+        whisperModelManager?.state ?: fallbackWhisperFlow,
+        whisperModelManager?.selectedVariant ?: fallbackVariantFlow,
+        whisperModelManager?.installedVariants ?: fallbackInstalledFlow,
+    ) { state, selected, installed ->
+        Triple(state, selected, installed)
+    }
 
     val uiState: StateFlow<SettingsUiState> = combine(
         themePreferencesStore.themePreference,
         privacyPolicyFlow,
-        whisperModelManager?.state ?: fallbackWhisperFlow,
-        whisperModelManager?.selectedVariant ?: fallbackVariantFlow,
-        whisperModelManager?.installedVariants ?: fallbackInstalledFlow,
-    ) { preference, policyText, whisperState, selectedVariant, installedVariants ->
+        whisperSliceFlow,
+        storageSliceFlow,
+    ) { preference, policyText, whisperTriple, storageSlice ->
         SettingsUiState(
             themePreference = preference,
             privacyPolicyText = policyText,
             appVersionName = appVersionName,
-            whisperModelState = whisperState,
-            selectedWhisperVariant = selectedVariant,
-            installedWhisperVariants = installedVariants,
+            whisperModelState = whisperTriple.first,
+            selectedWhisperVariant = whisperTriple.second,
+            installedWhisperVariants = whisperTriple.third,
+            storageSnapshot = storageSlice.snapshot,
+            isClearingCache = storageSlice.isClearingCache,
+            lastClearedCacheBytes = storageSlice.lastClearedCacheBytes,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -95,6 +117,7 @@ class SettingsViewModel(
                 ""
             }
         }
+        refreshStorageSnapshot()
     }
 
     fun onEvent(event: SettingsEvent) {
@@ -116,6 +139,7 @@ class SettingsViewModel(
                 if (whisperDownloadJob?.isActive == true) return
                 whisperDownloadJob = viewModelScope.launch {
                     manager.downloadModel()
+                    refreshStorageSnapshot()
                 }
             }
             SettingsEvent.CancelWhisperDownload -> {
@@ -127,7 +151,36 @@ class SettingsViewModel(
                 whisperDownloadJob?.cancel()
                 whisperDownloadJob = null
                 whisperModelManager?.deleteModel()
+                refreshStorageSnapshot()
             }
+            SettingsEvent.ClearExportCache -> {
+                val inspector = storageInspector ?: return
+                if (storageSliceFlow.value.isClearingCache) return
+                storageSliceFlow.value = storageSliceFlow.value.copy(isClearingCache = true)
+                viewModelScope.launch {
+                    try {
+                        val freed = inspector.clearExportCache()
+                        val updated = inspector.inspect()
+                        storageSliceFlow.value = StorageUiSlice(
+                            snapshot = updated,
+                            isClearingCache = false,
+                            lastClearedCacheBytes = freed,
+                        )
+                    } finally {
+                        if (storageSliceFlow.value.isClearingCache) {
+                            storageSliceFlow.value = storageSliceFlow.value.copy(isClearingCache = false)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun refreshStorageSnapshot() {
+        val inspector = storageInspector ?: return
+        viewModelScope.launch {
+            val snapshot = inspector.inspect()
+            storageSliceFlow.value = storageSliceFlow.value.copy(snapshot = snapshot)
         }
     }
 
@@ -142,6 +195,7 @@ class SettingsViewModel(
             privacyPolicyDataSource: PrivacyPolicyDataSource,
             appVersionName: String,
             whisperModelManager: WhisperModelManager? = null,
+            storageInspector: AppStorageInspector? = null,
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -150,6 +204,7 @@ class SettingsViewModel(
                     privacyPolicyDataSource = privacyPolicyDataSource,
                     appVersionName = appVersionName,
                     whisperModelManager = whisperModelManager,
+                    storageInspector = storageInspector,
                 ) as T
             }
         }
