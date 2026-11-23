@@ -20,10 +20,10 @@ class Step37TemplateStyleApplierTest {
                     requiredType = TrackType.VIDEO,
                     role = SlotRole.MAIN_VIDEO,
                     visualEffects = ClipVisualEffects(
-                        lut = ColorLutPreset.MISTY_MOSS,
+                        filter = VideoFilterPreset.MISTY_MOSS,
                         transitionIn = ClipTransition.ZOOM_IN,
                     ),
-                    speedRamp = SpeedRampPreset.HERO_SLOW_MO,
+                    speedRamp = SpeedRampPreset.HERO,
                 ),
                 Slot(
                     id = "s-a1",
@@ -40,7 +40,7 @@ class Step37TemplateStyleApplierTest {
                     label = "Overlay 1",
                     requiredType = TrackType.OVERLAY,
                     role = SlotRole.OVERLAY,
-                    overlayStyle = OverlayVisualStyle(blendMode = OverlayBlendMode.MULTIPLY_DARK),
+                    overlayStyle = OverlayVisualStyle(blendMode = OverlayBlendMode.MULTIPLY),
                 ),
             ),
         )
@@ -84,17 +84,17 @@ class Step37TemplateStyleApplierTest {
         val videos = result.project.videoClips()
         assertEquals("proj-target/a.mp4", videos[0].mediaUri)
         assertEquals(2_500L, videos[0].durationMs)
-        assertEquals(ColorLutPreset.MISTY_MOSS, videos[0].visualEffects?.lut)
-        assertEquals(SpeedRampPreset.HERO_SLOW_MO, videos[0].speedRamp)
+        assertEquals(VideoFilterPreset.MISTY_MOSS, videos[0].visualEffects?.filter)
+        assertEquals(SpeedRampPreset.HERO, videos[0].speedRamp)
         // Second clip inherits fallback style from first styled video slot
         assertEquals("proj-target/b.mp4", videos[1].mediaUri)
-        assertEquals(ColorLutPreset.MISTY_MOSS, videos[1].visualEffects?.lut)
+        assertEquals(VideoFilterPreset.MISTY_MOSS, videos[1].visualEffects?.filter)
 
         val audio = result.project.audioClips().single()
         assertEquals(AudioEqPreset.VOCAL_CLARITY, audio.audioEnhance?.eqPreset)
         assertEquals(true, audio.audioEnhance?.autoDuckMusicEnabled)
 
         val overlay = result.project.overlayClips().single()
-        assertEquals(OverlayBlendMode.MULTIPLY_DARK, overlay.overlayStyle?.blendMode)
+        assertEquals(OverlayBlendMode.MULTIPLY, overlay.overlayStyle?.blendMode)
     }
 }

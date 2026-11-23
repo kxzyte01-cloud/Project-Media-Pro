@@ -1764,7 +1764,7 @@ class EditorViewModel(
                 null
             }
             if (decoded != null) {
-                val existingDoc = current.captionDocument ?: CaptionDocument(projectId = current.project.id)
+                val existingDoc = current.captionDocument ?: CaptionDocument(projectId = current.project.id, rawWords = emptyList(), lines = emptyList())
                 val updatedDoc = existingDoc.copy(style = decoded)
                 viewModelScope.launch {
                     try {

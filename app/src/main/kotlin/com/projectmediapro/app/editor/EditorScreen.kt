@@ -152,6 +152,8 @@ fun EditorScreen(
                 onNavigateBack = onNavigateBack,
                 onUndo = { onEvent(EditorEvent.Undo) },
                 onRedo = { onEvent(EditorEvent.Redo) },
+                onSaveTemplateClick = { onEvent(EditorEvent.OpenSaveAsTemplate) },
+                onApplyStyleClick = { onEvent(EditorEvent.OpenApplyStyle) },
                 onExportClick = { onEvent(EditorEvent.OpenExportQuality) },
             )
 

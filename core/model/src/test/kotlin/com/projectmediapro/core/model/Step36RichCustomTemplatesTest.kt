@@ -29,8 +29,8 @@ class Step36RichCustomTemplatesTest {
                             playbackSpeed = 1.5f,
                             speedRamp = SpeedRampPreset.JUMP_CUT,
                             visualEffects = ClipVisualEffects(
-                                lut = ColorLutPreset.CRIMSON_MOOD,
-                                transitionIn = ClipTransition.WHIP_PAN_LEFT,
+                                filter = VideoFilterPreset.CRIMSON_MOOD,
+                                transitionIn = ClipTransition.WHIP_LEFT,
                             ),
                             rotationDegrees = 90,
                         ),
@@ -76,7 +76,7 @@ class Step36RichCustomTemplatesTest {
                             startTimeMs = 200L,
                             durationMs = 2_500L,
                             textContent = "MIDNIGHT DRIVE",
-                            textStyle = TextOverlayStyle(fontScale = 1.25f),
+                            textStyle = TextOverlayStyle(textSizeFraction = 0.08f),
                         ),
                     ),
                 ),
@@ -109,7 +109,7 @@ class Step36RichCustomTemplatesTest {
         val videoSlot = template.mainVideoSlots().single()
         assertTrue(videoSlot.isReplaceable)
         assertNull(videoSlot.filledMediaUri)
-        assertEquals(ColorLutPreset.CRIMSON_MOOD, videoSlot.visualEffects?.lut)
+        assertEquals(VideoFilterPreset.CRIMSON_MOOD, videoSlot.visualEffects?.filter)
         assertEquals(SpeedRampPreset.JUMP_CUT, videoSlot.speedRamp)
 
         val audioSlot = template.audioSlots().single()
@@ -119,7 +119,7 @@ class Step36RichCustomTemplatesTest {
         val overlaySlot = template.overlaySlots().single()
         assertEquals(OverlayBlendMode.SCREEN_LUMA, overlaySlot.overlayStyle?.blendMode)
 
-        // Apply template with a shorter replacement video (2000ms < 3000ms slot): must NOT stretch.
+        // Apply template with a shorter replacement video (2000ms < 4500ms needed at 1.5x): must NOT stretch.
         val applied = TemplateApplier.buildProjectFromTemplate(
             baseProject = Project(id = "proj-new", title = "New Edit"),
             template = template,
@@ -138,8 +138,8 @@ class Step36RichCustomTemplatesTest {
         assertEquals(2_000L, newVideo.sourceDurationMs)
         assertEquals(2_000L, newVideo.trimEndMs)
         assertEquals(1_333L, newVideo.durationMs)
-        assertEquals(ColorLutPreset.CRIMSON_MOOD, newVideo.visualEffects?.lut)
-        assertEquals(ClipTransition.WHIP_PAN_LEFT, newVideo.visualEffects?.transitionIn)
+        assertEquals(VideoFilterPreset.CRIMSON_MOOD, newVideo.visualEffects?.filter)
+        assertEquals(ClipTransition.WHIP_LEFT, newVideo.visualEffects?.transitionIn)
         assertEquals(SpeedRampPreset.JUMP_CUT, newVideo.speedRamp)
         assertEquals(90, newVideo.rotationDegrees)
 
@@ -152,6 +152,6 @@ class Step36RichCustomTemplatesTest {
 
         val newText = applied.textClips().single()
         assertEquals("MIDNIGHT DRIVE", newText.textContent)
-        assertEquals(1.25f, newText.textStyle?.fontScale ?: 0f, 0.001f)
+        assertEquals(0.08f, newText.textStyle?.textSizeFraction ?: 0f, 0.001f)
     }
 }

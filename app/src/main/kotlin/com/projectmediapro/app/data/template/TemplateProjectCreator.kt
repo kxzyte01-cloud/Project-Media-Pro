@@ -169,6 +169,8 @@ class TemplateProjectCreator(
             repo.saveCaptions(
                 CaptionDocument(
                     projectId = projectId,
+                    rawWords = emptyList(),
+                    lines = emptyList(),
                     style = decodedStyle,
                 ),
             )

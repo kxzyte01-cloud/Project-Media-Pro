@@ -5,10 +5,10 @@ import com.projectmediapro.core.model.AudioEnhanceConfig
 import com.projectmediapro.core.model.AudioEqPreset
 import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.ClipVisualEffects
-import com.projectmediapro.core.model.ColorLutPreset
 import com.projectmediapro.core.model.Project
 import com.projectmediapro.core.model.Track
 import com.projectmediapro.core.model.TrackType
+import com.projectmediapro.core.model.VideoFilterPreset
 import com.projectmediapro.core.model.audioSlots
 import com.projectmediapro.core.model.mainVideoSlots
 import com.projectmediapro.feature.captions.CaptionDocument
@@ -63,7 +63,7 @@ class Step36ProjectTemplateSaverTest {
                                 mediaUri = videoRel,
                                 startTimeMs = 0L,
                                 durationMs = 4_000L,
-                                visualEffects = ClipVisualEffects(lut = ColorLutPreset.GOLDEN_SUNSET),
+                                visualEffects = ClipVisualEffects(filter = VideoFilterPreset.GOLDEN_SUNSET),
                             ),
                         ),
                     ),
@@ -85,6 +85,8 @@ class Step36ProjectTemplateSaverTest {
 
             val captionDoc = CaptionDocument(
                 projectId = "proj-1",
+                rawWords = emptyList(),
+                lines = emptyList(),
                 style = CaptionStyle(templateId = CaptionTemplateId.KINETIC_COLLAGE),
             )
 
@@ -111,7 +113,7 @@ class Step36ProjectTemplateSaverTest {
             val videoSlot = reloaded.mainVideoSlots().single()
             assertTrue(videoSlot.isReplaceable)
             assertNull("Replaceable video must not copy private media", videoSlot.filledMediaUri)
-            assertEquals(ColorLutPreset.GOLDEN_SUNSET, videoSlot.visualEffects?.lut)
+            assertEquals(VideoFilterPreset.GOLDEN_SUNSET, videoSlot.visualEffects?.filter)
 
             val audioSlot = reloaded.audioSlots().single()
             assertNotNull("Locked audio must copy media to template storage", audioSlot.filledMediaUri)
