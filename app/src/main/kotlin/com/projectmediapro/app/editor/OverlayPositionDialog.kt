@@ -4,6 +4,8 @@ import androidx.annotation.StringRes
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -18,15 +20,20 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -46,7 +53,9 @@ import com.projectmediapro.core.designsystem.theme.MediaProSpacing
 import com.projectmediapro.core.model.CanvasAspect
 import com.projectmediapro.core.model.CanvasBackground
 import com.projectmediapro.core.model.Clip
+import com.projectmediapro.core.model.OverlayBlendMode
 import com.projectmediapro.core.model.OverlayKeyframe
+import com.projectmediapro.core.model.OverlayVisualStyle
 import kotlin.math.roundToInt
 
 private const val POSITION_NUDGE_STEP = 0.01f
@@ -57,11 +66,13 @@ fun OverlayPositionDialog(
     clip: Clip,
     canvasAspect: CanvasAspect,
     canvasBackground: CanvasBackground,
-    onConfirm: (centerX: Float, centerY: Float, widthFraction: Float) -> Unit,
+    onConfirm: (centerX: Float, centerY: Float, widthFraction: Float, style: OverlayVisualStyle?) -> Unit,
     onDismiss: () -> Unit,
     @StringRes titleRes: Int = R.string.editor_overlay_position_title,
     isText: Boolean = false,
 ) {
+    val initialStyle = clip.overlayStyle?.sanitized() ?: OverlayVisualStyle()
+
     var centerX by rememberSaveable(clip.id, clip.overlayCenterX) {
         mutableFloatStateOf(OverlayKeyframe.sanitizeCoordinate(clip.overlayCenterX, 0.5f))
     }
@@ -79,6 +90,25 @@ fun OverlayPositionDialog(
             ),
         )
     }
+
+    var blendModeName by rememberSaveable(clip.id, initialStyle.blendMode.name) {
+        mutableStateOf(initialStyle.blendMode.name)
+    }
+    var opacity by rememberSaveable(clip.id, initialStyle.opacity) {
+        mutableFloatStateOf(initialStyle.opacity)
+    }
+    var cornerRadiusFraction by rememberSaveable(clip.id, initialStyle.cornerRadiusFraction) {
+        mutableFloatStateOf(initialStyle.cornerRadiusFraction)
+    }
+    var borderWidthFraction by rememberSaveable(clip.id, initialStyle.borderWidthFraction) {
+        mutableFloatStateOf(initialStyle.borderWidthFraction)
+    }
+    var borderColorArgb by rememberSaveable(clip.id, initialStyle.borderColorArgb) {
+        mutableLongStateOf(initialStyle.borderColorArgb)
+    }
+
+    val selectedBlendMode = OverlayBlendMode.entries.firstOrNull { it.name == blendModeName }
+        ?: OverlayBlendMode.NORMAL
 
     val aspectRatio = ExportGeometry.previewAspectRatio(canvasAspect)
     val previewBg = canvasBackgroundColor(canvasBackground)
@@ -147,28 +177,43 @@ fun OverlayPositionDialog(
                     }
                     val leftPx = (centerX * boxWidthPx) - (overlayWidthPx / 2f)
                     val topPx = (centerY * boxHeightPx) - (overlayHeightPx / 2f)
+                    val previewShape = if (isText) {
+                        MediaProShapes.Small
+                    } else {
+                        RoundedCornerShape(percent = (cornerRadiusFraction * 100f).roundToInt().coerceIn(0, 50))
+                    }
+                    val previewBorderWidth = if (isText) {
+                        MediaProSpacing.BorderSelected
+                    } else if (borderWidthFraction > 0f) {
+                        (overlayWidthDp * borderWidthFraction).coerceIn(1.dp, 6.dp)
+                    } else {
+                        MediaProSpacing.BorderThin
+                    }
+                    val previewBorderColor = if (isText) {
+                        MaterialTheme.colorScheme.onPrimary
+                    } else if (borderWidthFraction > 0f) {
+                        Color(borderColorArgb.toInt())
+                    } else {
+                        MaterialTheme.colorScheme.onTertiary.copy(alpha = 0.7f)
+                    }
 
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
                             .offset { IntOffset(leftPx.roundToInt(), topPx.roundToInt()) }
                             .size(width = overlayWidthDp, height = overlayHeightDp)
-                            .clip(MediaProShapes.Small)
+                            .clip(previewShape)
                             .background(
                                 if (isText) {
                                     MaterialTheme.colorScheme.primary.copy(alpha = 0.78f)
                                 } else {
-                                    MaterialTheme.colorScheme.tertiary.copy(alpha = 0.72f)
+                                    MaterialTheme.colorScheme.tertiary.copy(alpha = (0.72f * opacity).coerceIn(0.08f, 0.9f))
                                 },
                             )
                             .border(
-                                width = MediaProSpacing.BorderSelected,
-                                color = if (isText) {
-                                    MaterialTheme.colorScheme.onPrimary
-                                } else {
-                                    MaterialTheme.colorScheme.onTertiary
-                                },
-                                shape = MediaProShapes.Small,
+                                width = previewBorderWidth,
+                                color = previewBorderColor,
+                                shape = previewShape,
                             ),
                     ) {
                         if (isText) {
@@ -240,12 +285,153 @@ fun OverlayPositionDialog(
                         )
                     },
                 )
+
+                if (!isText) {
+                    val hasCustomStyle = selectedBlendMode != OverlayBlendMode.NORMAL ||
+                        opacity < OverlayVisualStyle.DEFAULT_OPACITY - OverlayVisualStyle.MIN_VISIBLE_FRACTION ||
+                        cornerRadiusFraction > OverlayVisualStyle.MIN_VISIBLE_FRACTION ||
+                        borderWidthFraction > OverlayVisualStyle.MIN_VISIBLE_FRACTION
+                    Spacer(modifier = Modifier.height(MediaProSpacing.Small))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.editor_overlay_style_section),
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        if (hasCustomStyle) {
+                            DialogActionButton(
+                                label = stringResource(R.string.editor_effects_reset),
+                                onClick = {
+                                    blendModeName = OverlayBlendMode.NORMAL.name
+                                    opacity = OverlayVisualStyle.DEFAULT_OPACITY
+                                    cornerRadiusFraction = 0f
+                                    borderWidthFraction = 0f
+                                    borderColorArgb = OverlayVisualStyle.DEFAULT_BORDER_COLOR_ARGB
+                                },
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(MediaProSpacing.ExtraSmall))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.ExtraSmall),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                    ) {
+                        OverlayBlendMode.entries.forEach { mode ->
+                            FilterChip(
+                                selected = selectedBlendMode == mode,
+                                onClick = { blendModeName = mode.name },
+                                label = { Text(text = stringResource(blendModeLabelRes(mode))) },
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(MediaProSpacing.ExtraSmall))
+                    LabeledSliderRow(
+                        label = stringResource(
+                            R.string.editor_overlay_opacity_value,
+                            (opacity * 100f).roundToInt(),
+                        ),
+                        value = opacity,
+                        valueRange = OverlayVisualStyle.MIN_OPACITY..OverlayVisualStyle.DEFAULT_OPACITY,
+                        onValueChange = {
+                            opacity = it.coerceIn(
+                                OverlayVisualStyle.MIN_OPACITY,
+                                OverlayVisualStyle.DEFAULT_OPACITY,
+                            )
+                        },
+                    )
+                    LabeledSliderRow(
+                        label = stringResource(
+                            R.string.editor_overlay_corner_radius_value,
+                            ((cornerRadiusFraction / OverlayVisualStyle.MAX_CORNER_RADIUS_FRACTION) * 100f).roundToInt(),
+                        ),
+                        value = cornerRadiusFraction,
+                        valueRange = 0f..OverlayVisualStyle.MAX_CORNER_RADIUS_FRACTION,
+                        onValueChange = {
+                            cornerRadiusFraction = it.coerceIn(
+                                0f,
+                                OverlayVisualStyle.MAX_CORNER_RADIUS_FRACTION,
+                            )
+                        },
+                    )
+                    LabeledSliderRow(
+                        label = stringResource(
+                            R.string.editor_overlay_border_width_value,
+                            ((borderWidthFraction / OverlayVisualStyle.MAX_BORDER_WIDTH_FRACTION) * 100f).roundToInt(),
+                        ),
+                        value = borderWidthFraction,
+                        valueRange = 0f..OverlayVisualStyle.MAX_BORDER_WIDTH_FRACTION,
+                        onValueChange = {
+                            borderWidthFraction = it.coerceIn(
+                                0f,
+                                OverlayVisualStyle.MAX_BORDER_WIDTH_FRACTION,
+                            )
+                        },
+                    )
+
+                    if (borderWidthFraction > OverlayVisualStyle.MIN_VISIBLE_FRACTION) {
+                        Text(
+                            text = stringResource(R.string.editor_overlay_border_color_label),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(modifier = Modifier.height(MediaProSpacing.ExtraSmall))
+                        val swatchCd = stringResource(R.string.cd_overlay_border_color_swatch)
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                        ) {
+                            OverlayVisualStyle.BORDER_COLOR_SWATCHES.forEach { argb ->
+                                val isSelected = borderColorArgb == argb
+                                Box(
+                                    modifier = Modifier
+                                        .size(30.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(argb.toInt()))
+                                        .border(
+                                            width = if (isSelected) 3.dp else 1.dp,
+                                            color = if (isSelected) {
+                                                MaterialTheme.colorScheme.primary
+                                            } else {
+                                                MaterialTheme.colorScheme.outline
+                                            },
+                                            shape = CircleShape,
+                                        )
+                                        .clickable { borderColorArgb = argb }
+                                        .semantics { contentDescription = swatchCd },
+                                )
+                            }
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
             DialogActionButton(
                 label = stringResource(R.string.editor_apply),
-                onClick = { onConfirm(centerX, centerY, widthFraction) },
+                onClick = {
+                    val style = if (isText) {
+                        null
+                    } else {
+                        OverlayVisualStyle(
+                            cornerRadiusFraction = cornerRadiusFraction,
+                            borderWidthFraction = borderWidthFraction,
+                            borderColorArgb = borderColorArgb,
+                            opacity = opacity,
+                            blendMode = selectedBlendMode,
+                        ).sanitized()
+                    }
+                    onConfirm(centerX, centerY, widthFraction, style)
+                },
             )
         },
         dismissButton = {
@@ -255,6 +441,14 @@ fun OverlayPositionDialog(
             )
         },
     )
+}
+
+@StringRes
+private fun blendModeLabelRes(mode: OverlayBlendMode): Int = when (mode) {
+    OverlayBlendMode.NORMAL -> R.string.editor_overlay_blend_normal
+    OverlayBlendMode.SCREEN_LUMA -> R.string.editor_overlay_blend_screen
+    OverlayBlendMode.LIGHTEN -> R.string.editor_overlay_blend_lighten
+    OverlayBlendMode.MULTIPLY -> R.string.editor_overlay_blend_multiply
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

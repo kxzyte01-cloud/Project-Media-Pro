@@ -18,7 +18,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.IntOffset
 import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.KeyframeInterpolator
+import com.projectmediapro.app.data.export.OverlayBitmapStyler
 import com.projectmediapro.core.model.OverlayKeyframe
+import com.projectmediapro.core.model.OverlayVisualStyle
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -48,9 +50,16 @@ internal fun OverlayPreviewLayer(
             key(clip.id) {
                 val path = overlayFilePaths[clip.id]
                 if (path != null) {
-                    val bitmap by produceState<ImageBitmap?>(initialValue = null, key1 = path) {
+                    val effectiveStyle = clip.overlayStyle?.sanitized()
+                    val styleOpacity = effectiveStyle?.opacity ?: OverlayVisualStyle.DEFAULT_OPACITY
+                    val bitmapStyleKey = effectiveStyle?.takeIf { it.requiresBitmapProcessing }
+                    val bitmap by produceState<ImageBitmap?>(
+                        initialValue = null,
+                        key1 = path,
+                        key2 = bitmapStyleKey,
+                    ) {
                         value = withContext(Dispatchers.IO) {
-                            decodePreviewImageBitmap(path)
+                            decodePreviewImageBitmap(path, bitmapStyleKey)
                         }
                     }
                     val loaded = bitmap
@@ -101,7 +110,7 @@ internal fun OverlayPreviewLayer(
                                     scaleX = resolved.scale
                                     scaleY = resolved.scale
                                     rotationZ = resolved.rotationDegrees
-                                    alpha = resolved.opacity
+                                    alpha = (resolved.opacity * styleOpacity).coerceIn(0f, 1f)
                                 }
                                 .previewCanvasSelectionBorder(
                                     isSelected = selectedClipId == clip.id,
@@ -127,7 +136,10 @@ internal fun OverlayPreviewLayer(
     }
 }
 
-private fun decodePreviewImageBitmap(path: String): ImageBitmap? {
+private fun decodePreviewImageBitmap(
+    path: String,
+    style: OverlayVisualStyle?,
+): ImageBitmap? {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeFile(path, bounds)
     if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
@@ -138,5 +150,10 @@ private fun decodePreviewImageBitmap(path: String): ImageBitmap? {
         sampleSize *= 2
     }
     val options = BitmapFactory.Options().apply { inSampleSize = sampleSize }
-    return BitmapFactory.decodeFile(path, options)?.asImageBitmap()
+    val decoded = BitmapFactory.decodeFile(path, options) ?: return null
+    val styled = OverlayBitmapStyler.applyStyle(decoded, style)
+    if (styled !== decoded && !decoded.isRecycled) {
+        decoded.recycle()
+    }
+    return styled.asImageBitmap()
 }

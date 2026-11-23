@@ -131,6 +131,16 @@
     <string name="editor_overlay_x_value">X: %1$d%%</string>
     <string name="editor_overlay_y_value">Y: %1$d%%</string>
     <string name="editor_overlay_size_value">Size: %1$d%%</string>
+    <string name="editor_overlay_style_section">PiP style &amp; blend mode</string>
+    <string name="editor_overlay_blend_normal">Normal</string>
+    <string name="editor_overlay_blend_screen">Screen (Light Leak)</string>
+    <string name="editor_overlay_blend_lighten">Lighten</string>
+    <string name="editor_overlay_blend_multiply">Multiply</string>
+    <string name="editor_overlay_opacity_value">Opacity: %1$d%%</string>
+    <string name="editor_overlay_corner_radius_value">Rounded corners: %1$d%%</string>
+    <string name="editor_overlay_border_width_value">Border thickness: %1$d%%</string>
+    <string name="editor_overlay_border_color_label">Border color</string>
+    <string name="cd_overlay_border_color_swatch">Select border color</string>
     <string name="editor_overlay_timing_title">Overlay timing</string>
     <string name="editor_overlay_timing_summary">Start %1$s · Duration %2$s</string>
     <string name="editor_overlay_start_label">Start: %1$s</string>

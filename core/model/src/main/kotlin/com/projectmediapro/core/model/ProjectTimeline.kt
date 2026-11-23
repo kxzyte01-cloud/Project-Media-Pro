@@ -260,6 +260,20 @@ object ProjectTimeline {
         }
     }
 
+    fun updateOverlayStyle(
+        project: Project,
+        clipId: String,
+        style: OverlayVisualStyle,
+    ): Project = modifyClipTrack(project, clipId, requiredTrackType = TrackType.OVERLAY) { clips, clipIndex ->
+        val clip = clips[clipIndex]
+        val sanitized = style.sanitized()
+        val normalized: OverlayVisualStyle? = if (sanitized.isIdentity) null else sanitized
+        if (clip.overlayStyle == normalized) return@modifyClipTrack null
+        clips.toMutableList().apply {
+            set(clipIndex, clip.copy(overlayStyle = normalized))
+        }
+    }
+
     fun updateClipVisualEffects(
         project: Project,
         clipId: String,

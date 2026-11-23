@@ -10,6 +10,7 @@ import com.projectmediapro.core.model.ExportBitrate
 import com.projectmediapro.core.model.ExportFrameRate
 import com.projectmediapro.core.model.ExportQuality
 import com.projectmediapro.core.model.OverlayKeyframe
+import com.projectmediapro.core.model.OverlayVisualStyle
 import com.projectmediapro.core.model.Project
 import com.projectmediapro.core.model.SpeedRampPreset
 import com.projectmediapro.core.model.TextOverlayStyle
@@ -176,6 +177,7 @@ sealed interface EditorEvent {
         val centerX: Float,
         val centerY: Float,
         val widthFraction: Float,
+        val style: OverlayVisualStyle? = null,
     ) : EditorEvent
     data class ApplyOverlayTiming(
         val startTimeMs: Long,

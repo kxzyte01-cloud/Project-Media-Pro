@@ -248,6 +248,7 @@ private fun SelectedClipDockItems(
                 icon = StudioToolIconKind.POSITION,
                 label = stringResource(R.string.editor_tool_position),
                 enabled = editsEnabled,
+                isActive = clip.hasCustomOverlayStyle,
                 onClick = { onEvent(EditorEvent.OpenOverlayPosition) },
             )
             StudioDockTile(

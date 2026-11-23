@@ -391,13 +391,22 @@ class EditorViewModel(
                     ?: return
                 if (current.project.findClipLocation(targetId)?.isOverlay != true) return
                 commitUndoableEdit(targetId) { project ->
-                    ProjectTimeline.updateOverlayTransform(
+                    val positioned = ProjectTimeline.updateOverlayTransform(
                         project = project,
                         clipId = targetId,
                         centerX = event.centerX,
                         centerY = event.centerY,
                         widthFraction = event.widthFraction,
                     )
+                    if (event.style != null) {
+                        ProjectTimeline.updateOverlayStyle(
+                            project = positioned,
+                            clipId = targetId,
+                            style = event.style,
+                        )
+                    } else {
+                        positioned
+                    }
                 }
             }
             is EditorEvent.ApplyOverlayTiming -> {

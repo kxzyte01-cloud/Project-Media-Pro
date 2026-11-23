@@ -32,6 +32,7 @@ data class Clip(
     val audioFadeInMs: Long = 0L,
     val audioFadeOutMs: Long = 0L,
     val speedRamp: SpeedRampPreset = SpeedRampPreset.NONE,
+    val overlayStyle: OverlayVisualStyle? = null,
 ) {
     val hasActiveTransform: Boolean
         get() = (rotationDegrees % 360) != 0 || flipHorizontal || flipVertical
@@ -44,6 +45,9 @@ data class Clip(
 
     val hasCustomAudioMix: Boolean
         get() = volume < 1.0f || audioBoost > DEFAULT_AUDIO_BOOST || audioFadeInMs > 0L || audioFadeOutMs > 0L
+
+    val hasCustomOverlayStyle: Boolean
+        get() = overlayStyle != null && !overlayStyle.sanitized().isIdentity
 
     companion object {
         const val MIN_PLAYBACK_SPEED: Float = 0.25f

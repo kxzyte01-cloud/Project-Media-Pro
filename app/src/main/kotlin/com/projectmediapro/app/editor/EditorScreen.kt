@@ -719,12 +719,13 @@ private fun LoadedStudioWorkspace(
                     clip = location.clip,
                     canvasAspect = state.project.canvasAspect,
                     canvasBackground = state.project.canvasBackground,
-                    onConfirm = { centerX, centerY, widthFraction ->
+                    onConfirm = { centerX, centerY, widthFraction, style ->
                         onEvent(
                             EditorEvent.ApplyOverlayPosition(
                                 centerX = centerX,
                                 centerY = centerY,
                                 widthFraction = widthFraction,
+                                style = style,
                             ),
                         )
                     },
@@ -777,7 +778,7 @@ private fun LoadedStudioWorkspace(
                     canvasBackground = state.project.canvasBackground,
                     titleRes = R.string.editor_text_position_title,
                     isText = true,
-                    onConfirm = { centerX, centerY, widthFraction ->
+                    onConfirm = { centerX, centerY, widthFraction, _ ->
                         onEvent(
                             EditorEvent.ApplyTextPosition(
                                 centerX = centerX,

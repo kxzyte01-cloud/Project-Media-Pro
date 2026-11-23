@@ -478,6 +478,7 @@ private abstract class TimedCanvasBitmapOverlay(
     private val baseCenterX: Float,
     private val baseCenterY: Float,
     keyframes: List<OverlayKeyframe>,
+    private val baseOpacity: Float = 1f,
 ) : BitmapOverlay() {
 
     private val startTimeUs: Long = startTimeMs * 1_000L
@@ -546,7 +547,7 @@ private abstract class TimedCanvasBitmapOverlay(
 
     private fun buildOverlaySettings(resolved: ResolvedOverlayTransform): OverlaySettings =
         OverlaySettings.Builder()
-            .setAlphaScale(resolved.opacity)
+            .setAlphaScale((resolved.opacity * baseOpacity).coerceIn(0f, 1f))
             .setBackgroundFrameAnchor(
                 resolved.centerX * 2f - 1f,
                 1f - resolved.centerY * 2f,
@@ -567,10 +568,16 @@ private class TimedBitmapOverlay(
     baseCenterX = overlay.centerX,
     baseCenterY = overlay.centerY,
     keyframes = overlay.keyframes,
+    baseOpacity = overlay.style?.sanitized()?.opacity ?: 1f,
 ) {
     override fun buildBitmap(videoSize: Size): Bitmap? {
         val targetWidthPx = (videoSize.width * overlay.widthFraction).roundToInt().coerceAtLeast(1)
-        return decodeScaledOverlayBitmap(overlay.path, targetWidthPx)
+        val decoded = decodeScaledOverlayBitmap(overlay.path, targetWidthPx) ?: return null
+        val styled = OverlayBitmapStyler.applyStyle(decoded, overlay.style)
+        if (styled !== decoded && !decoded.isRecycled) {
+            decoded.recycle()
+        }
+        return styled
     }
 }
 

@@ -11,6 +11,7 @@ import com.projectmediapro.core.model.ExportFrameRate
 import com.projectmediapro.core.model.ExportQuality
 import com.projectmediapro.core.model.KeyframeInterpolator
 import com.projectmediapro.core.model.OverlayKeyframe
+import com.projectmediapro.core.model.OverlayVisualStyle
 import com.projectmediapro.core.model.Project
 import com.projectmediapro.core.model.ProjectTimeline
 import com.projectmediapro.core.model.SpeedRampPreset
@@ -75,6 +76,7 @@ data class ExportOverlay(
     val widthFraction: Float,
     val keyframes: List<OverlayKeyframe> = emptyList(),
     val animationDurationMs: Long = (endTimeMs - startTimeMs).coerceAtLeast(0L),
+    val style: OverlayVisualStyle? = null,
 )
 
 /**
@@ -281,6 +283,7 @@ object ExportPlanner {
                     widthFraction = widthFraction,
                     keyframes = KeyframeInterpolator.sanitizeList(clip.keyframes, centerX, centerY),
                     animationDurationMs = clip.durationMs.coerceAtLeast(endMs - startMs),
+                    style = clip.overlayStyle?.sanitized()?.takeUnless { it.isIdentity },
                 ),
             )
         }
