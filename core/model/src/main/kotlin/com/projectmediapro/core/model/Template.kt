@@ -13,6 +13,10 @@ data class Template(
     val schemaVersion: Int = CURRENT_SCHEMA_VERSION,
     val canvasAspect: CanvasAspect = CanvasAspect.ORIGINAL,
     val canvasBackground: CanvasBackground = CanvasBackground.BLACK,
+    val textClips: List<TemplateTextClip> = emptyList(),
+    val soundReactiveEnabled: Boolean = false,
+    val opticalFlowEnabled: Boolean = false,
+    val captionStyleJson: String? = null,
 ) {
     companion object {
         const val CURRENT_SCHEMA_VERSION = 1

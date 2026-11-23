@@ -26,6 +26,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -246,8 +248,11 @@ private fun StudioTopBar(
     onNavigateBack: () -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
+    onSaveTemplateClick: () -> Unit,
+    onApplyStyleClick: () -> Unit,
     onExportClick: () -> Unit,
 ) {
+    var showTemplatesMenu by remember { mutableStateOf(false) }
     val editsEnabled = loadedState != null && !loadedState.isBusy
     val hasVideos = loadedState != null && loadedState.project.videoClips().isNotEmpty()
     val isExporting = loadedState?.export is ExportUiState.Running
@@ -298,6 +303,43 @@ private fun StudioTopBar(
                             painter = painterResource(R.drawable.ic_redo),
                             contentDescription = stringResource(R.string.cd_redo),
                         )
+                    }
+                    Box {
+                        IconButton(
+                            onClick = { showTemplatesMenu = true },
+                            enabled = hasVideos && editsEnabled,
+                        ) {
+                            if (loadedState.isSavingTemplate) {
+                                CircularProgressIndicator(
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            } else {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_save_template),
+                                    contentDescription = stringResource(R.string.cd_templates_menu),
+                                )
+                            }
+                        }
+                        DropdownMenu(
+                            expanded = showTemplatesMenu,
+                            onDismissRequest = { showTemplatesMenu = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text(text = stringResource(R.string.editor_menu_save_as_template)) },
+                                onClick = {
+                                    showTemplatesMenu = false
+                                    onSaveTemplateClick()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(text = stringResource(R.string.editor_menu_apply_style)) },
+                                onClick = {
+                                    showTemplatesMenu = false
+                                    onApplyStyleClick()
+                                },
+                            )
+                        }
                     }
                     Spacer(modifier = Modifier.width(MediaProSpacing.ExtraSmall))
                     Button(
@@ -451,9 +493,13 @@ private fun LoadedStudioWorkspace(
     Column(modifier = Modifier.fillMaxSize()) {
         StudioStatusBanners(
             exportState = state.export,
+            savedTemplateName = state.savedTemplateName,
+            appliedStyleTemplateName = state.appliedStyleTemplateName,
             error = state.error,
             onCancelExport = { onEvent(EditorEvent.CancelExport) },
             onDismissDone = { onEvent(EditorEvent.DismissExportDone) },
+            onDismissTemplateSaved = { onEvent(EditorEvent.DismissTemplateSavedBanner) },
+            onDismissStyleApplied = { onEvent(EditorEvent.DismissStyleAppliedBanner) },
         )
 
         // Top Zone: Fixed Cinema Preview Stage with direct overlay/text drag & pinch
@@ -904,6 +950,30 @@ private fun LoadedStudioWorkspace(
                 onDismiss = { onEvent(EditorEvent.DismissDialog) },
             )
         }
+        EditorDialog.SaveAsTemplate -> {
+            SaveAsTemplateDialog(
+                project = state.project,
+                onConfirm = { name, description, replaceableClipIds ->
+                    onEvent(
+                        EditorEvent.ConfirmSaveAsTemplate(
+                            name = name,
+                            description = description,
+                            replaceableClipIds = replaceableClipIds,
+                        ),
+                    )
+                },
+                onDismiss = { onEvent(EditorEvent.DismissDialog) },
+            )
+        }
+        EditorDialog.ApplyStyle -> {
+            ApplyStyleDialog(
+                templates = state.availableTemplates,
+                onSelectTemplate = { templateId ->
+                    onEvent(EditorEvent.ApplyTemplateStyle(templateId))
+                },
+                onDismiss = { onEvent(EditorEvent.DismissDialog) },
+            )
+        }
         null -> Unit
     }
 
@@ -920,10 +990,64 @@ private fun LoadedStudioWorkspace(
 @Composable
 private fun StudioStatusBanners(
     exportState: ExportUiState,
+    savedTemplateName: String?,
+    appliedStyleTemplateName: String?,
     error: EditorError?,
     onCancelExport: () -> Unit,
     onDismissDone: () -> Unit,
+    onDismissTemplateSaved: () -> Unit,
+    onDismissStyleApplied: () -> Unit,
 ) {
+    if (appliedStyleTemplateName != null) {
+        Surface(
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics { liveRegion = LiveRegionMode.Polite },
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = MediaProSpacing.Medium, vertical = MediaProSpacing.ExtraSmall),
+            ) {
+                Text(
+                    text = stringResource(R.string.editor_apply_style_applied, appliedStyleTemplateName),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = onDismissStyleApplied) {
+                    Text(text = stringResource(R.string.editor_save_template_dismiss))
+                }
+            }
+        }
+    }
+    if (savedTemplateName != null) {
+        Surface(
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics { liveRegion = LiveRegionMode.Polite },
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = MediaProSpacing.Medium, vertical = MediaProSpacing.ExtraSmall),
+            ) {
+                Text(
+                    text = stringResource(R.string.editor_save_template_saved, savedTemplateName),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = onDismissTemplateSaved) {
+                    Text(text = stringResource(R.string.editor_save_template_dismiss))
+                }
+            }
+        }
+    }
     when (exportState) {
         is ExportUiState.Running -> {
             val percent = exportState.percent.coerceIn(0, 100)

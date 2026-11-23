@@ -16,6 +16,11 @@ import com.projectmediapro.app.data.media.ProjectMediaStorage
 import com.projectmediapro.app.data.media.VideoImportException
 import com.projectmediapro.app.data.media.VideoImporter
 import com.projectmediapro.app.data.project.ProjectRepository
+import com.projectmediapro.app.data.template.ProjectTemplateSaver
+import com.projectmediapro.app.data.template.TemplateRepository
+import com.projectmediapro.core.model.TemplateStyleApplier
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.Json
 import com.projectmediapro.core.model.BeatEffectKind
 import com.projectmediapro.core.model.BeatMarker
 import com.projectmediapro.core.model.Clip
@@ -70,7 +75,14 @@ class EditorViewModel(
     private val freezeFrameExtractor: FreezeFrameExtractor? = null,
     private val videoAudioExtractor: VideoAudioExtractor? = null,
     private val frameSnapshotSaver: FrameSnapshotSaver? = null,
+    private val projectTemplateSaver: ProjectTemplateSaver? = null,
+    private val templateRepository: TemplateRepository? = null,
 ) : ViewModel() {
+
+    private val templateStyleJson = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+    }
 
     private val _uiState = MutableStateFlow<EditorUiState>(EditorUiState.Loading)
     val uiState: StateFlow<EditorUiState> = _uiState.asStateFlow()
@@ -83,6 +95,7 @@ class EditorViewModel(
     private var extractAudioJob: Job? = null
     private var beatJob: Job? = null
     private var snapshotJob: Job? = null
+    private var saveTemplateJob: Job? = null
     private val history = UndoRedoManager(Project(id = projectId, title = ""))
 
     init {
@@ -582,6 +595,34 @@ class EditorViewModel(
                 val current = _uiState.value as? EditorUiState.Loaded ?: return
                 if (current.export is ExportUiState.Done) {
                     _uiState.value = current.copy(export = ExportUiState.Idle)
+                }
+            }
+            EditorEvent.OpenSaveAsTemplate -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                if (current.isBusy || current.project.videoClips().isEmpty()) return
+                _uiState.value = current.copy(
+                    activeDialog = EditorDialog.SaveAsTemplate,
+                    audioPreview = null,
+                    error = null,
+                )
+            }
+            is EditorEvent.ConfirmSaveAsTemplate -> handleSaveAsTemplate(
+                name = event.name,
+                description = event.description,
+                replaceableClipIds = event.replaceableClipIds,
+            )
+            EditorEvent.DismissTemplateSavedBanner -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                if (current.savedTemplateName != null) {
+                    _uiState.value = current.copy(savedTemplateName = null)
+                }
+            }
+            EditorEvent.OpenApplyStyle -> handleOpenApplyStyle()
+            is EditorEvent.ApplyTemplateStyle -> handleApplyTemplateStyle(event.templateId)
+            EditorEvent.DismissStyleAppliedBanner -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                if (current.appliedStyleTemplateName != null) {
+                    _uiState.value = current.copy(appliedStyleTemplateName = null)
                 }
             }
         }
@@ -1627,7 +1668,128 @@ class EditorViewModel(
         }
     }
 
+    private fun handleSaveAsTemplate(
+        name: String,
+        description: String,
+        replaceableClipIds: Set<String>,
+    ) {
+        val saver = projectTemplateSaver ?: return
+        val current = _uiState.value as? EditorUiState.Loaded ?: return
+        if (current.isBusy || current.project.videoClips().isEmpty()) return
+        _uiState.value = current.copy(
+            activeDialog = null,
+            isSavingTemplate = true,
+            savedTemplateName = null,
+            error = null,
+        )
+        saveTemplateJob = viewModelScope.launch {
+            try {
+                val saved = saver.saveProjectAsTemplate(
+                    project = current.project,
+                    templateName = name,
+                    description = description,
+                    replaceableClipIds = replaceableClipIds,
+                    captionDocument = current.captionDocument,
+                )
+                val latest = _uiState.value as? EditorUiState.Loaded ?: return@launch
+                _uiState.value = latest.copy(
+                    isSavingTemplate = false,
+                    savedTemplateName = saved.name,
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                val latest = _uiState.value as? EditorUiState.Loaded ?: return@launch
+                _uiState.value = latest.copy(
+                    isSavingTemplate = false,
+                    error = EditorError.SAVE_FAILED,
+                )
+            } finally {
+                val latest = _uiState.value as? EditorUiState.Loaded
+                if (latest != null && latest.isSavingTemplate) {
+                    _uiState.value = latest.copy(isSavingTemplate = false)
+                }
+            }
+        }
+    }
+
+    private fun handleOpenApplyStyle() {
+        val current = _uiState.value as? EditorUiState.Loaded ?: return
+        if (current.isBusy || current.project.videoClips().isEmpty()) return
+        val repo = templateRepository
+        if (repo == null) {
+            _uiState.value = current.copy(
+                activeDialog = EditorDialog.ApplyStyle,
+                availableTemplates = emptyList(),
+                audioPreview = null,
+            )
+            return
+        }
+        viewModelScope.launch {
+            val templates = try {
+                repo.listTemplates()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                emptyList()
+            }
+            val latest = _uiState.value as? EditorUiState.Loaded ?: return@launch
+            if (latest.isBusy) return@launch
+            _uiState.value = latest.copy(
+                activeDialog = EditorDialog.ApplyStyle,
+                availableTemplates = templates,
+                audioPreview = null,
+                error = null,
+            )
+        }
+    }
+
+    private fun handleApplyTemplateStyle(templateId: String) {
+        val current = _uiState.value as? EditorUiState.Loaded ?: return
+        if (current.isBusy) return
+        val template = current.availableTemplates.firstOrNull { it.id == templateId } ?: return
+        _uiState.value = current.copy(activeDialog = null)
+
+        commitUndoableEdit(preferredSelectedClipId = current.selectedClipId) { previous ->
+            TemplateStyleApplier.applyStyle(previous, template).project
+        }
+
+        val rawCaptionStyle = template.captionStyleJson?.takeIf { it.isNotBlank() }
+        if (rawCaptionStyle != null && captionRepository != null) {
+            val decoded = try {
+                templateStyleJson.decodeFromString(CaptionStyle.serializer(), rawCaptionStyle)
+            } catch (_: SerializationException) {
+                null
+            } catch (_: IllegalArgumentException) {
+                null
+            }
+            if (decoded != null) {
+                val existingDoc = current.captionDocument ?: CaptionDocument(projectId = current.project.id)
+                val updatedDoc = existingDoc.copy(style = decoded)
+                viewModelScope.launch {
+                    try {
+                        captionRepository.saveCaptions(updatedDoc)
+                        val latest = _uiState.value as? EditorUiState.Loaded ?: return@launch
+                        _uiState.value = latest.copy(
+                            captionDocument = updatedDoc,
+                            appliedStyleTemplateName = template.name,
+                        )
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        val latest = _uiState.value as? EditorUiState.Loaded ?: return@launch
+                        _uiState.value = latest.copy(appliedStyleTemplateName = template.name)
+                    }
+                }
+                return
+            }
+        }
+        val latest = _uiState.value as? EditorUiState.Loaded ?: return
+        _uiState.value = latest.copy(appliedStyleTemplateName = template.name)
+    }
+
     override fun onCleared() {
+        saveTemplateJob?.cancel()
         snapshotJob?.cancel()
         beatJob?.cancel()
         extractAudioJob?.cancel()
@@ -1658,6 +1820,8 @@ class EditorViewModel(
             freezeFrameExtractor: FreezeFrameExtractor? = null,
             videoAudioExtractor: VideoAudioExtractor? = null,
             frameSnapshotSaver: FrameSnapshotSaver? = null,
+            projectTemplateSaver: ProjectTemplateSaver? = null,
+            templateRepository: TemplateRepository? = null,
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -1678,6 +1842,8 @@ class EditorViewModel(
                     freezeFrameExtractor = freezeFrameExtractor,
                     videoAudioExtractor = videoAudioExtractor,
                     frameSnapshotSaver = frameSnapshotSaver,
+                    projectTemplateSaver = projectTemplateSaver,
+                    templateRepository = templateRepository,
                 ) as T
             }
         }

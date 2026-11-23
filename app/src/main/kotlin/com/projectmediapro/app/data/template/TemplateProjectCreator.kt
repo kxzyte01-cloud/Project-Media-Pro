@@ -12,6 +12,11 @@ import com.projectmediapro.core.model.ResolvedTemplateMedia
 import com.projectmediapro.core.model.Template
 import com.projectmediapro.core.model.TemplateApplier
 import com.projectmediapro.core.model.TrackType
+import com.projectmediapro.feature.captions.CaptionDocument
+import com.projectmediapro.feature.captions.CaptionRepository
+import com.projectmediapro.feature.captions.CaptionStyle
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.IOException
 import java.util.UUID
@@ -43,7 +48,13 @@ class TemplateProjectCreator(
     private val overlayImporter: OverlayImporter,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val idProvider: () -> String = { UUID.randomUUID().toString() },
+    private val captionRepository: CaptionRepository? = null,
 ) {
+
+    private val styleJson = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+    }
 
     suspend fun createProjectFromTemplate(
         template: Template,
@@ -76,6 +87,7 @@ class TemplateProjectCreator(
                 idProvider = idProvider,
             )
             projectRepository.saveProject(assembled)
+            applyTemplateCaptionStyle(assembled.id, template.captionStyleJson)
             return assembled.id
         } catch (cancelled: CancellationException) {
             runCatching { projectRepository.deleteProject(created.id) }
@@ -140,6 +152,30 @@ class TemplateProjectCreator(
             throw cancelled
         } catch (ioError: IOException) {
             throw TemplateSlotImportException(trackType, Reason.FAILED, ioError)
+        }
+    }
+
+    private suspend fun applyTemplateCaptionStyle(projectId: String, captionStyleJson: String?) {
+        val repo = captionRepository ?: return
+        val raw = captionStyleJson?.takeIf { it.isNotBlank() } ?: return
+        val decodedStyle = try {
+            styleJson.decodeFromString(CaptionStyle.serializer(), raw)
+        } catch (_: SerializationException) {
+            return
+        } catch (_: IllegalArgumentException) {
+            return
+        }
+        try {
+            repo.saveCaptions(
+                CaptionDocument(
+                    projectId = projectId,
+                    style = decodedStyle,
+                ),
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Best-effort caption style prefill must not fail project creation.
         }
     }
 }

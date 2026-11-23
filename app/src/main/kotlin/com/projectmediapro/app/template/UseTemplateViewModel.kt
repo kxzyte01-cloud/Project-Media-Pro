@@ -44,6 +44,7 @@ sealed interface UseTemplateUiState {
 sealed interface UseTemplateEvent {
     data class UpdateProjectTitle(val title: String) : UseTemplateEvent
     data class SlotMediaPicked(val slotId: String, val sourceUri: String?) : UseTemplateEvent
+    data class BatchVideosPicked(val sourceUris: List<String>) : UseTemplateEvent
     data class ClearPickedSlot(val slotId: String) : UseTemplateEvent
     data object CreateProject : UseTemplateEvent
 }
@@ -98,6 +99,21 @@ class UseTemplateViewModel(
                 if (current.template.slots.none { it.id == event.slotId }) return
                 _uiState.value = current.copy(
                     pickedUrisBySlotId = current.pickedUrisBySlotId + (event.slotId to uri),
+                    error = null,
+                )
+            }
+            is UseTemplateEvent.BatchVideosPicked -> {
+                if (event.sourceUris.isEmpty()) return
+                val replaceableVideoSlots = current.template.slots.filter {
+                    it.isReplaceable && it.requiredType == TrackType.VIDEO
+                }
+                if (replaceableVideoSlots.isEmpty()) return
+                val updatedMap = current.pickedUrisBySlotId.toMutableMap()
+                replaceableVideoSlots.zip(event.sourceUris).forEach { (slot, uri) ->
+                    updatedMap[slot.id] = uri
+                }
+                _uiState.value = current.copy(
+                    pickedUrisBySlotId = updatedMap,
                     error = null,
                 )
             }

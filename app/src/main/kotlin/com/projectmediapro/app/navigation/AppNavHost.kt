@@ -226,6 +226,8 @@ fun AppNavHost(
                     freezeFrameExtractor = container.freezeFrameExtractor,
                     videoAudioExtractor = container.videoAudioExtractor,
                     frameSnapshotSaver = container.frameSnapshotSaver,
+                    projectTemplateSaver = container.projectTemplateSaver,
+                    templateRepository = container.templateRepository,
                 ),
             )
             val uiState by viewModel.uiState.collectAsStateWithLifecycle()

@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -87,6 +88,17 @@ fun UseTemplateScreen(
         }
     }
 
+    val batchVideoLimit = ((uiState as? UseTemplateUiState.Loaded)?.template?.slots
+        ?.count { it.isReplaceable && it.requiredType == TrackType.VIDEO } ?: 2)
+        .coerceAtLeast(2)
+    val batchVideoPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = batchVideoLimit),
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            onEvent(UseTemplateEvent.BatchVideosPicked(uris.map { it.toString() }))
+        }
+    }
+
     val topBarTitle = when (uiState) {
         is UseTemplateUiState.Loaded -> stringResource(R.string.use_template_title)
         UseTemplateUiState.Loading -> stringResource(R.string.templates_loading_title)
@@ -135,6 +147,7 @@ fun UseTemplateScreen(
             }
             is UseTemplateUiState.Loaded -> {
                 val replaceableSlots = uiState.template.slots.filter { it.isReplaceable }
+                val replaceableVideoCount = replaceableSlots.count { it.requiredType == TrackType.VIDEO }
                 val lockedFilledCount = uiState.template.slots.count { !it.isReplaceable && it.filledMediaUri != null }
                 val enabled = !uiState.isCreating
 
@@ -154,6 +167,24 @@ fun UseTemplateScreen(
                         label = { Text(text = stringResource(R.string.home_project_title_hint)) },
                         modifier = Modifier.fillMaxWidth(),
                     )
+
+                    if (replaceableVideoCount >= 2) {
+                        Spacer(modifier = Modifier.height(MediaProSpacing.Small))
+                        OutlinedButton(
+                            onClick = {
+                                batchVideoPicker.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly),
+                                )
+                            },
+                            enabled = enabled,
+                            shape = MediaProShapes.Small,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .defaultMinSize(minHeight = MediaProSpacing.MinTouchTarget),
+                        ) {
+                            Text(text = stringResource(R.string.use_template_pick_all_videos, replaceableVideoCount))
+                        }
+                    }
 
                     if (lockedFilledCount > 0) {
                         Spacer(modifier = Modifier.height(MediaProSpacing.Small))

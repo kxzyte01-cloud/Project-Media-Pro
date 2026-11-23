@@ -7,6 +7,7 @@ data class ResolvedTemplateMedia(
 
 /**
  * Pure domain assembly that turns a [Template] plus resolved per-slot media files into a ready-to-edit [Project].
+ * Preserves per-slot visual effects, LUTs, transitions, speed ramps, audio polish, overlay styles, and text overlays.
  */
 object TemplateApplier {
 
@@ -19,6 +20,8 @@ object TemplateApplier {
         var project = baseProject.copy(
             canvasAspect = template.canvasAspect,
             canvasBackground = template.canvasBackground,
+            soundReactiveEnabled = template.soundReactiveEnabled,
+            opticalFlowEnabled = template.opticalFlowEnabled,
         )
 
         val orderedVideoSlots = buildList {
@@ -58,12 +61,40 @@ object TemplateApplier {
                 overlayCenterX = slot.overlayCenterX,
                 overlayCenterY = slot.overlayCenterY,
                 overlayWidthFraction = slot.overlayWidthFraction,
+                overlayStyle = slot.overlayStyle,
             )
             project = ProjectTimeline.appendClip(
                 project = project,
                 clip = clip,
                 newTrackId = idProvider(),
                 trackType = TrackType.OVERLAY,
+            )
+        }
+
+        for (textTemplate in template.textClips) {
+            if (textTemplate.textContent.isBlank()) continue
+            val rawDurationMs = textTemplate.durationMs.coerceAtLeast(ProjectTimeline.MIN_CLIP_DURATION_MS)
+            val resolvedDurationMs = if (totalVideoMs > 0L) {
+                minOf(rawDurationMs, totalVideoMs)
+            } else {
+                rawDurationMs
+            }
+            val textClip = Clip(
+                id = idProvider(),
+                mediaUri = "",
+                startTimeMs = textTemplate.startTimeMs.coerceAtLeast(0L),
+                durationMs = resolvedDurationMs,
+                overlayCenterX = textTemplate.centerX,
+                overlayCenterY = textTemplate.centerY,
+                overlayWidthFraction = textTemplate.widthFraction,
+                textContent = textTemplate.textContent,
+                textStyle = textTemplate.textStyle,
+            )
+            project = ProjectTimeline.appendClip(
+                project = project,
+                clip = textClip,
+                newTrackId = idProvider(),
+                trackType = TrackType.TEXT,
             )
         }
 
@@ -80,16 +111,40 @@ object TemplateApplier {
         var updated = project
         for (slot in slots) {
             val media = resolvedMediaBySlotId[slot.id] ?: continue
-            val durationMs = media.durationMs.coerceAtLeast(0L)
-            if (durationMs <= 0L) continue
+            val sourceMs = media.durationMs.coerceAtLeast(0L)
+            if (sourceMs <= 0L) continue
+
+            // Never stretch a shorter clip; compute required source span for slot timeline duration at safeSpeed.
+            val safeSpeed = slot.playbackSpeed.coerceIn(Clip.MIN_PLAYBACK_SPEED, Clip.MAX_PLAYBACK_SPEED)
+            val desiredSourceMs = if (slot.durationMs >= ProjectTimeline.MIN_CLIP_DURATION_MS) {
+                (slot.durationMs * safeSpeed).toLong().coerceAtLeast(ProjectTimeline.MIN_CLIP_DURATION_MS)
+            } else {
+                sourceMs
+            }
+            val targetTrimEndMs = minOf(sourceMs, desiredSourceMs)
+            val effectiveDurationMs = (targetTrimEndMs / safeSpeed).toLong()
+                .coerceAtLeast(ProjectTimeline.MIN_CLIP_DURATION_MS)
+
             val clip = Clip(
                 id = idProvider(),
                 mediaUri = media.relativePath,
                 startTimeMs = 0L,
-                durationMs = durationMs,
+                durationMs = effectiveDurationMs,
                 trimStartMs = 0L,
-                trimEndMs = durationMs,
-                sourceDurationMs = durationMs,
+                trimEndMs = targetTrimEndMs,
+                sourceDurationMs = sourceMs,
+                playbackSpeed = safeSpeed,
+                speedRamp = slot.speedRamp,
+                volume = slot.volume.coerceIn(0f, 1f),
+                audioBoost = slot.audioBoost.coerceIn(Clip.DEFAULT_AUDIO_BOOST, Clip.MAX_AUDIO_BOOST),
+                audioFadeInMs = slot.audioFadeInMs.coerceIn(0L, Clip.MAX_AUDIO_FADE_MS),
+                audioFadeOutMs = slot.audioFadeOutMs.coerceIn(0L, Clip.MAX_AUDIO_FADE_MS),
+                audioEnhance = slot.audioEnhance,
+                visualEffects = slot.visualEffects,
+                rotationDegrees = slot.rotationDegrees,
+                flipHorizontal = slot.flipHorizontal,
+                flipVertical = slot.flipVertical,
+                crop = slot.crop,
             )
             updated = ProjectTimeline.appendClip(
                 project = updated,

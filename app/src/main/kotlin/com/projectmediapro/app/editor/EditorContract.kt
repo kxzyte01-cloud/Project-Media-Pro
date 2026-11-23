@@ -13,6 +13,7 @@ import com.projectmediapro.core.model.ExportQuality
 import com.projectmediapro.core.model.OverlayKeyframe
 import com.projectmediapro.core.model.OverlayVisualStyle
 import com.projectmediapro.core.model.Project
+import com.projectmediapro.core.model.Template
 import com.projectmediapro.core.model.SpeedRampPreset
 import com.projectmediapro.core.model.TextOverlayStyle
 import com.projectmediapro.core.model.TrackType
@@ -65,6 +66,8 @@ sealed interface EditorDialog {
     data object Beats : EditorDialog
     data object Canvas : EditorDialog
     data object Quality : EditorDialog
+    data object SaveAsTemplate : EditorDialog
+    data object ApplyStyle : EditorDialog
 }
 
 data class AudioPreviewState(
@@ -99,6 +102,10 @@ sealed interface EditorUiState {
         val isTranscribingCaptions: Boolean = false,
         val isDetectingBeats: Boolean = false,
         val export: ExportUiState = ExportUiState.Idle,
+        val isSavingTemplate: Boolean = false,
+        val savedTemplateName: String? = null,
+        val appliedStyleTemplateName: String? = null,
+        val availableTemplates: List<Template> = emptyList(),
         val error: EditorError? = null,
     ) : EditorUiState {
         val isImporting: Boolean
@@ -108,7 +115,7 @@ sealed interface EditorUiState {
         val isImportingOverlay: Boolean
             get() = importingTrack == TrackType.OVERLAY
         val isBusy: Boolean
-            get() = importingTrack != null || export is ExportUiState.Running
+            get() = importingTrack != null || export is ExportUiState.Running || isSavingTemplate
     }
 }
 
@@ -237,4 +244,14 @@ sealed interface EditorEvent {
     ) : EditorEvent
     data object CancelExport : EditorEvent
     data object DismissExportDone : EditorEvent
+    data object OpenSaveAsTemplate : EditorEvent
+    data class ConfirmSaveAsTemplate(
+        val name: String,
+        val description: String,
+        val replaceableClipIds: Set<String>,
+    ) : EditorEvent
+    data object DismissTemplateSavedBanner : EditorEvent
+    data object OpenApplyStyle : EditorEvent
+    data class ApplyTemplateStyle(val templateId: String) : EditorEvent
+    data object DismissStyleAppliedBanner : EditorEvent
 }

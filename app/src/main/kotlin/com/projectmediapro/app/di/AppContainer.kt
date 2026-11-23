@@ -23,6 +23,7 @@ import com.projectmediapro.app.data.media.VideoImporter
 import com.projectmediapro.app.data.project.FileProjectRepository
 import com.projectmediapro.app.data.project.ProjectRepository
 import com.projectmediapro.app.data.template.FileTemplateRepository
+import com.projectmediapro.app.data.template.ProjectTemplateSaver
 import com.projectmediapro.app.data.template.TemplateProjectCreator
 import com.projectmediapro.app.data.template.TemplateRepository
 import com.projectmediapro.app.settings.AppStorageInspector
@@ -97,6 +98,12 @@ class AppContainer(appContext: Context) {
         videoImporter = videoImporter,
         audioImporter = audioImporter,
         overlayImporter = overlayImporter,
+        captionRepository = captionRepository,
+    )
+    val projectTemplateSaver: ProjectTemplateSaver = ProjectTemplateSaver(
+        templateRepository = templateRepository,
+        projectMediaStorage = mediaStorage,
+        templateMediaStorage = templateMediaStorage,
     )
     val videoExporter: VideoExporter = Media3VideoExporter(context = appContext)
     val freezeFrameExtractor: FreezeFrameExtractor = AndroidFreezeFrameExtractor()
