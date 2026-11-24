@@ -70,7 +70,7 @@ internal fun resolvePreviewClips(
 ): List<PreviewClip> =
     project.videoClips().mapNotNull { clip ->
         val file = mediaStorage.resolve(clip.mediaUri)
-        if (!ProjectMediaHealthChecker.isHealthyMediaFile(file)) return@mapNotNull null
+        if (file == null || !ProjectMediaHealthChecker.isHealthyMediaFile(file)) return@mapNotNull null
         val (trimStartMs, trimEndMs) = ProjectTimeline.resolvedTrimBounds(clip)
         PreviewClip(
             path = file.absolutePath,
@@ -95,7 +95,7 @@ internal fun resolvePreviewAudioClips(
 ): List<PreviewClip> =
     project.audioClips().mapNotNull { clip ->
         val file = mediaStorage.resolve(clip.mediaUri)
-        if (!ProjectMediaHealthChecker.isHealthyMediaFile(file)) return@mapNotNull null
+        if (file == null || !ProjectMediaHealthChecker.isHealthyMediaFile(file)) return@mapNotNull null
         val (trimStartMs, trimEndMs) = ProjectTimeline.resolvedTrimBounds(clip)
         PreviewClip(
             path = file.absolutePath,
