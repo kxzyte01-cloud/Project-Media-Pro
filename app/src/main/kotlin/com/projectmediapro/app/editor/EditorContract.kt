@@ -13,6 +13,7 @@ import com.projectmediapro.core.model.ExportQuality
 import com.projectmediapro.core.model.OverlayKeyframe
 import com.projectmediapro.core.model.OverlayVisualStyle
 import com.projectmediapro.core.model.Project
+import com.projectmediapro.core.model.RemixPreset
 import com.projectmediapro.core.model.Template
 import com.projectmediapro.core.model.SpeedRampPreset
 import com.projectmediapro.core.model.TextOverlayStyle
@@ -68,6 +69,7 @@ sealed interface EditorDialog {
     data object Quality : EditorDialog
     data object SaveAsTemplate : EditorDialog
     data object ApplyStyle : EditorDialog
+    data object RemixDraft : EditorDialog
 }
 
 data class AudioPreviewState(
@@ -105,6 +107,9 @@ sealed interface EditorUiState {
         val isSavingTemplate: Boolean = false,
         val savedTemplateName: String? = null,
         val appliedStyleTemplateName: String? = null,
+        val createdRemixProjectId: String? = null,
+        val createdRemixTitle: String? = null,
+        val missingMediaCount: Int = 0,
         val availableTemplates: List<Template> = emptyList(),
         val error: EditorError? = null,
     ) : EditorUiState {
@@ -254,4 +259,8 @@ sealed interface EditorEvent {
     data object OpenApplyStyle : EditorEvent
     data class ApplyTemplateStyle(val templateId: String) : EditorEvent
     data object DismissStyleAppliedBanner : EditorEvent
+    data object OpenRemixDialog : EditorEvent
+    data class CreateRemixDraft(val preset: RemixPreset) : EditorEvent
+    data object DismissRemixCreatedBanner : EditorEvent
+    data object RemoveMissingMediaClips : EditorEvent
 }

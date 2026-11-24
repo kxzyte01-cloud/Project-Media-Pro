@@ -12,12 +12,16 @@ import com.projectmediapro.app.data.media.AudioImporter
 import com.projectmediapro.app.data.media.FreezeFrameExtractor
 import com.projectmediapro.app.data.media.VideoAudioExtractor
 import com.projectmediapro.app.data.media.OverlayImporter
+import com.projectmediapro.app.data.media.ProjectMediaHealthChecker
 import com.projectmediapro.app.data.media.ProjectMediaStorage
 import com.projectmediapro.app.data.media.VideoImportException
 import com.projectmediapro.app.data.media.VideoImporter
 import com.projectmediapro.app.data.project.ProjectRepository
 import com.projectmediapro.app.data.template.ProjectTemplateSaver
 import com.projectmediapro.app.data.template.TemplateRepository
+import com.projectmediapro.core.model.ProjectRemixEngine
+import com.projectmediapro.core.model.RemixPreset
+import com.projectmediapro.core.model.StarterTemplates
 import com.projectmediapro.core.model.TemplateStyleApplier
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
@@ -117,6 +121,7 @@ class EditorViewModel(
                                 ?: project.overlayClips().firstOrNull()?.id
                                 ?: project.textClips().firstOrNull()?.id,
                             captionDocument = savedCaptions,
+                            missingMediaCount = ProjectMediaHealthChecker.findMissingMedia(project, mediaStorage).size,
                         )
                     } else {
                         EditorUiState.NotFound
@@ -625,6 +630,37 @@ class EditorViewModel(
                     _uiState.value = current.copy(appliedStyleTemplateName = null)
                 }
             }
+            EditorEvent.OpenRemixDialog -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                if (current.isBusy || current.project.videoClips().isEmpty()) return
+                _uiState.value = current.copy(
+                    activeDialog = EditorDialog.RemixDraft,
+                    audioPreview = null,
+                    error = null,
+                )
+            }
+            is EditorEvent.CreateRemixDraft -> handleCreateRemixDraft(event.preset)
+            EditorEvent.DismissRemixCreatedBanner -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                if (current.createdRemixProjectId != null || current.createdRemixTitle != null) {
+                    _uiState.value = current.copy(
+                        createdRemixProjectId = null,
+                        createdRemixTitle = null,
+                    )
+                }
+            }
+            EditorEvent.RemoveMissingMediaClips -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                if (current.isBusy) return
+                val missingIds = ProjectMediaHealthChecker
+                    .findMissingMedia(current.project, mediaStorage)
+                    .map { it.clipId }
+                    .toSet()
+                if (missingIds.isEmpty()) return
+                commitUndoableEdit(preferredSelectedClipId = null) { previous ->
+                    ProjectMediaHealthChecker.removeMissingClips(previous, missingIds)
+                }
+            }
         }
     }
 
@@ -1035,6 +1071,15 @@ class EditorViewModel(
         if (exportJob?.isActive == true) return
         if (exporter == null || saver == null) {
             _uiState.value = initial.copy(activeDialog = null, error = EditorError.EXPORT_FAILED)
+            return
+        }
+        val missingAtExport = ProjectMediaHealthChecker.findMissingMedia(initial.project, mediaStorage)
+        if (missingAtExport.isNotEmpty()) {
+            _uiState.value = initial.copy(
+                activeDialog = null,
+                missingMediaCount = missingAtExport.size,
+                error = EditorError.EXPORT_FAILED,
+            )
             return
         }
 
@@ -1675,7 +1720,7 @@ class EditorViewModel(
     ) {
         val saver = projectTemplateSaver ?: return
         val current = _uiState.value as? EditorUiState.Loaded ?: return
-        if (current.isBusy || current.project.videoClips().isEmpty()) return
+        if (current.isBusy || saveTemplateJob?.isActive == true || current.project.videoClips().isEmpty()) return
         _uiState.value = current.copy(
             activeDialog = null,
             isSavingTemplate = true,
@@ -1720,13 +1765,13 @@ class EditorViewModel(
         if (repo == null) {
             _uiState.value = current.copy(
                 activeDialog = EditorDialog.ApplyStyle,
-                availableTemplates = emptyList(),
+                availableTemplates = StarterTemplates.all(),
                 audioPreview = null,
             )
             return
         }
         viewModelScope.launch {
-            val templates = try {
+            val userTemplates = try {
                 repo.listTemplates()
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -1737,7 +1782,7 @@ class EditorViewModel(
             if (latest.isBusy) return@launch
             _uiState.value = latest.copy(
                 activeDialog = EditorDialog.ApplyStyle,
-                availableTemplates = templates,
+                availableTemplates = userTemplates + StarterTemplates.all(),
                 audioPreview = null,
                 error = null,
             )
@@ -1786,6 +1831,59 @@ class EditorViewModel(
         }
         val latest = _uiState.value as? EditorUiState.Loaded ?: return
         _uiState.value = latest.copy(appliedStyleTemplateName = template.name)
+    }
+
+    private fun handleCreateRemixDraft(preset: RemixPreset) {
+        val current = _uiState.value as? EditorUiState.Loaded ?: return
+        if (current.isBusy || saveTemplateJob?.isActive == true || current.project.videoClips().isEmpty()) return
+        _uiState.value = current.copy(
+            activeDialog = null,
+            isSavingTemplate = true,
+            createdRemixProjectId = null,
+            createdRemixTitle = null,
+            error = null,
+        )
+        saveTemplateJob = viewModelScope.launch {
+            var createdDraftId: String? = null
+            try {
+                val duplicated = repository.duplicateProject(
+                    id = current.project.id,
+                    copySuffix = preset.suffixLabel,
+                )
+                if (duplicated == null) {
+                    val latest = _uiState.value as? EditorUiState.Loaded ?: return@launch
+                    _uiState.value = latest.copy(
+                        isSavingTemplate = false,
+                        error = EditorError.SAVE_FAILED,
+                    )
+                    return@launch
+                }
+                createdDraftId = duplicated.id
+                val remixed = ProjectRemixEngine.buildRemix(duplicated, preset)
+                repository.saveProject(remixed)
+                val latest = _uiState.value as? EditorUiState.Loaded ?: return@launch
+                _uiState.value = latest.copy(
+                    isSavingTemplate = false,
+                    createdRemixProjectId = remixed.id,
+                    createdRemixTitle = remixed.title,
+                )
+            } catch (cancelled: CancellationException) {
+                createdDraftId?.let { id -> runCatching { repository.deleteProject(id) } }
+                throw cancelled
+            } catch (_: Exception) {
+                createdDraftId?.let { id -> runCatching { repository.deleteProject(id) } }
+                val latest = _uiState.value as? EditorUiState.Loaded ?: return@launch
+                _uiState.value = latest.copy(
+                    isSavingTemplate = false,
+                    error = EditorError.SAVE_FAILED,
+                )
+            } finally {
+                val latest = _uiState.value as? EditorUiState.Loaded
+                if (latest != null && latest.isSavingTemplate) {
+                    _uiState.value = latest.copy(isSavingTemplate = false)
+                }
+            }
+        }
     }
 
     override fun onCleared() {

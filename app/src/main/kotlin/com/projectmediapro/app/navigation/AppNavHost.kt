@@ -235,6 +235,11 @@ fun AppNavHost(
                 uiState = uiState,
                 onEvent = viewModel::onEvent,
                 onNavigateBack = { navController.popBackStack() },
+                onOpenProject = { nextProjectId ->
+                    navController.navigate(AppRoutes.editorRoute(nextProjectId)) {
+                        launchSingleTop = true
+                    }
+                },
             )
         }
 

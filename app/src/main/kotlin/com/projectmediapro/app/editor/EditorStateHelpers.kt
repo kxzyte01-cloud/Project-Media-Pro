@@ -5,6 +5,7 @@ import com.projectmediapro.app.data.media.AudioImporter
 import com.projectmediapro.app.data.media.ImportedAudio
 import com.projectmediapro.app.data.media.ImportedOverlay
 import com.projectmediapro.app.data.media.OverlayImporter
+import com.projectmediapro.app.data.media.ProjectMediaHealthChecker
 import com.projectmediapro.app.data.media.ProjectMediaStorage
 import com.projectmediapro.app.data.media.VideoImportException
 import com.projectmediapro.app.data.media.VideoImportException.Reason
@@ -69,7 +70,7 @@ internal fun resolvePreviewClips(
 ): List<PreviewClip> =
     project.videoClips().mapNotNull { clip ->
         val file = mediaStorage.resolve(clip.mediaUri)
-        if (file == null || !file.isFile) return@mapNotNull null
+        if (!ProjectMediaHealthChecker.isHealthyMediaFile(file)) return@mapNotNull null
         val (trimStartMs, trimEndMs) = ProjectTimeline.resolvedTrimBounds(clip)
         PreviewClip(
             path = file.absolutePath,
@@ -94,7 +95,7 @@ internal fun resolvePreviewAudioClips(
 ): List<PreviewClip> =
     project.audioClips().mapNotNull { clip ->
         val file = mediaStorage.resolve(clip.mediaUri)
-        if (file == null || !file.isFile) return@mapNotNull null
+        if (!ProjectMediaHealthChecker.isHealthyMediaFile(file)) return@mapNotNull null
         val (trimStartMs, trimEndMs) = ProjectTimeline.resolvedTrimBounds(clip)
         PreviewClip(
             path = file.absolutePath,
@@ -115,7 +116,7 @@ internal fun resolveOverlayFilePaths(
     buildMap {
         for (clip in project.overlayClips()) {
             val file = mediaStorage.resolve(clip.mediaUri)
-            if (file != null && file.isFile) {
+            if (file != null && ProjectMediaHealthChecker.isHealthyMediaFile(file)) {
                 put(clip.id, file.absolutePath)
             }
         }
@@ -128,7 +129,7 @@ internal fun resolveClipFilePaths(
     buildMap {
         for (clip in project.videoClips() + project.audioClips()) {
             val file = mediaStorage.resolve(clip.mediaUri)
-            if (file != null && file.isFile) {
+            if (file != null && ProjectMediaHealthChecker.isHealthyMediaFile(file)) {
                 put(clip.id, file.absolutePath)
             }
         }
@@ -139,7 +140,7 @@ internal fun resolveAudioPreview(
     mediaStorage: ProjectMediaStorage,
 ): AudioPreviewState? {
     val file = mediaStorage.resolve(clip.mediaUri)
-    if (file == null || !file.isFile) return null
+    if (file == null || !ProjectMediaHealthChecker.isHealthyMediaFile(file)) return null
     val (trimStartMs, trimEndMs) = ProjectTimeline.resolvedTrimBounds(clip)
     return AudioPreviewState(
         clipId = clip.id,
@@ -210,6 +211,7 @@ internal fun EditorUiState.Loaded.withSyncedProject(
     ),
     canUndo = history.canUndo,
     canRedo = history.canRedo,
+    missingMediaCount = ProjectMediaHealthChecker.findMissingMedia(targetProject, mediaStorage).size,
     activeDialog = if (keepActiveDialog) activeDialog else null,
     importingTrack = null,
     audioPreview = null,
@@ -228,6 +230,7 @@ internal fun EditorUiState.Loaded.withSaveFailedRollback(
     clipFilePaths = resolveClipFilePaths(previousProject, mediaStorage),
     canUndo = history.canUndo,
     canRedo = history.canRedo,
+    missingMediaCount = ProjectMediaHealthChecker.findMissingMedia(previousProject, mediaStorage).size,
     activeDialog = null,
     importingTrack = null,
     audioPreview = null,

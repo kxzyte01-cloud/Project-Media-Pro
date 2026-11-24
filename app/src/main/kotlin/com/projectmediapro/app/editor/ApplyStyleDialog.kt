@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import com.projectmediapro.app.R
 import com.projectmediapro.core.designsystem.theme.MediaProShapes
 import com.projectmediapro.core.designsystem.theme.MediaProSpacing
+import com.projectmediapro.app.template.TemplatePreviewBanner
 import com.projectmediapro.core.model.Template
 
 @Composable
@@ -70,6 +71,8 @@ fun ApplyStyleDialog(
                                     .fillMaxWidth()
                                     .padding(MediaProSpacing.Small),
                             ) {
+                                TemplatePreviewBanner(template = template)
+                                Spacer(modifier = Modifier.height(MediaProSpacing.ExtraSmall))
                                 Text(
                                     text = template.name,
                                     style = MaterialTheme.typography.titleSmall,

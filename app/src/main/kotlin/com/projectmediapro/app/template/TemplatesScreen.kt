@@ -11,15 +11,19 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import com.projectmediapro.app.data.export.sanitizeExportName
@@ -36,17 +40,28 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import com.projectmediapro.app.R
 import com.projectmediapro.app.editor.EditorButtonTone
 import com.projectmediapro.app.editor.EditorOutlinedButton
 import com.projectmediapro.core.designsystem.component.MediaProTopBar
 import com.projectmediapro.core.designsystem.theme.MediaProShapes
 import com.projectmediapro.core.designsystem.theme.MediaProSpacing
+import com.projectmediapro.core.model.CanvasAspect
 import com.projectmediapro.core.model.Template
 import com.projectmediapro.core.model.audioSlots
 import com.projectmediapro.core.model.mainVideoSlots
 import com.projectmediapro.core.model.overlaySlots
 
+private enum class TemplateCategory {
+    ALL,
+    MINE,
+    LYRICS,
+    MONTAGE,
+    YOUTUBE,
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TemplatesScreen(
     uiState: TemplatesUiState,
@@ -58,6 +73,7 @@ fun TemplatesScreen(
 ) {
     val context = LocalContext.current
     var pendingExportTemplateId by remember { mutableStateOf<String?>(null) }
+    var selectedCategory by rememberSaveable { mutableStateOf(TemplateCategory.ALL) }
     val importPackLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri ->
@@ -145,7 +161,60 @@ fun TemplatesScreen(
                 }
             }
 
-            if (uiState.templates.isNotEmpty()) {
+            item(key = "category-filters") {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    val categories = listOf(
+                        TemplateCategory.ALL to R.string.templates_filter_all,
+                        TemplateCategory.MINE to R.string.templates_filter_mine,
+                        TemplateCategory.LYRICS to R.string.templates_filter_lyrics,
+                        TemplateCategory.MONTAGE to R.string.templates_filter_montage,
+                        TemplateCategory.YOUTUBE to R.string.templates_filter_youtube,
+                    )
+                    items(categories) { (category, labelRes) ->
+                        FilterChip(
+                            selected = selectedCategory == category,
+                            onClick = { selectedCategory = category },
+                            label = { Text(text = stringResource(labelRes)) },
+                        )
+                    }
+                }
+            }
+
+            val showMine = selectedCategory == TemplateCategory.ALL || selectedCategory == TemplateCategory.MINE
+            val filteredStarters = uiState.starterTemplates.filter { starter ->
+                when (selectedCategory) {
+                    TemplateCategory.ALL -> true
+                    TemplateCategory.MINE -> false
+                    TemplateCategory.LYRICS -> !starter.captionStyleJson.isNullOrBlank() ||
+                        starter.name.contains("Lyric", ignoreCase = true)
+                    TemplateCategory.MONTAGE -> starter.name.contains("Montage", ignoreCase = true) ||
+                        starter.mainVideoSlots().size >= 3
+                    TemplateCategory.YOUTUBE -> starter.canvasAspect == CanvasAspect.RATIO_16_9
+                }
+            }
+
+            if (selectedCategory == TemplateCategory.MINE && uiState.templates.isEmpty()) {
+                item(key = "my-templates-empty") {
+                    Spacer(modifier = Modifier.height(MediaProSpacing.Small))
+                    Surface(
+                        shape = MediaProShapes.Medium,
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.templates_my_empty),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(MediaProSpacing.Medium),
+                        )
+                    }
+                }
+            }
+
+            if (showMine && uiState.templates.isNotEmpty()) {
                 item(key = "my-templates-heading") {
                     Spacer(modifier = Modifier.height(MediaProSpacing.Small))
                     Text(
@@ -171,24 +240,26 @@ fun TemplatesScreen(
                 }
             }
 
-            item(key = "starter-templates-heading") {
-                Spacer(modifier = Modifier.height(MediaProSpacing.Small))
-                Text(
-                    text = stringResource(R.string.templates_starter_heading),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
+            if (filteredStarters.isNotEmpty()) {
+                item(key = "starter-templates-heading") {
+                    Spacer(modifier = Modifier.height(MediaProSpacing.Small))
+                    Text(
+                        text = stringResource(R.string.templates_starter_heading),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
 
-            items(
-                items = uiState.starterTemplates,
-                key = { it.id },
-            ) { starter ->
-                StarterTemplateCard(
-                    template = starter,
-                    onUseClick = { onUseTemplate(starter.id) },
-                    onCustomizeClick = { onEvent(TemplatesEvent.CustomizeStarter(starter)) },
-                )
+                items(
+                    items = filteredStarters,
+                    key = { it.id },
+                ) { starter ->
+                    StarterTemplateCard(
+                        template = starter,
+                        onUseClick = { onUseTemplate(starter.id) },
+                        onCustomizeClick = { onEvent(TemplatesEvent.CustomizeStarter(starter)) },
+                    )
+                }
             }
 
             item(key = "bottom-spacer") {
@@ -285,59 +356,72 @@ private fun TemplateRowCard(
             .fillMaxWidth()
             .clickable(onClick = onOpenBuilder),
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.ExtraSmall),
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(
-                    start = MediaProSpacing.Medium,
-                    top = MediaProSpacing.Small,
-                    bottom = MediaProSpacing.Small,
-                    end = MediaProSpacing.ExtraSmall,
-                ),
+                .padding(MediaProSpacing.Medium),
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = template.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
+            TemplatePreviewBanner(template = template)
+            Spacer(modifier = Modifier.height(MediaProSpacing.Small))
+            Text(
+                text = template.name,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (template.description.isNotBlank()) {
                 Spacer(modifier = Modifier.height(MediaProSpacing.ExtraSmall))
                 Text(
-                    text = stringResource(
-                        R.string.templates_slot_summary,
-                        template.mainVideoSlots().size,
-                        template.overlaySlots().size,
-                        template.audioSlots().size,
-                    ),
-                    style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
+                    text = template.description,
+                    style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
-            EditorOutlinedButton(
-                label = stringResource(R.string.templates_use_button),
-                enabled = true,
-                tone = EditorButtonTone.Primary,
-                onClick = onUseClick,
-            )
-            EditorOutlinedButton(
-                label = stringResource(R.string.templates_export_pack),
-                enabled = true,
-                onClick = onExportPackClick,
-            )
-            IconButton(
-                onClick = onDeleteClick,
-                modifier = Modifier.defaultMinSize(
-                    minWidth = MediaProSpacing.MinTouchTarget,
-                    minHeight = MediaProSpacing.MinTouchTarget,
+            Spacer(modifier = Modifier.height(MediaProSpacing.ExtraSmall))
+            Text(
+                text = stringResource(
+                    R.string.templates_slot_summary,
+                    template.mainVideoSlots().size,
+                    template.overlaySlots().size,
+                    template.audioSlots().size,
                 ),
+                style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.height(MediaProSpacing.Small))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
+                modifier = Modifier.fillMaxWidth(),
             ) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_delete),
-                    contentDescription = stringResource(R.string.cd_delete_template),
-                    tint = MaterialTheme.colorScheme.error,
+                EditorOutlinedButton(
+                    label = stringResource(R.string.templates_use_button),
+                    enabled = true,
+                    tone = EditorButtonTone.Primary,
+                    onClick = onUseClick,
+                    modifier = Modifier.weight(1f),
                 )
+                EditorOutlinedButton(
+                    label = stringResource(R.string.templates_export_pack),
+                    enabled = true,
+                    onClick = onExportPackClick,
+                )
+                IconButton(
+                    onClick = onDeleteClick,
+                    modifier = Modifier.defaultMinSize(
+                        minWidth = MediaProSpacing.MinTouchTarget,
+                        minHeight = MediaProSpacing.MinTouchTarget,
+                    ),
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_delete),
+                        contentDescription = stringResource(R.string.cd_delete_template),
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                }
             }
         }
     }
@@ -359,11 +443,25 @@ private fun StarterTemplateCard(
                 .fillMaxWidth()
                 .padding(MediaProSpacing.Medium),
         ) {
+            TemplatePreviewBanner(template = template)
+            Spacer(modifier = Modifier.height(MediaProSpacing.Small))
             Text(
                 text = template.name,
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
             )
+            if (template.description.isNotBlank()) {
+                Spacer(modifier = Modifier.height(MediaProSpacing.ExtraSmall))
+                Text(
+                    text = template.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             Spacer(modifier = Modifier.height(MediaProSpacing.ExtraSmall))
             Text(
                 text = stringResource(

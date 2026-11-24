@@ -93,6 +93,7 @@ fun EditorScreen(
     uiState: EditorUiState,
     onEvent: (EditorEvent) -> Unit,
     onNavigateBack: () -> Unit,
+    onOpenProject: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val videoPickerLauncher = rememberLauncherForActivityResult(
@@ -154,6 +155,7 @@ fun EditorScreen(
                 onRedo = { onEvent(EditorEvent.Redo) },
                 onSaveTemplateClick = { onEvent(EditorEvent.OpenSaveAsTemplate) },
                 onApplyStyleClick = { onEvent(EditorEvent.OpenApplyStyle) },
+                onRemixDraftClick = { onEvent(EditorEvent.OpenRemixDialog) },
                 onExportClick = { onEvent(EditorEvent.OpenExportQuality) },
             )
 
@@ -234,6 +236,7 @@ fun EditorScreen(
                                     createDocumentLauncher.launch("${sanitizeExportName(uiState.project.title)}.mp4")
                                 }
                             },
+                            onOpenProject = onOpenProject,
                             onEvent = onEvent,
                         )
                     }
@@ -252,6 +255,7 @@ private fun StudioTopBar(
     onRedo: () -> Unit,
     onSaveTemplateClick: () -> Unit,
     onApplyStyleClick: () -> Unit,
+    onRemixDraftClick: () -> Unit,
     onExportClick: () -> Unit,
 ) {
     var showTemplatesMenu by remember { mutableStateOf(false) }
@@ -341,6 +345,13 @@ private fun StudioTopBar(
                                     onApplyStyleClick()
                                 },
                             )
+                            DropdownMenuItem(
+                                text = { Text(text = stringResource(R.string.editor_menu_create_remix)) },
+                                onClick = {
+                                    showTemplatesMenu = false
+                                    onRemixDraftClick()
+                                },
+                            )
                         }
                     }
                     Spacer(modifier = Modifier.width(MediaProSpacing.ExtraSmall))
@@ -385,6 +396,7 @@ private fun LoadedStudioWorkspace(
     onReplaceVideo: () -> Unit,
     onReplaceAudio: () -> Unit,
     onConfirmExportQuality: (ExportQuality, ExportFrameRate, ExportBitrate, Boolean) -> Unit,
+    onOpenProject: (String) -> Unit,
     onEvent: (EditorEvent) -> Unit,
 ) {
     val context = LocalContext.current
@@ -497,11 +509,20 @@ private fun LoadedStudioWorkspace(
             exportState = state.export,
             savedTemplateName = state.savedTemplateName,
             appliedStyleTemplateName = state.appliedStyleTemplateName,
+            createdRemixProjectId = state.createdRemixProjectId,
+            createdRemixTitle = state.createdRemixTitle,
+            missingMediaCount = state.missingMediaCount,
             error = state.error,
             onCancelExport = { onEvent(EditorEvent.CancelExport) },
             onDismissDone = { onEvent(EditorEvent.DismissExportDone) },
             onDismissTemplateSaved = { onEvent(EditorEvent.DismissTemplateSavedBanner) },
             onDismissStyleApplied = { onEvent(EditorEvent.DismissStyleAppliedBanner) },
+            onOpenRemixProject = { projectId ->
+                onEvent(EditorEvent.DismissRemixCreatedBanner)
+                onOpenProject(projectId)
+            },
+            onDismissRemixCreated = { onEvent(EditorEvent.DismissRemixCreatedBanner) },
+            onCleanupMissingMedia = { onEvent(EditorEvent.RemoveMissingMediaClips) },
         )
 
         // Top Zone: Fixed Cinema Preview Stage with direct overlay/text drag & pinch
@@ -976,6 +997,14 @@ private fun LoadedStudioWorkspace(
                 onDismiss = { onEvent(EditorEvent.DismissDialog) },
             )
         }
+        EditorDialog.RemixDraft -> {
+            RemixDraftDialog(
+                onSelectPreset = { preset ->
+                    onEvent(EditorEvent.CreateRemixDraft(preset))
+                },
+                onDismiss = { onEvent(EditorEvent.DismissDialog) },
+            )
+        }
         null -> Unit
     }
 
@@ -994,12 +1023,74 @@ private fun StudioStatusBanners(
     exportState: ExportUiState,
     savedTemplateName: String?,
     appliedStyleTemplateName: String?,
+    createdRemixProjectId: String?,
+    createdRemixTitle: String?,
+    missingMediaCount: Int,
     error: EditorError?,
     onCancelExport: () -> Unit,
     onDismissDone: () -> Unit,
     onDismissTemplateSaved: () -> Unit,
     onDismissStyleApplied: () -> Unit,
+    onOpenRemixProject: (String) -> Unit,
+    onDismissRemixCreated: () -> Unit,
+    onCleanupMissingMedia: () -> Unit,
 ) {
+    if (missingMediaCount > 0) {
+        Surface(
+            color = MaterialTheme.colorScheme.errorContainer,
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics { liveRegion = LiveRegionMode.Polite },
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = MediaProSpacing.Medium, vertical = MediaProSpacing.ExtraSmall),
+            ) {
+                Text(
+                    text = stringResource(R.string.editor_missing_media_banner, missingMediaCount),
+                    style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = onCleanupMissingMedia) {
+                    Text(
+                        text = stringResource(R.string.editor_missing_media_cleanup),
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+                }
+            }
+        }
+    }
+    if (createdRemixProjectId != null && createdRemixTitle != null) {
+        Surface(
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics { liveRegion = LiveRegionMode.Polite },
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = MediaProSpacing.Medium, vertical = MediaProSpacing.ExtraSmall),
+            ) {
+                Text(
+                    text = stringResource(R.string.editor_remix_created, createdRemixTitle),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = { onOpenRemixProject(createdRemixProjectId) }) {
+                    Text(text = stringResource(R.string.editor_remix_open))
+                }
+                TextButton(onClick = onDismissRemixCreated) {
+                    Text(text = stringResource(R.string.editor_save_template_dismiss))
+                }
+            }
+        }
+    }
     if (appliedStyleTemplateName != null) {
         Surface(
             color = MaterialTheme.colorScheme.secondaryContainer,
