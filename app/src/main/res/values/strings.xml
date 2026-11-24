@@ -22,7 +22,6 @@
     <string name="settings_storage_cache_label">Export temp cache</string>
     <string name="settings_storage_clear_cache">Clear export cache</string>
     <string name="settings_storage_cache_cleared">Freed %1$s of temporary export cache.</string>
-    <string name="cd_save_as_template">Save project as template</string>
     <string name="editor_save_template_title">Save as custom template</string>
     <string name="editor_save_template_name_label">Template name</string>
     <string name="editor_save_template_desc_label">Description (optional)</string>
@@ -116,14 +115,7 @@
     <string name="editor_not_found">Project not found.</string>
     <string name="editor_error_title">Could not open project</string>
     <string name="editor_load_failed">Could not load this project. Please try again.</string>
-    <string name="editor_add_video">Add video</string>
-    <string name="editor_adding_video">Adding video…</string>
-    <string name="editor_add_audio">Add audio</string>
-    <string name="editor_adding_audio">Adding audio…</string>
     <string name="editor_add_overlay">Add overlay</string>
-    <string name="editor_adding_overlay">Adding overlay…</string>
-    <string name="editor_add_text">Add text</string>
-    <string name="editor_canvas_button">Canvas</string>
     <string name="editor_canvas_title">Canvas</string>
     <string name="editor_canvas_aspect_label">Aspect ratio</string>
     <string name="editor_canvas_original">Original</string>
@@ -320,7 +312,6 @@
     <string name="settings_about_version_label">Version</string>
     <string name="settings_about_license_label">License</string>
     <string name="settings_about_license_value">Apache License 2.0</string>
-    <string name="editor_captions_button">Captions</string>
     <string name="error_captions_failed">Could not process captions. Check the clip audio or subtitle file.</string>
     <string name="error_captions_truncated">Timeline exceeds 20 minutes; captions were generated for the first 20 minutes.</string>
     <string name="editor_tool_speed">Speed</string>

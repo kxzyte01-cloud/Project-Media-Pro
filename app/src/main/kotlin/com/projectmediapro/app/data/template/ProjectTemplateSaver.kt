@@ -9,7 +9,6 @@ import com.projectmediapro.core.model.audioClips
 import com.projectmediapro.core.model.overlayClips
 import com.projectmediapro.core.model.videoClips
 import com.projectmediapro.feature.captions.CaptionDocument
-import com.projectmediapro.feature.captions.CaptionStyle
 import java.io.File
 import java.io.IOException
 import java.util.UUID
@@ -18,7 +17,6 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.Json
 
 /**
  * Converts a live edited [Project] into a reusable saved [Template].
@@ -31,11 +29,6 @@ class ProjectTemplateSaver(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val idProvider: () -> String = { UUID.randomUUID().toString() },
 ) {
-
-    private val styleJson = Json {
-        ignoreUnknownKeys = true
-        encodeDefaults = true
-    }
 
     suspend fun saveProjectAsTemplate(
         project: Project,
@@ -65,9 +58,7 @@ class ProjectTemplateSaver(
                 }
             }
 
-            val serializedCaptionStyle = captionDocument?.style?.let { style ->
-                styleJson.encodeToString(CaptionStyle.serializer(), style)
-            }
+            val serializedCaptionStyle = captionDocument?.style?.encodeToJson()
 
             val fullTemplate = ProjectToTemplateConverter.fromProject(
                 baseTemplate = created,

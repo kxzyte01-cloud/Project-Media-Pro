@@ -3,12 +3,12 @@ package com.projectmediapro.core.model
 import kotlinx.serialization.Serializable
 
 @Serializable
-enum class CanvasAspect {
-    ORIGINAL,
-    RATIO_16_9,
-    RATIO_9_16,
-    RATIO_1_1,
-    RATIO_4_5,
+enum class CanvasAspect(val displayLabel: String) {
+    ORIGINAL("Auto"),
+    RATIO_16_9("16:9"),
+    RATIO_9_16("9:16"),
+    RATIO_1_1("1:1"),
+    RATIO_4_5("4:5"),
 }
 
 @Serializable

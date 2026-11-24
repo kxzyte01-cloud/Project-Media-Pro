@@ -23,7 +23,6 @@ import androidx.compose.ui.unit.dp
 import com.projectmediapro.app.R
 import com.projectmediapro.core.designsystem.theme.MediaProShapes
 import com.projectmediapro.core.designsystem.theme.MediaProSpacing
-import com.projectmediapro.core.model.CanvasAspect
 import com.projectmediapro.core.model.ClipTransition
 import com.projectmediapro.core.model.SpeedRampPreset
 import com.projectmediapro.core.model.Template
@@ -40,7 +39,7 @@ fun TemplatePreviewBanner(
             ?: VideoFilterPreset.NONE
     }
     val gradientColors = remember(primaryFilter) { paletteForFilter(primaryFilter) }
-    val aspectLabel = remember(template.canvasAspect) { aspectLabelFor(template.canvasAspect) }
+    val aspectLabel = template.canvasAspect.displayLabel
 
     val hasLut = primaryFilter != VideoFilterPreset.NONE
     val hasTransitions = remember(template) {
@@ -124,14 +123,6 @@ private fun BannerPill(text: String) {
             modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
         )
     }
-}
-
-private fun aspectLabelFor(aspect: CanvasAspect): String = when (aspect) {
-    CanvasAspect.RATIO_9_16 -> "9:16"
-    CanvasAspect.RATIO_16_9 -> "16:9"
-    CanvasAspect.RATIO_1_1 -> "1:1"
-    CanvasAspect.RATIO_4_5 -> "4:5"
-    CanvasAspect.ORIGINAL -> "Auto"
 }
 
 private fun paletteForFilter(filter: VideoFilterPreset): List<Color> = when (filter) {

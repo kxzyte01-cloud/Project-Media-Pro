@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -40,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import com.projectmediapro.app.R
 import com.projectmediapro.app.editor.EditorButtonTone
@@ -173,7 +176,7 @@ fun TemplatesScreen(
                         TemplateCategory.MONTAGE to R.string.templates_filter_montage,
                         TemplateCategory.YOUTUBE to R.string.templates_filter_youtube,
                     )
-                    items(categories) { (category, labelRes) ->
+                    items(items = categories, key = { it.first.name }) { (category, labelRes) ->
                         FilterChip(
                             selected = selectedCategory == category,
                             onClick = { selectedCategory = category },
@@ -277,6 +280,10 @@ fun TemplatesScreen(
                     value = uiState.draftName,
                     onValueChange = { onEvent(TemplatesEvent.UpdateDraftName(it)) },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(
+                        onDone = { onEvent(TemplatesEvent.ConfirmCreate(defaultName)) },
+                    ),
                     label = { Text(text = stringResource(R.string.templates_name_hint)) },
                     modifier = Modifier.fillMaxWidth(),
                 )

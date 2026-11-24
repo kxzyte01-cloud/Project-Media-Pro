@@ -20,11 +20,5 @@ object HomeMetadataFormatter {
         }
     }
 
-    fun formatAspect(aspect: CanvasAspect): String = when (aspect) {
-        CanvasAspect.RATIO_9_16 -> "9:16"
-        CanvasAspect.RATIO_16_9 -> "16:9"
-        CanvasAspect.RATIO_1_1 -> "1:1"
-        CanvasAspect.RATIO_4_5 -> "4:5"
-        CanvasAspect.ORIGINAL -> "Auto"
-    }
+    fun formatAspect(aspect: CanvasAspect): String = aspect.displayLabel
 }

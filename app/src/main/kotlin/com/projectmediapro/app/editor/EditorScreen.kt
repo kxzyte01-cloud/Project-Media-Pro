@@ -361,7 +361,7 @@ private fun StudioTopBar(
                         shape = MediaProShapes.Small,
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
                         modifier = Modifier
-                            .height(34.dp)
+                            .height(40.dp)
                             .padding(end = MediaProSpacing.Small),
                     ) {
                         if (isExporting) {
@@ -1064,82 +1064,24 @@ private fun StudioStatusBanners(
         }
     }
     if (createdRemixProjectId != null && createdRemixTitle != null) {
-        Surface(
-            color = MaterialTheme.colorScheme.secondaryContainer,
-            modifier = Modifier
-                .fillMaxWidth()
-                .semantics { liveRegion = LiveRegionMode.Polite },
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = MediaProSpacing.Medium, vertical = MediaProSpacing.ExtraSmall),
-            ) {
-                Text(
-                    text = stringResource(R.string.editor_remix_created, createdRemixTitle),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(onClick = { onOpenRemixProject(createdRemixProjectId) }) {
-                    Text(text = stringResource(R.string.editor_remix_open))
-                }
-                TextButton(onClick = onDismissRemixCreated) {
-                    Text(text = stringResource(R.string.editor_save_template_dismiss))
-                }
-            }
-        }
+        StudioInfoBanner(
+            message = stringResource(R.string.editor_remix_created, createdRemixTitle),
+            actionLabel = stringResource(R.string.editor_remix_open),
+            onAction = { onOpenRemixProject(createdRemixProjectId) },
+            onDismiss = onDismissRemixCreated,
+        )
     }
     if (appliedStyleTemplateName != null) {
-        Surface(
-            color = MaterialTheme.colorScheme.secondaryContainer,
-            modifier = Modifier
-                .fillMaxWidth()
-                .semantics { liveRegion = LiveRegionMode.Polite },
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = MediaProSpacing.Medium, vertical = MediaProSpacing.ExtraSmall),
-            ) {
-                Text(
-                    text = stringResource(R.string.editor_apply_style_applied, appliedStyleTemplateName),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(onClick = onDismissStyleApplied) {
-                    Text(text = stringResource(R.string.editor_save_template_dismiss))
-                }
-            }
-        }
+        StudioInfoBanner(
+            message = stringResource(R.string.editor_apply_style_applied, appliedStyleTemplateName),
+            onDismiss = onDismissStyleApplied,
+        )
     }
     if (savedTemplateName != null) {
-        Surface(
-            color = MaterialTheme.colorScheme.secondaryContainer,
-            modifier = Modifier
-                .fillMaxWidth()
-                .semantics { liveRegion = LiveRegionMode.Polite },
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = MediaProSpacing.Medium, vertical = MediaProSpacing.ExtraSmall),
-            ) {
-                Text(
-                    text = stringResource(R.string.editor_save_template_saved, savedTemplateName),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(onClick = onDismissTemplateSaved) {
-                    Text(text = stringResource(R.string.editor_save_template_dismiss))
-                }
-            }
-        }
+        StudioInfoBanner(
+            message = stringResource(R.string.editor_save_template_saved, savedTemplateName),
+            onDismiss = onDismissTemplateSaved,
+        )
     }
     when (exportState) {
         is ExportUiState.Running -> {
@@ -1161,7 +1103,7 @@ private fun StudioStatusBanners(
                     ) {
                         Text(
                             text = stringResource(R.string.editor_exporting, percent),
-                            style = MaterialTheme.typography.labelMedium,
+                            style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.weight(1f),
                         )
@@ -1374,5 +1316,42 @@ private fun EditorPreviewStage(
         }
     
         }}
+    }
+}
+
+@Composable
+private fun StudioInfoBanner(
+    message: String,
+    onDismiss: () -> Unit,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics { liveRegion = LiveRegionMode.Polite },
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = MediaProSpacing.Medium, vertical = MediaProSpacing.ExtraSmall),
+        ) {
+            Text(
+                text = message,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.weight(1f),
+            )
+            if (actionLabel != null && onAction != null) {
+                TextButton(onClick = onAction) {
+                    Text(text = actionLabel)
+                }
+            }
+            TextButton(onClick = onDismiss) {
+                Text(text = stringResource(R.string.editor_save_template_dismiss))
+            }
+        }
     }
 }

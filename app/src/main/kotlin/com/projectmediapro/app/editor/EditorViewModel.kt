@@ -23,8 +23,6 @@ import com.projectmediapro.core.model.ProjectRemixEngine
 import com.projectmediapro.core.model.RemixPreset
 import com.projectmediapro.core.model.StarterTemplates
 import com.projectmediapro.core.model.TemplateStyleApplier
-import kotlinx.serialization.SerializationException
-import kotlinx.serialization.json.Json
 import com.projectmediapro.core.model.BeatEffectKind
 import com.projectmediapro.core.model.BeatMarker
 import com.projectmediapro.core.model.Clip
@@ -82,11 +80,6 @@ class EditorViewModel(
     private val projectTemplateSaver: ProjectTemplateSaver? = null,
     private val templateRepository: TemplateRepository? = null,
 ) : ViewModel() {
-
-    private val templateStyleJson = Json {
-        ignoreUnknownKeys = true
-        encodeDefaults = true
-    }
 
     private val _uiState = MutableStateFlow<EditorUiState>(EditorUiState.Loading)
     val uiState: StateFlow<EditorUiState> = _uiState.asStateFlow()
@@ -1802,16 +1795,8 @@ class EditorViewModel(
             TemplateStyleApplier.applyStyle(previous, template).project
         }
 
-        val rawCaptionStyle = template.captionStyleJson?.takeIf { it.isNotBlank() }
-        if (rawCaptionStyle != null && captionRepository != null) {
-            val decoded = try {
-                templateStyleJson.decodeFromString(CaptionStyle.serializer(), rawCaptionStyle)
-            } catch (_: SerializationException) {
-                null
-            } catch (_: IllegalArgumentException) {
-                null
-            }
-            if (decoded != null) {
+        val decoded = CaptionStyle.decodeFromJsonOrNull(template.captionStyleJson)
+        if (decoded != null && captionRepository != null) {
                 val existingDoc = current.captionDocument ?: CaptionDocument(projectId = current.project.id, rawWords = emptyList(), lines = emptyList())
                 val updatedDoc = existingDoc.copy(style = decoded)
                 viewModelScope.launch {
@@ -1830,7 +1815,6 @@ class EditorViewModel(
                     }
                 }
                 return
-            }
         }
         val latest = _uiState.value as? EditorUiState.Loaded ?: return
         _uiState.value = latest.copy(appliedStyleTemplateName = template.name)

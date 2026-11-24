@@ -1,6 +1,8 @@
 package com.projectmediapro.feature.captions
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.Json
 
 object CaptionTime {
     const val MICROS_PER_MS = 1_000L
@@ -319,8 +321,26 @@ data class CaptionStyle(
         )
     }
 
+    fun encodeToJson(): String = styleJson.encodeToString(serializer(), this)
+
     companion object {
+        private val styleJson = Json {
+            ignoreUnknownKeys = true
+            encodeDefaults = true
+        }
+
         fun default(): CaptionStyle = CaptionStyle()
+
+        fun decodeFromJsonOrNull(raw: String?): CaptionStyle? {
+            val trimmed = raw?.takeIf { it.isNotBlank() } ?: return null
+            return try {
+                styleJson.decodeFromString(serializer(), trimmed)
+            } catch (_: SerializationException) {
+                null
+            } catch (_: IllegalArgumentException) {
+                null
+            }
+        }
     }
 }
 

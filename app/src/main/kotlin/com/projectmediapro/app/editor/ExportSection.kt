@@ -82,7 +82,7 @@ fun ExportSection(
                             ) {
                                 Text(
                                     text = stringResource(R.string.editor_exporting, percent),
-                                    style = MaterialTheme.typography.titleMedium,
+                                    style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"),
                                     color = MaterialTheme.colorScheme.onSurface,
                                 )
                                 Spacer(modifier = Modifier.height(MediaProSpacing.ExtraSmall))

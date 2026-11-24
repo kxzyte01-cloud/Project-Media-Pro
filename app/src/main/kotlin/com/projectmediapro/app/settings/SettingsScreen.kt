@@ -279,7 +279,7 @@ private fun WhisperModelCard(
                 is WhisperModelState.Downloading -> {
                     Text(
                         text = stringResource(R.string.settings_whisper_downloading, state.percent),
-                        style = MaterialTheme.typography.labelMedium,
+                        style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
                         color = MaterialTheme.colorScheme.primary,
                     )
                     LinearProgressIndicator(
