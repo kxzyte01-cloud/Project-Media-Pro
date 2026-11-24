@@ -69,13 +69,10 @@ internal fun <T> copyValidatedMediaFromContentUri(
     } catch (missing: FileNotFoundException) {
         throw VideoImportException(Reason.UNREADABLE, missing)
     }
-    val isAllowedMime = mimeType != null && (
-        mimeType.startsWith(requiredMimePrefix) ||
-            (requiredMimePrefix == "audio/" && mimeType == "application/ogg")
-        )
-    if (!isAllowedMime) {
-        throw VideoImportException(Reason.NOT_A_VIDEO)
-    }
+    val resolvedMimeType = mimeType?.takeIf {
+        it.startsWith(requiredMimePrefix) ||
+            (requiredMimePrefix == "audio/" && it == "application/ogg")
+    } ?: throw VideoImportException(Reason.NOT_A_VIDEO)
 
     val sourceSizeBytes = queryKnownSize(resolver, uri)
     if (sourceSizeBytes != null && sourceSizeBytes >= 0L) {
@@ -85,7 +82,7 @@ internal fun <T> copyValidatedMediaFromContentUri(
         }
     }
 
-    val extension = extensionForMime(mimeType)
+    val extension = extensionForMime(resolvedMimeType)
     val relativePath = try {
         storage.clipRelativePath(projectId, clipIdProvider(), extension)
     } catch (invalidId: IllegalArgumentException) {

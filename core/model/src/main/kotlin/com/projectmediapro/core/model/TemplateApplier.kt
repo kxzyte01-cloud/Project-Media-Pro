@@ -130,23 +130,15 @@ object TemplateApplier {
             if (sourceMs <= 0L) continue
 
             // Never stretch a shorter clip; compute required source span for slot timeline duration at safeSpeed.
-            val effectiveRamp = if (trackType == TrackType.VIDEO) slot.speedRamp else SpeedRampPreset.NONE
-            val safeSpeed = if (effectiveRamp == SpeedRampPreset.NONE) {
-                ProjectTimeline.sanitizeSpeed(slot.playbackSpeed)
-            } else {
-                Clip.DEFAULT_PLAYBACK_SPEED
-            }
+            val safeSpeed = slot.playbackSpeed.coerceIn(Clip.MIN_PLAYBACK_SPEED, Clip.MAX_PLAYBACK_SPEED)
             val desiredSourceMs = if (slot.durationMs >= ProjectTimeline.MIN_CLIP_DURATION_MS) {
                 (slot.durationMs * safeSpeed).toLong().coerceAtLeast(ProjectTimeline.MIN_CLIP_DURATION_MS)
             } else {
                 sourceMs
             }
             val targetTrimEndMs = minOf(sourceMs, desiredSourceMs)
-            val effectiveDurationMs = SpeedRampEvaluator.scaledDurationMs(
-                sourceSpanMs = targetTrimEndMs,
-                baseSpeed = safeSpeed,
-                preset = effectiveRamp,
-            ).coerceAtLeast(1L)
+            val effectiveDurationMs = (targetTrimEndMs / safeSpeed).toLong()
+                .coerceAtLeast(ProjectTimeline.MIN_CLIP_DURATION_MS)
 
             val clip = Clip(
                 id = idProvider(),
