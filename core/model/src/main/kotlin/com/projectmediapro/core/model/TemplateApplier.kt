@@ -144,7 +144,7 @@ object TemplateApplier {
             val targetTrimEndMs = minOf(sourceMs, desiredSourceMs)
             val effectiveDurationMs = SpeedRampEvaluator.scaledDurationMs(
                 sourceSpanMs = targetTrimEndMs,
-                playbackSpeed = safeSpeed,
+                baseSpeed = safeSpeed,
                 preset = effectiveRamp,
             ).coerceAtLeast(1L)
 
