@@ -1073,16 +1073,6 @@ class EditorViewModel(
             _uiState.value = initial.copy(activeDialog = null, error = EditorError.EXPORT_FAILED)
             return
         }
-        val missingAtExport = ProjectMediaHealthChecker.findMissingMedia(initial.project, mediaStorage)
-        if (missingAtExport.isNotEmpty()) {
-            _uiState.value = initial.copy(
-                activeDialog = null,
-                missingMediaCount = missingAtExport.size,
-                error = EditorError.EXPORT_FAILED,
-            )
-            return
-        }
-
         val nextQuality = qualityOverride ?: initial.project.exportQuality
         val nextFrameRate = frameRateOverride ?: initial.project.exportFrameRate
         val nextBitrate = bitrateOverride ?: initial.project.exportBitrate
@@ -1103,10 +1093,23 @@ class EditorViewModel(
             initial.project
         }
 
+        val missingAtExport = ProjectMediaHealthChecker.findMissingMedia(effectiveProject, mediaStorage)
         val plan = try {
             ExportPlanner.plan(effectiveProject, initial.captionDocument, mediaStorage::resolve)
         } catch (_: IllegalStateException) {
-            _uiState.value = initial.copy(activeDialog = null, error = EditorError.EXPORT_NOTHING)
+            _uiState.value = initial.copy(
+                activeDialog = null,
+                missingMediaCount = missingAtExport.size,
+                error = EditorError.EXPORT_NOTHING,
+            )
+            return
+        }
+        if (missingAtExport.isNotEmpty()) {
+            _uiState.value = initial.copy(
+                activeDialog = null,
+                missingMediaCount = missingAtExport.size,
+                error = EditorError.EXPORT_FAILED,
+            )
             return
         }
         if (cacheSpaceProvider() < ExportPlanner.estimateExportBytes(plan.totalDurationMs)) {
