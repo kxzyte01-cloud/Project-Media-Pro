@@ -1,12 +1,17 @@
 # Project Media Pro Roadmap
 
-- **Step 0 — Foundations:** Base multi-module build setup (`:app`, `:core:model`, `:core:designsystem`), versioned JSON schema, design system, unit tests, CI pipeline, and documentation.
-- **Step 1 — App shell (done):** Home and Settings screens with appearance theme persistence, offline bundled privacy policy, and manual `AppContainer` dependency wiring.
-- **Step 2 — Project data and local save:** Create, list, rename, duplicate, and delete saved `.pmp.json` project files in device storage from the Home screen.
-- **Step 3 — Import (Photo Picker), preview and timeline view:** Introduce `:core:engine` with AndroidX Media3 `ExoPlayer`, offline Android Photo Picker media import, real-time preview, and timeline view.
-- **Step 4 — Export with Media3 Transformer, tested on a real phone:** Hardware-accelerated offline MP4 export with progress reporting, cancellation, and real-device verification.
-- **Step 5 — Basic edits:** Clip trimming, splitting, reordering, deletion, overlay tracks (Picture-in-Picture and animated GIF placement/timing), and multiple ordered audio tracks with volume controls.
-- **Step 6 — Templates:** Save and load reusable project templates with empty typed slots (`INTRO`, `OUTRO`, `PICTURE_IN_PICTURE`, `GIF`, `ORDERED_AUDIO`) built on Step 5's tracks, plus a guided slot-filling workflow.
-- **Step 7 — Effects, transitions, text:** Additive non-destructive clip effects, transitions, and text overlays registered via a single-line effect registry.
-- **Step 8 — Offline captions and extras:** Automatic offline speech-to-text caption generation using a model bundled in the app (no download), with `.srt` / `.vtt` subtitle import as an extra.
-- **Step 9 — Release hardening:** Accessibility audit, owner review of the privacy policy (then remove the DRAFT banner from the in-app text), corrupt-media recovery, R8/reproducible build verification, owner confirmation of final `applicationId`, and 1.0 release packaging.
+## v1.0.0 — Completed (Steps 0–42)
+- **Foundations & Shell (Steps 0–4):** Multi-module Gradle setup (`:app`, `:core:model`, `:core:designsystem`), `schemaVersion = 1` JSON storage, Media3 preview & hardware MP4 export.
+- **Core Editing & Templates (Steps 5–18):** Trim, split, reorder, speed, transform, crop, freeze frame, audio extraction, multi-track audio, PiP/GIF overlays, text overlays, beat detection, and offline Open Whisper (`whisper.cpp`).
+- **Pro Motion, Audio Studio & Viral Visualizers (Steps 19–32):** Sound-reactive beats, custom fonts, frame snapshots, portable `.zip` Template Packs, GLES 2.0 Optical Flow, speed ramps, pro motion transitions, overlay blend modes, RBJ biquad Audio Studio with live ExoPlayer preview and auto-ducking, 6 viral lyric templates, Rain-Glass font, and 3 viral LUTs.
+- **Custom Template Studio & 1.0 Release Hardening (Steps 33–42):**
+  - R8/ProGuard hardening (`isMinifyEnabled = true`, `isShrinkResources = true`) and 1-tap Project Duplicate (with media & caption cloning).
+  - Home Search, Sort, Rename, cached video thumbnails, and Aspect/Duration/Clip-Count metadata pills.
+  - Settings Storage Diagnostics, 1-tap Export Cache cleanup, and 1.0 Privacy Policy accuracy sync.
+  - Rich Custom Templates (**Save as custom template** directly from the Editor, **Apply Style DNA** with Undo, 1-tap Batch Clip Picker, visual preview cards with category filter chips, auto-applied looks on all 10 starters, and deterministic **Story / Rhythm / Minimal** Remix Drafts).
+  - Missing/0-byte corrupt media detection, preview exclusion, export pre-flight guard, and 1-tap undoable cleanup.
+
+## v1.1 — Planned Post-Release
+- **Snap Cuts to Beats:** 1-tap beat-aligned clip trimming inside `BeatSyncSheet` using `OfflineBeatDetector`.
+- **1-Tap Motion Presets:** Ken Burns / Slow Zoom / Pan presets for video clips and still images.
+- **Portable Project Backup (`.pmp.zip`):** Export and restore full self-contained projects (clips + captions) offline.

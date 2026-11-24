@@ -1,43 +1,26 @@
-# Architecture Guide
+# Architecture Guide (v1.0.0)
 
-Project Media Pro uses a modular, additive architecture so future steps can be added by creating new files and touching at most **one registration entry** in existing files.
+Project Media Pro uses a clean, modular, unidirectional-data-flow (UDF) architecture designed to keep domain logic pure JVM-testable and UI screens stateless.
 
 ## Module Structure
 
-- **`:app`** — Android app module (`compileSdk = 37`, `targetSdk = 36`, `minSdk = 26`). Contains `MainActivity`, `MediaProApplication`, `AppContainer` (manual dependency container), `AppNavHost` (single-file route definitions), feature packages (`home`, `settings`), and Android resources.
-- **`:core:model`** — Pure Kotlin/JVM module (`org.jetbrains.kotlin.jvm`) with zero Android imports. Defines versioned models (`Project`, `Track`, `Clip`, `Template`, `Slot`, `SlotType`) and `ProjectSerializer` (`kotlinx.serialization` JSON with `schemaVersion` checks and `ignoreUnknownKeys = true`).
-- **`:core:designsystem`** — Android library module (`com.android.library`, `compileSdk = 37`, `minSdk = 26`). Contains WCAG-compliant colors (`MediaProTokens`), spacing/shape tokens (`MediaProSpacing`, `MediaProShapes`), system-font typography (`MediaProTypography`), `ProjectMediaProTheme`, and reusable components (`MediaProTopBar`, `SectionHeader`).
-- **`:core:engine` (Planned for Step 3+)** — Future Android library module wrapping AndroidX Media3 (`ExoPlayer` for preview in Step 3 and `Transformer` for export in Step 4) behind Kotlin interfaces.
+- **`:app`** (`com.android.application`, `compileSdk = 34`, `targetSdk = 34`, `minSdk = 26`):
+  - `AppContainer` — Manual dependency container initialized by `MediaProApplication` and passed into `AppNavHost`.
+  - `home/` — Project list with cached thumbnails (`TimelineMediaCache`), metadata pills (`HomeMetadataFormatter`), search/sort, rename, duplicate, and delete.
+  - `editor/` — Full non-destructive studio (`EditorViewModel`, `EditorStateHelpers`, `EditorScreen`, Media3 `PreviewPlayer`, `AudioPreviewPlayer`, `LiveAudioEnhanceProcessor`, `OfflineBeatDetector`, and focused editing dialogs).
+  - `data/export/` — Media3 1.4.1 `Transformer` export pipeline (`ExportPlan`, `Media3VideoExporter`, shared `AudioDspChain`, `SoftClipAudioProcessor`, `OpticalFlowGlEffect`, `VideoEffectFactory`).
+  - `data/project/` & `data/media/` — Atomic file persistence (`AtomicFileStore`, `FileProjectRepository`), path-traversal-safe `ProjectMediaStorage`, and `ProjectMediaHealthChecker`.
+  - `data/template/` & `template/` — Rich custom templates (`ProjectTemplateSaver`, `TemplateProjectCreator`, `TemplatePackCodec`, `TemplatesScreen`, `TemplatePreviewBanner`, `UseTemplateScreen`).
+  - `feature/captions/` — On-device Open Whisper JNI bridge (`whisper.cpp`), `WhisperModelManager`, `LyricsPacingEngine`, `CaptionCanvasRenderer`, `SrtCaptionCodec`, and `CaptionsSheet`.
+  - `settings/` — Theme persistence (`DataStore`), `AppStorageInspector` (storage usage & 1-tap export cache cleanup), Whisper model manager UI, and bundled offline privacy policy.
+- **`:core:model`** (Pure Kotlin/JVM — zero Android imports):
+  - `schemaVersion = 1` backward-compatible `@Serializable` models (`Project`, `Track`, `Clip`, `Template`, `Slot`, `TemplateTextClip`, `AudioEnhanceConfig`, `ClipVisualEffects`, `OverlayVisualStyle`, `SpeedRampPreset`).
+  - Pure domain engines (`ProjectTimeline`, `UndoRedoManager`, `TemplateApplier`, `ProjectToTemplateConverter`, `TemplateStyleApplier`, `ProjectRemixEngine`, `StarterTemplates`).
+- **`:core:designsystem`** (`com.android.library`, `compileSdk = 34`, `minSdk = 26`):
+  - Semantic Material 3 color, spacing, shape, and typography tokens (`ProjectMediaProTheme`, `MediaProSpacing`, `MediaProShapes`, `MediaProTopBar`, `SectionHeader`).
 
-## Unidirectional Data Flow (UDF) & Wiring
-
-1. **State:** Each `ViewModel` exposes an immutable `StateFlow<UiState>` collected via `collectAsStateWithLifecycle()`.
-2. **Events:** Interactive screens emit a sealed `Event` back to `viewModel.onEvent(event)`.
-3. **Manual Wiring (`AppContainer`):** `MediaProApplication` initializes `AppContainer`, and `MainActivity` passes `AppContainer` into `AppNavHost(container)`. `AppNavHost` never takes feature-specific parameters.
-
-## Additive Extension Rules ("New Files + One Registration Line")
-
-### 1. How to Add a New Screen
-1. **Add new files:** Create `<Feature>ViewModel.kt` and `<Feature>Screen.kt` under `app/src/main/kotlin/com/projectmediapro/app/<feature>/` (and add any needed repository property to `AppContainer.kt`).
-2. **One registration entry:** In `AppNavHost.kt`, add the route constant to `AppRoutes` and one `composable(AppRoutes.<FEATURE>) { ... }` block (both in the same file) pulling dependencies from `container`. Existing screens are untouched.
-
-### 2. How to Add a New Effect
-1. **Add new files:** In Step 7, create `<EffectName>Spec.kt` in `:core:model` and `<EffectName>Renderer.kt` in `:core:engine`.
-2. **One registration entry:** Register the effect in `EffectRegistry.kt` with a single entry. No existing effect or timeline files are rewritten.
-
-### 3. How to Add a New Template Slot Type
-1. **Add new files:** In Step 6, create the slot handler/validator file in the template feature package.
-2. **One registration entry:** Add one enum entry to `SlotType` in `core/model/src/main/kotlin/com/projectmediapro/core/model/Slot.kt`. `ProjectSerializer` and `Template` handle it automatically.
-
-## Roadmap Alignment
-
-- **Step 0:** Foundations
-- **Step 1:** App shell (done)
-- **Step 2:** Project data and local save
-- **Step 3:** Import (Photo Picker), preview and timeline view
-- **Step 4:** Export with Media3 Transformer, tested on a real phone
-- **Step 5:** Basic edits, overlay tracks (PiP, GIF), and ordered audio tracks
-- **Step 6:** Templates
-- **Step 7:** Effects, transitions, text
-- **Step 8:** Offline speech-to-text captions (bundled model) and `.srt`/`.vtt` extras
-- **Step 9:** Release hardening
+## Key Architectural Invariants
+1. **Unidirectional Data Flow:** Each `ViewModel` exposes an immutable `StateFlow<UiState>` collected via `collectAsStateWithLifecycle()`, with one-shot navigation via `Channel` (`effects`).
+2. **Schema Stability:** `Project` and `Template` remain on `schemaVersion = 1`; all new `@Serializable` fields carry safe defaults and `ignoreUnknownKeys = true`.
+3. **Shared Preview & Export DSP:** Audio Studio EQ/noise-gate/ducking (`AudioDspChain`) and color grading/transitions (`ClipVisualEffects`) share pure math between live preview and Media3 export.
+4. **Atomic Storage & Rollback:** Project/template writes use atomic temp-file replacement (`AtomicFileStore`), and failed duplicates, template saves, or remix drafts roll back cleanly.
