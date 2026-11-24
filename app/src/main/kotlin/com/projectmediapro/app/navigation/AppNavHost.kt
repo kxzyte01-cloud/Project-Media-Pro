@@ -59,6 +59,7 @@ fun AppNavHost(
             val viewModel: HomeViewModel = viewModel(
                 factory = HomeViewModel.provideFactory(
                     projectRepository = container.projectRepository,
+                    mediaStorage = container.mediaStorage,
                 ),
             )
             val uiState by viewModel.uiState.collectAsStateWithLifecycle()

@@ -3,8 +3,11 @@ package com.projectmediapro.app.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.projectmediapro.app.data.media.ProjectMediaHealthChecker
+import com.projectmediapro.app.data.media.ProjectMediaStorage
 import com.projectmediapro.app.data.project.ProjectRepository
 import com.projectmediapro.core.model.Project
+import com.projectmediapro.core.model.videoClips
 import java.io.IOException
 import java.util.Locale
 import kotlinx.coroutines.channels.Channel
@@ -36,8 +39,19 @@ enum class HomeSortOrder {
 /**
  * Immutable UI state for the Home screen.
  */
+/**
+ * Resolved local file metadata for loading a project's Home card thumbnail off the UI thread.
+ */
+data class HomeThumbnailTarget(
+    val filePath: String,
+    val isStillImage: Boolean,
+    val trimStartMs: Long,
+    val trimEndMs: Long,
+)
+
 data class HomeUiState(
     val projects: List<Project> = emptyList(),
+    val thumbnailTargets: Map<String, HomeThumbnailTarget> = emptyMap(),
     val searchQuery: String = "",
     val sortOrder: HomeSortOrder = HomeSortOrder.RECENT,
     val isCreateDialogVisible: Boolean = false,
@@ -99,6 +113,7 @@ sealed interface HomeEffect {
  */
 class HomeViewModel(
     private val projectRepository: ProjectRepository,
+    private val mediaStorage: ProjectMediaStorage? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -295,8 +310,12 @@ class HomeViewModel(
     private suspend fun refreshProjects() {
         try {
             val loaded = projectRepository.listProjects()
+            val thumbs = resolveThumbnailTargets(loaded)
             _uiState.update { state ->
-                state.copy(projects = loaded)
+                state.copy(
+                    projects = loaded,
+                    thumbnailTargets = thumbs,
+                )
             }
         } catch (_: IOException) {
             _uiState.update { state ->
@@ -305,13 +324,41 @@ class HomeViewModel(
         }
     }
 
+    private fun resolveThumbnailTargets(projects: List<Project>): Map<String, HomeThumbnailTarget> {
+        val storage = mediaStorage ?: return emptyMap()
+        return buildMap {
+            for (project in projects) {
+                val firstHealthy = project.videoClips().firstNotNullOfOrNull { clip ->
+                    val file = storage.resolve(clip.mediaUri)
+                    if (file != null && ProjectMediaHealthChecker.isHealthyMediaFile(file)) {
+                        HomeThumbnailTarget(
+                            filePath = file.absolutePath,
+                            isStillImage = clip.isStillImage,
+                            trimStartMs = clip.trimStartMs,
+                            trimEndMs = clip.trimEndMs,
+                        )
+                    } else {
+                        null
+                    }
+                }
+                if (firstHealthy != null) {
+                    put(project.id, firstHealthy)
+                }
+            }
+        }
+    }
+
     companion object {
         fun provideFactory(
             projectRepository: ProjectRepository,
+            mediaStorage: ProjectMediaStorage? = null,
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return HomeViewModel(projectRepository = projectRepository) as T
+                return HomeViewModel(
+                    projectRepository = projectRepository,
+                    mediaStorage = mediaStorage,
+                ) as T
             }
         }
     }
