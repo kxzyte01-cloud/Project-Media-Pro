@@ -1,10 +1,15 @@
 package com.projectmediapro.feature.captions
 
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
@@ -24,27 +29,31 @@ enum class WhisperModelVariant(
     val expectedBytes: Long,
     val minValidBytes: Long,
     val approxMb: Int,
+    val sha256: String,
 ) {
     TINY(
         fileName = "ggml-tiny-q5_1.bin",
-        downloadUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny-q5_1.bin",
+        downloadUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-tiny-q5_1.bin",
         expectedBytes = 32_152_673L,
         minValidBytes = 10_000_000L,
         approxMb = 32,
+        sha256 = "818710568da3ca15689e31a743197b520007872ff9576237bda97bd1b469c3d7",
     ),
     BASE(
         fileName = "ggml-base-q5_1.bin",
-        downloadUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin",
+        downloadUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-base-q5_1.bin",
         expectedBytes = 59_707_625L,
         minValidBytes = 25_000_000L,
         approxMb = 60,
+        sha256 = "422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9cc591f01a8898",
     ),
     SMALL(
         fileName = "ggml-small-q5_1.bin",
-        downloadUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin",
+        downloadUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-small-q5_1.bin",
         expectedBytes = 190_085_487L,
         minValidBytes = 80_000_000L,
         approxMb = 190,
+        sha256 = "ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb",
     ),
 }
 
@@ -84,7 +93,7 @@ class WhisperModelManager(
 
     fun isInstalled(variant: WhisperModelVariant): Boolean {
         val file = modelFile(variant)
-        return file.isFile && file.length() >= variant.minValidBytes
+        return file.isFile && file.length() >= variant.minValidBytes && hasValidGgmlHeader(file)
     }
 
     /**
@@ -134,9 +143,11 @@ class WhisperModelManager(
         try {
             connection = openHttpsFollowingRedirects(customDownloadUrl ?: variant.downloadUrl)
             activeConnection = connection
-            val totalBytes = connection.contentLengthLong.takeIf { it > 0L } ?: variant.expectedBytes
+            val contentLength = connection.contentLengthLong
+            val totalBytes = contentLength.takeIf { it > 0L } ?: variant.expectedBytes
             var downloadedBytes = 0L
             var lastPercent = -1
+            val sha256Digest = MessageDigest.getInstance("SHA-256")
 
             connection.inputStream.use { input ->
                 FileOutputStream(tempFile).use { output ->
@@ -146,6 +157,7 @@ class WhisperModelManager(
                         val read = input.read(buffer)
                         if (read < 0) break
                         output.write(buffer, 0, read)
+                        sha256Digest.update(buffer, 0, read)
                         downloadedBytes += read
                         val pct = ((downloadedBytes * 100L) / totalBytes).toInt().coerceIn(0, 99)
                         if (pct != lastPercent) {
@@ -157,16 +169,22 @@ class WhisperModelManager(
                 }
             }
 
+            if (contentLength > 0L && downloadedBytes != contentLength) {
+                throw IOException("Downloaded Whisper model truncated ($downloadedBytes / $contentLength bytes)")
+            }
             if (downloadedBytes < variant.minValidBytes) {
                 throw IOException("Downloaded Whisper model is unexpectedly small ($downloadedBytes bytes)")
             }
-            if (targetFile.exists()) {
-                targetFile.delete()
+            if (!hasValidGgmlHeader(tempFile)) {
+                throw IOException("Downloaded file does not have a valid GGML model header")
             }
-            if (!tempFile.renameTo(targetFile)) {
-                tempFile.copyTo(targetFile, overwrite = true)
-                tempFile.delete()
+            if (customDownloadUrl == null) {
+                val actualSha256 = toLowerHex(sha256Digest.digest())
+                if (!actualSha256.equals(variant.sha256, ignoreCase = true)) {
+                    throw IOException("Whisper model SHA-256 mismatch (expected ${variant.sha256}, got $actualSha256)")
+                }
             }
+            moveModelAtomically(tempFile, targetFile)
             _installedVariants.value = scanInstalledVariants()
             _state.value = WhisperModelState.Installed(targetFile.length())
             true
@@ -189,6 +207,10 @@ class WhisperModelManager(
     }
 
     fun deleteModel(variant: WhisperModelVariant = _selectedVariant.value) {
+        if (_state.value is WhisperModelState.Downloading && _selectedVariant.value == variant) {
+            cancelActiveDownload()
+            return
+        }
         val file = modelFile(variant)
         runCatching { file.delete() }
         runCatching { File(modelsDirectory, "${variant.fileName}.tmp").delete() }
@@ -261,6 +283,44 @@ class WhisperModelManager(
     }
 
     companion object {
+        internal fun toLowerHex(bytes: ByteArray): String {
+            val hexChars = "0123456789abcdef"
+            val out = CharArray(bytes.size * 2)
+            for (i in bytes.indices) {
+                val v = bytes[i].toInt() and 0xFF
+                out[i * 2] = hexChars[v ushr 4]
+                out[i * 2 + 1] = hexChars[v and 0x0F]
+            }
+            return String(out)
+        }
+
+        internal fun hasValidGgmlHeader(file: File): Boolean = runCatching {
+            if (!file.isFile || file.length() < 4L) return false
+            val magic = ByteArray(4)
+            FileInputStream(file).use { input ->
+                if (input.read(magic) < 4) return false
+            }
+            val ascii = String(magic, Charsets.US_ASCII)
+            ascii == "lmgg" || ascii == "ggml" || ascii == "GGUF"
+        }.getOrDefault(false)
+
+        internal fun moveModelAtomically(tempFile: File, targetFile: File) {
+            try {
+                Files.move(
+                    tempFile.toPath(),
+                    targetFile.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING,
+                    StandardCopyOption.ATOMIC_MOVE,
+                )
+            } catch (_: AtomicMoveNotSupportedException) {
+                Files.move(
+                    tempFile.toPath(),
+                    targetFile.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
+            }
+        }
+
         private const val MAX_REDIRECTS = 5
         private const val ACTIVE_MODEL_MARKER = "active_model.txt"
         const val MODEL_FILE_NAME = "ggml-tiny-q5_1.bin"

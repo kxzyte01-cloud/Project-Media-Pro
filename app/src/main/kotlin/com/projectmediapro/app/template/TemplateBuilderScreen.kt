@@ -74,7 +74,7 @@ fun TemplateBuilderScreen(
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var pendingPickSlotId by remember { mutableStateOf<String?>(null) }
+    var pendingPickSlotId by rememberSaveable { mutableStateOf<String?>(null) }
 
     val videoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),

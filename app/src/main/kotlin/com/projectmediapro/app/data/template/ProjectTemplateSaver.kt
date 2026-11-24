@@ -16,6 +16,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 
 /**
@@ -72,10 +73,22 @@ class ProjectTemplateSaver(
             templateRepository.saveTemplate(fullTemplate)
             return fullTemplate
         } catch (cancelled: CancellationException) {
-            runCatching { templateRepository.deleteTemplate(created.id) }
+            withContext(NonCancellable) {
+                try {
+                    templateRepository.deleteTemplate(created.id)
+                } catch (_: Exception) {
+                    // Best-effort rollback of incomplete record.
+                }
+            }
             throw cancelled
         } catch (failure: Exception) {
-            runCatching { templateRepository.deleteTemplate(created.id) }
+            withContext(NonCancellable) {
+                try {
+                    templateRepository.deleteTemplate(created.id)
+                } catch (_: Exception) {
+                    // Best-effort rollback of incomplete record.
+                }
+            }
             throw failure
         }
     }

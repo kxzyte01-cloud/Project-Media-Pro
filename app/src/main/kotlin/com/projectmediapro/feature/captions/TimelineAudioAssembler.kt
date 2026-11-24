@@ -2,6 +2,8 @@ package com.projectmediapro.feature.captions
 
 import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.ProjectTimeline
+import com.projectmediapro.core.model.SpeedRampPreset
+import com.projectmediapro.core.model.SpeedRampEvaluator
 import java.io.File
 import kotlin.math.floor
 import kotlin.math.roundToInt
@@ -96,9 +98,14 @@ object TimelineAudioAssembler {
                 val trimStartUs = trimStartMs * CaptionTime.MICROS_PER_MS
 
                 val timelineWindowUs = (clipSamples.toLong() * CaptionTime.MICROS_PER_SEC) / sampleRate
-                val requiredSourceUs = (timelineWindowUs.toDouble() * speed.toDouble())
-                    .roundToLong()
-                    .coerceAtLeast(CaptionTime.MICROS_PER_MS)
+                val requiredSourceUs = if (clip.speedRamp != SpeedRampPreset.NONE) {
+                    (ProjectTimeline.effectiveSourceSpanMs(clip) * CaptionTime.MICROS_PER_MS)
+                        .coerceAtLeast(CaptionTime.MICROS_PER_MS)
+                } else {
+                    (timelineWindowUs.toDouble() * speed.toDouble())
+                        .roundToLong()
+                        .coerceAtLeast(CaptionTime.MICROS_PER_MS)
+                }
                 if (requiredSourceUs > PcmAudioExtractor.DEFAULT_MAX_DURATION_US) {
                     sourceTruncated = true
                 }
@@ -131,6 +138,8 @@ object TimelineAudioAssembler {
                     mixResampledClip(
                         sourceSamples = pcm.samples,
                         speed = speed,
+                        speedRamp = clip.speedRamp,
+                        sampleRateHz = sampleRate,
                         gain = gain,
                         mixBuffer = mixBuffer,
                         destOffset = sampleCursor,
@@ -146,12 +155,14 @@ object TimelineAudioAssembler {
     private fun mixResampledClip(
         sourceSamples: ShortArray,
         speed: Float,
+        speedRamp: SpeedRampPreset,
+        sampleRateHz: Int,
         gain: Float,
         mixBuffer: ShortArray,
         destOffset: Int,
         destCount: Int,
     ) {
-        if (speed == Clip.DEFAULT_PLAYBACK_SPEED) {
+        if (speedRamp == SpeedRampPreset.NONE && speed == Clip.DEFAULT_PLAYBACK_SPEED) {
             val count = minOf(sourceSamples.size, destCount)
             for (i in 0 until count) {
                 val sample = if (gain == 1f) {
@@ -168,9 +179,10 @@ object TimelineAudioAssembler {
         }
 
         val lastSourceIndex = sourceSamples.lastIndex
-        val step = speed.toDouble()
+        val sourceDurationUs = ((sourceSamples.size.toLong() * CaptionTime.MICROS_PER_SEC) / sampleRateHz.coerceAtLeast(1))
+            .coerceAtLeast(1L)
+        var srcPos = 0.0
         for (i in 0 until destCount) {
-            val srcPos = i * step
             val idx0 = floor(srcPos).toInt()
             if (idx0 > lastSourceIndex) break
             val idx1 = (idx0 + 1).coerceAtMost(lastSourceIndex)
@@ -181,6 +193,15 @@ object TimelineAudioAssembler {
             mixBuffer[destIdx] = (mixBuffer[destIdx].toInt() + scaled)
                 .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
                 .toShort()
+            val step = if (speedRamp != SpeedRampPreset.NONE) {
+                val srcTimeUs = ((srcPos * CaptionTime.MICROS_PER_SEC) / sampleRateHz.coerceAtLeast(1))
+                    .roundToLong()
+                    .coerceIn(0L, sourceDurationUs)
+                SpeedRampEvaluator.speedAt(speedRamp, srcTimeUs, sourceDurationUs).toDouble()
+            } else {
+                speed.toDouble()
+            }
+            srcPos += step.coerceAtLeast(0.1)
         }
     }
 }

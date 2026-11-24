@@ -75,7 +75,7 @@ fun TemplatesScreen(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
-    var pendingExportTemplateId by remember { mutableStateOf<String?>(null) }
+    var pendingExportTemplateId by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedCategory by rememberSaveable { mutableStateOf(TemplateCategory.ALL) }
     val importPackLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),

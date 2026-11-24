@@ -37,6 +37,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -401,7 +403,7 @@ private fun LoadedStudioWorkspace(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var pendingSnapshotPositionMs by remember { mutableStateOf<Long?>(null) }
+    var pendingSnapshotPositionMs by rememberSaveable { mutableStateOf<Long?>(null) }
     val createSnapshotLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("image/png"),
     ) { uri ->
@@ -483,6 +485,13 @@ private fun LoadedStudioWorkspace(
     }
     var seekRequest by remember(state.project.id) { mutableStateOf<PreviewSeekRequest?>(null) }
     var seekRequestCounter by remember(state.project.id) { mutableLongStateOf(0L) }
+    val isExportRunning = state.export is ExportUiState.Running
+    LaunchedEffect(isExportRunning) {
+        if (isExportRunning) {
+            clearOverlayPreviewCache()
+            TimelineMediaCache.clear()
+        }
+    }
     var timelinePositionMs by remember(state.project.id) { mutableLongStateOf(0L) }
     val clips = state.project.videoClips()
     val audioClips = state.project.audioClips()
@@ -512,6 +521,7 @@ private fun LoadedStudioWorkspace(
             createdRemixProjectId = state.createdRemixProjectId,
             createdRemixTitle = state.createdRemixTitle,
             missingMediaCount = state.missingMediaCount,
+            hasPendingCaptionStyle = state.captionDocument != null && state.captionDocument.lines.isEmpty(),
             error = state.error,
             onCancelExport = { onEvent(EditorEvent.CancelExport) },
             onDismissDone = { onEvent(EditorEvent.DismissExportDone) },
@@ -523,6 +533,7 @@ private fun LoadedStudioWorkspace(
             },
             onDismissRemixCreated = { onEvent(EditorEvent.DismissRemixCreatedBanner) },
             onCleanupMissingMedia = { onEvent(EditorEvent.RemoveMissingMediaClips) },
+            onOpenCaptions = { onEvent(EditorEvent.OpenCaptions) },
         )
 
         // Top Zone: Fixed Cinema Preview Stage with direct overlay/text drag & pinch
@@ -1026,6 +1037,7 @@ private fun StudioStatusBanners(
     createdRemixProjectId: String?,
     createdRemixTitle: String?,
     missingMediaCount: Int,
+    hasPendingCaptionStyle: Boolean,
     error: EditorError?,
     onCancelExport: () -> Unit,
     onDismissDone: () -> Unit,
@@ -1034,7 +1046,17 @@ private fun StudioStatusBanners(
     onOpenRemixProject: (String) -> Unit,
     onDismissRemixCreated: () -> Unit,
     onCleanupMissingMedia: () -> Unit,
+    onOpenCaptions: () -> Unit,
 ) {
+    var captionHintDismissed by remember { mutableStateOf(false) }
+    if (hasPendingCaptionStyle && !captionHintDismissed) {
+        StudioInfoBanner(
+            message = stringResource(R.string.editor_captions_ready_banner),
+            actionLabel = stringResource(R.string.editor_captions_ready_open),
+            onAction = onOpenCaptions,
+            onDismiss = { captionHintDismissed = true },
+        )
+    }
     if (missingMediaCount > 0) {
         Surface(
             color = MaterialTheme.colorScheme.errorContainer,

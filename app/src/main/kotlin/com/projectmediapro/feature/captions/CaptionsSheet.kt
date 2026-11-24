@@ -208,6 +208,22 @@ fun CaptionsEditorSheet(
                 }
             }
 
+            if (document != null && document.rawWords.any { it.isPlaceholder }) {
+                Spacer(modifier = Modifier.height(MediaProSpacing.Small))
+                Surface(
+                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                    shape = MediaProShapes.Small,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = stringResource(R.string.captions_placeholder_notice),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        modifier = Modifier.padding(MediaProSpacing.Small),
+                    )
+                }
+            }
+
             if (document == null) {
                 Spacer(modifier = Modifier.height(MediaProSpacing.Medium))
                 Text(

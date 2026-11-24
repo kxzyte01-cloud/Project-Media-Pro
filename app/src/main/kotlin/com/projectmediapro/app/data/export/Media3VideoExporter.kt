@@ -11,8 +11,6 @@ import androidx.media3.common.Effect
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.audio.AudioProcessor
-import androidx.media3.common.audio.ChannelMixingAudioProcessor
-import androidx.media3.common.audio.ChannelMixingMatrix
 import androidx.media3.common.audio.SonicAudioProcessor
 import androidx.media3.common.audio.SpeedChangingAudioProcessor
 import androidx.media3.common.util.Size
@@ -275,14 +273,19 @@ class Media3VideoExporter(
             if (!useTransmuxFastPath && plan.beatMarkers.isNotEmpty()) {
                 addAll(VideoEffectFactory.buildBeatDropEffects(plan.beatMarkers, plan.soundReactiveEnabled))
             }
-            if (plan.overlays.isNotEmpty() || plan.textOverlays.isNotEmpty()) {
-                val textureOverlays: List<TextureOverlay> = buildList(plan.overlays.size + plan.textOverlays.size) {
+            val captionOverlay = CaptionOverlayEffectFactory.createOverlay(plan.captionDocument)
+            if (plan.overlays.isNotEmpty() || plan.textOverlays.isNotEmpty() || captionOverlay != null) {
+                val textureOverlays: List<TextureOverlay> = buildList(
+                    plan.overlays.size + plan.textOverlays.size + if (captionOverlay != null) 1 else 0,
+                ) {
                     plan.overlays.forEach { add(TimedBitmapOverlay(it)) }
                     plan.textOverlays.forEach { add(TimedTextOverlay(it)) }
+                    if (captionOverlay != null) {
+                        add(captionOverlay)
+                    }
                 }
                 add(OverlayEffect(ImmutableList.copyOf(textureOverlays)))
             }
-            CaptionOverlayEffectFactory.create(plan.captionDocument)?.let { add(it) }
         }
         if (compositionVideoEffects.isNotEmpty()) {
             builder.setEffects(Effects(emptyList(), compositionVideoEffects))
@@ -334,7 +337,9 @@ class Media3VideoExporter(
         val effectiveGain = (clampedVolume * clampedBoost).coerceIn(0f, Clip.MAX_AUDIO_BOOST)
         val hasFades = fadeInMs > 0L || fadeOutMs > 0L
         val hasEnhance = audioEnhance != null && !audioEnhance.isIdentity
-        if (effectiveGain > 1.0f || hasFades || hasEnhance) {
+        if (kotlin.math.abs(effectiveGain - 1.0f) >= 0.001f || hasFades || hasEnhance) {
+            // SoftClipAudioProcessor handles arbitrary channel counts (mono, stereo, 5.1/7.1)
+            // cleanly without throwing UnhandledAudioFormatException on surround tracks.
             add(
                 SoftClipAudioProcessor(
                     gain = effectiveGain,
@@ -345,15 +350,6 @@ class Media3VideoExporter(
                     duckingWindowsMs = duckingWindowsMs,
                     timelineOffsetMs = timelineOffsetMs,
                 ),
-            )
-        } else if (clampedVolume < 1.0f) {
-            // Scaling to 0f via ChannelMixingAudioProcessor mutes cleanly while keeping a valid
-            // audio track for Transformer's Composition audio mixer across multi-clip sequences.
-            add(
-                ChannelMixingAudioProcessor().apply {
-                    putChannelMixingMatrix(ChannelMixingMatrix.create(1, 1).scaleBy(clampedVolume))
-                    putChannelMixingMatrix(ChannelMixingMatrix.create(2, 2).scaleBy(clampedVolume))
-                },
             )
         }
     }

@@ -26,8 +26,19 @@ object ProjectTimeline {
 
     private const val SPEED_EPSILON: Float = 0.001f
 
-    fun videoDurationMs(project: Project): Long =
-        project.videoClips().sumOf { effectiveDurationMs(it) }
+    fun saturatingAdd(a: Long, b: Long): Long {
+        val safeA = a.coerceAtLeast(0L)
+        val safeB = b.coerceAtLeast(0L)
+        return if (safeA > Long.MAX_VALUE - safeB) Long.MAX_VALUE else safeA + safeB
+    }
+
+    fun videoDurationMs(project: Project): Long {
+        var total = 0L
+        for (clip in project.videoClips()) {
+            total = saturatingAdd(total, effectiveDurationMs(clip))
+        }
+        return total
+    }
 
     fun sanitizeVolume(volume: Float): Float {
         return if (volume.isNaN() || volume.isInfinite()) 1.0f else volume.coerceIn(0f, 1f)
@@ -80,11 +91,11 @@ object ProjectTimeline {
 
     fun effectiveTrimEndMs(clip: Clip): Long {
         val sourceDurationMs = effectiveSourceDurationMs(clip)
-        val startMs = effectiveTrimStartMs(clip)
+        val startMs = effectiveTrimStartMs(clip).coerceAtMost(sourceDurationMs)
         return if (clip.trimEndMs > startMs) {
             clip.trimEndMs.coerceAtMost(sourceDurationMs)
         } else {
-            (startMs + clip.durationMs.coerceAtLeast(0L)).coerceAtMost(sourceDurationMs)
+            saturatingAdd(startMs, clip.durationMs.coerceAtLeast(0L)).coerceAtMost(sourceDurationMs)
         }
     }
 
@@ -965,15 +976,15 @@ object ProjectTimeline {
         if (clip.isStillImage) return clip.copy(id = newClipId)
         val speed = effectiveSpeed(clip)
         val sourceDurationMs = effectiveSourceDurationMs(clip)
-        val currentStartMs = effectiveTrimStartMs(clip)
-        val currentEndMs = effectiveTrimEndMs(clip)
+        val currentStartMs = effectiveTrimStartMs(clip).coerceAtMost(sourceDurationMs)
+        val currentEndMs = effectiveTrimEndMs(clip).coerceAtLeast(currentStartMs)
         val clipTimelineDurationMs = effectiveDurationMs(clip)
         val offsetInClipMs = safePlayheadMs - clip.startTimeMs
-        if (offsetInClipMs <= 0L || offsetInClipMs >= clipTimelineDurationMs) {
+        if (offsetInClipMs <= 0L || offsetInClipMs >= clipTimelineDurationMs || currentEndMs <= currentStartMs) {
             return clip.copy(id = newClipId)
         }
-        val sourceOffsetMs = (offsetInClipMs * speed).roundToLong()
-        val cutSourceMs = (currentStartMs + sourceOffsetMs).coerceIn(currentStartMs, currentEndMs)
+        val sourceOffsetMs = (offsetInClipMs * speed).roundToLong().coerceAtLeast(0L)
+        val cutSourceMs = saturatingAdd(currentStartMs, sourceOffsetMs).coerceIn(currentStartMs, currentEndMs)
         val (nextStartMs, nextEndMs) = if (fromPlayhead) {
             cutSourceMs to currentEndMs
         } else {
@@ -1167,7 +1178,7 @@ object ProjectTimeline {
         var nextStartMs = 0L
         return clips.map { clip ->
             val positioned = clip.copy(startTimeMs = nextStartMs)
-            nextStartMs += clip.durationMs
+            nextStartMs = saturatingAdd(nextStartMs, clip.durationMs.coerceAtLeast(0L))
             positioned
         }
     }
@@ -1191,7 +1202,7 @@ object ProjectTimeline {
         return tracks
             .asSequence()
             .flatMap { it.clips.asSequence() }
-            .maxOfOrNull { it.startTimeMs + it.durationMs }
+            .maxOfOrNull { saturatingAdd(it.startTimeMs, it.durationMs) }
             ?: 0L
     }
 }

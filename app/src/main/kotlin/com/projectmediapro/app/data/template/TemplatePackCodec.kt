@@ -23,6 +23,7 @@ object TemplatePackCodec {
     private const val TEMPLATE_JSON_ENTRY = "template.json"
     private const val MEDIA_PREFIX = "media/"
     private const val MAX_PACK_BYTES = 250L * 1024L * 1024L
+    private const val MAX_JSON_BYTES = 2L * 1024L * 1024L
     private const val MAX_ENTRIES = 128
 
     @Throws(IOException::class)
@@ -79,7 +80,8 @@ object TemplatePackCodec {
                     }
 
                     if (entryName == TEMPLATE_JSON_ENTRY) {
-                        val bytes = readBounded(zipIn, MAX_PACK_BYTES - totalBytes)
+                        val jsonCap = minOf(MAX_JSON_BYTES, MAX_PACK_BYTES - totalBytes)
+                        val bytes = readBounded(zipIn, jsonCap)
                         totalBytes += bytes.size
                         parsedTemplate = TemplateSerializer.deserialize(bytes.toString(Charsets.UTF_8))
                     } else if (entryName.startsWith(MEDIA_PREFIX)) {
@@ -121,8 +123,9 @@ object TemplatePackCodec {
                 createdAt = now,
                 updatedAt = now,
             )
-        } catch (error: Exception) {
+        } catch (error: Throwable) {
             mediaStorage.deleteProjectMedia(newTemplateId)
+            if (error is Error) throw error
             if (error is IOException) throw error
             throw IOException("Invalid or corrupted template pack", error)
         }

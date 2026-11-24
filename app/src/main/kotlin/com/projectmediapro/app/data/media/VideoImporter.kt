@@ -4,6 +4,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
+import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
@@ -76,11 +77,19 @@ fun copyStreamAtomically(
             output.fd.sync()
         }
         onChunk()
-        Files.move(
-            partFile.toPath(),
-            finalFile.toPath(),
-            StandardCopyOption.ATOMIC_MOVE,
-        )
+        try {
+            Files.move(
+                partFile.toPath(),
+                finalFile.toPath(),
+                StandardCopyOption.ATOMIC_MOVE,
+            )
+        } catch (_: AtomicMoveNotSupportedException) {
+            Files.move(
+                partFile.toPath(),
+                finalFile.toPath(),
+                StandardCopyOption.REPLACE_EXISTING,
+            )
+        }
         moved = true
     } finally {
         if (!moved && partFile.exists()) {

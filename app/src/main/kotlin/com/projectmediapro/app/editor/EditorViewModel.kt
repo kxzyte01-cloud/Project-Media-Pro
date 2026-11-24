@@ -52,10 +52,12 @@ import java.io.IOException
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -102,7 +104,13 @@ class EditorViewModel(
                     val project = repository.getProject(projectId)
                     if (project != null) {
                         history.reset(project)
-                        val savedCaptions = runCatching { captionRepository?.loadCaptions(projectId) }.getOrNull()
+                        val savedCaptions = try {
+                            captionRepository?.loadCaptions(projectId)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            null
+                        }
                         EditorUiState.Loaded(
                             project = project,
                             previewClips = resolvePreviewClips(project, mediaStorage),
@@ -119,7 +127,9 @@ class EditorViewModel(
                     } else {
                         EditorUiState.NotFound
                     }
-                } catch (_: IOException) {
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
                     EditorUiState.Error
                 }
             }
@@ -712,7 +722,7 @@ class EditorViewModel(
             changeMutex.withLock {
                 try {
                     repository.saveProject(updatedProject)
-                    history.pushState(updatedProject)
+                    history.reset(updatedProject)
                     val currentAfterSave = _uiState.value as? EditorUiState.Loaded ?: latest
                     _uiState.value = currentAfterSave.withSyncedProject(
                         previousProject = previousProject,
@@ -1123,7 +1133,13 @@ class EditorViewModel(
         exportJob = viewModelScope.launch {
             if (effectiveProject != initial.project) {
                 changeMutex.withLock {
-                    runCatching { repository.saveProject(effectiveProject) }
+                    try {
+                        repository.saveProject(effectiveProject)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: IOException) {
+                        // Non-fatal: continue export even if export preference persistence fails.
+                    }
                 }
             }
             exportMutex.withLock {
@@ -1251,7 +1267,11 @@ class EditorViewModel(
                     _uiState.value = latest.copy(
                         captionDocument = newDoc,
                         isTranscribingCaptions = false,
-                        error = if (assembled.wasTruncated) EditorError.CAPTIONS_TRUNCATED else null,
+                        error = when {
+                            result.usedPlaceholderTokens -> EditorError.CAPTIONS_PLACEHOLDER_FALLBACK
+                            assembled.wasTruncated -> EditorError.CAPTIONS_TRUNCATED
+                            else -> null
+                        },
                     )
                 }
             } catch (cancelled: CancellationException) {
@@ -1855,10 +1875,26 @@ class EditorViewModel(
                     createdRemixTitle = remixed.title,
                 )
             } catch (cancelled: CancellationException) {
-                createdDraftId?.let { id -> runCatching { repository.deleteProject(id) } }
+                createdDraftId?.let { id ->
+                    withContext(NonCancellable) {
+                        try {
+                            repository.deleteProject(id)
+                        } catch (_: Exception) {
+                            // Best-effort cleanup of incomplete remix draft.
+                        }
+                    }
+                }
                 throw cancelled
             } catch (_: Exception) {
-                createdDraftId?.let { id -> runCatching { repository.deleteProject(id) } }
+                createdDraftId?.let { id ->
+                    withContext(NonCancellable) {
+                        try {
+                            repository.deleteProject(id)
+                        } catch (_: Exception) {
+                            // Best-effort cleanup of incomplete remix draft.
+                        }
+                    }
+                }
                 val latest = _uiState.value as? EditorUiState.Loaded ?: return@launch
                 _uiState.value = latest.copy(
                     isSavingTemplate = false,

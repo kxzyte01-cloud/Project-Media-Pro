@@ -857,7 +857,21 @@ object CaptionCanvasRenderer {
                     totalH += sz * 1.18f
                 }
 
-                var cursorY = centerY - totalH * 0.5f
+                val maxStackH = heightPx * 0.86f
+                if (totalH > maxStackH && totalH > 1f) {
+                    val vScale = maxStackH / totalH
+                    for (idx in fittedSizes.indices) {
+                        fittedSizes[idx] *= vScale
+                        fittedWidths[idx] *= vScale
+                    }
+                    totalH = maxStackH
+                }
+                val marginY = heightPx * EDGE_MARGIN_RATIO
+                val clampedCenterY = centerY.coerceIn(
+                    totalH * 0.5f + marginY,
+                    max(totalH * 0.5f + marginY, heightPx - totalH * 0.5f - marginY),
+                )
+                var cursorY = clampedCenterY - totalH * 0.5f
                 visibleWords.forEachIndexed { idx, w ->
                     val raw = w.displayText.take(w.visibleCharCount)
                     val isLast = idx == visibleWords.lastIndex
@@ -1098,7 +1112,7 @@ object CaptionCanvasRenderer {
             val fullLineText = activeTokens.joinToString("")
             val measuredActiveW = codePaint.measureText(fullLineText)
             val activeFontPx = if (measuredActiveW > maxCodeW && measuredActiveW > 1f) {
-                (codeFontPx * (maxCodeW / measuredActiveW)).coerceAtLeast(codeFontPx * 0.62f)
+                (codeFontPx * (maxCodeW / measuredActiveW)).coerceAtLeast(codeFontPx * 0.38f)
             } else {
                 codeFontPx
             }
@@ -1121,6 +1135,8 @@ object CaptionCanvasRenderer {
                 if (cursorX + tokenW <= cardRight - codeFontPx * 0.5f) {
                     canvas.drawText(token, cursorX, activeY, codePaint)
                     cursorX += tokenW
+                } else {
+                    return@forEachIndexed
                 }
             }
 

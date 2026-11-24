@@ -1,5 +1,6 @@
 package com.projectmediapro.app
 
+import android.content.ComponentCallbacks2
 import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -14,6 +15,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.projectmediapro.app.editor.TimelineMediaCache
+import com.projectmediapro.app.editor.clearOverlayPreviewCache
 import com.projectmediapro.app.navigation.AppNavHost
 import com.projectmediapro.app.settings.ThemePreference
 import com.projectmediapro.core.designsystem.theme.MediaProTheme
@@ -57,6 +60,14 @@ class MainActivity : ComponentActivity() {
                     AppNavHost(container = container)
                 }
             }
+        }
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            clearOverlayPreviewCache()
+            TimelineMediaCache.clear()
         }
     }
 }

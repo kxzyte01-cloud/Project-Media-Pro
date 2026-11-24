@@ -1,12 +1,15 @@
 package com.projectmediapro.app.editor
 
 import android.graphics.BitmapFactory
+import android.util.LruCache
+import java.io.File
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.produceState
@@ -26,6 +29,27 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 private const val PREVIEW_MAX_DECODE_SIDE_PX = 1024
+private const val OVERLAY_PREVIEW_CACHE_MAX_BYTES = 16 * 1024 * 1024
+
+private data class OverlayPreviewCacheKey(
+    val path: String,
+    val fileLength: Long,
+    val lastModifiedMs: Long,
+    val style: OverlayVisualStyle?,
+)
+
+private val overlayPreviewCache = object : LruCache<OverlayPreviewCacheKey, ImageBitmap>(
+    OVERLAY_PREVIEW_CACHE_MAX_BYTES,
+) {
+    override fun sizeOf(key: OverlayPreviewCacheKey, value: ImageBitmap): Int {
+        val estimatedBytes = value.width.toLong() * value.height.toLong() * 4L
+        return estimatedBytes.coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
+    }
+}
+
+internal fun clearOverlayPreviewCache() {
+    overlayPreviewCache.evictAll()
+}
 
 @Composable
 internal fun OverlayPreviewLayer(
@@ -38,6 +62,9 @@ internal fun OverlayPreviewLayer(
     onSelectOverlay: (String) -> Unit = {},
     onCommitOverlayTransform: (clipId: String, centerX: Float, centerY: Float, widthFraction: Float) -> Unit = { _, _, _, _ -> },
 ) {
+    DisposableEffect(Unit) {
+        onDispose { overlayPreviewCache.evictAll() }
+    }
     val visibleOverlays = overlays.filter { TimelineClock.isOverlayVisibleAt(it, timelinePositionMs) }
     if (visibleOverlays.isEmpty()) return
 
@@ -59,7 +86,17 @@ internal fun OverlayPreviewLayer(
                         key2 = bitmapStyleKey,
                     ) {
                         value = withContext(Dispatchers.IO) {
-                            decodePreviewImageBitmap(path, bitmapStyleKey)
+                            val fileMeta = File(path)
+                            val cacheKey = OverlayPreviewCacheKey(
+                                path = path,
+                                fileLength = fileMeta.length(),
+                                lastModifiedMs = fileMeta.lastModified(),
+                                style = bitmapStyleKey,
+                            )
+                            overlayPreviewCache.get(cacheKey)
+                                ?: decodePreviewImageBitmap(path, bitmapStyleKey)?.also { decoded ->
+                                    overlayPreviewCache.put(cacheKey, decoded)
+                                }
                         }
                     }
                     val loaded = bitmap

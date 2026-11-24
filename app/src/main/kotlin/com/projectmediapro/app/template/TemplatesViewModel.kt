@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 enum class TemplatesError {
@@ -71,8 +72,15 @@ class TemplatesViewModel(
     private val _effects = Channel<TemplatesEffect>(Channel.BUFFERED)
     val effects: Flow<TemplatesEffect> = _effects.receiveAsFlow()
 
+    private var refreshJob: Job? = null
+
     init {
-        viewModelScope.launch {
+        refresh()
+    }
+
+    fun refresh() {
+        if (refreshJob?.isActive == true) return
+        refreshJob = viewModelScope.launch {
             refreshTemplates()
         }
     }
@@ -122,6 +130,7 @@ class TemplatesViewModel(
                             slots = copiedSlots,
                             canvasAspect = event.starter.canvasAspect,
                             canvasBackground = event.starter.canvasBackground,
+                            captionStyleJson = event.starter.captionStyleJson,
                         )
                         templateRepository.saveTemplate(customized)
                         customized

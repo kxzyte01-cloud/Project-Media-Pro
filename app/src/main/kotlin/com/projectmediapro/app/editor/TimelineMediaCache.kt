@@ -25,6 +25,11 @@ object TimelineMediaCache {
     private const val THUMB_HEIGHT_PX = 54
     private const val MAX_WAVEFORM_DURATION_US = 5L * 60L * CaptionTime.MICROS_PER_SEC
 
+    fun clear() {
+        filmstripCache.evictAll()
+        waveformCache.evictAll()
+    }
+
     private val filmstripCache = object : LruCache<String, List<Bitmap>>(16) {
         override fun entryRemoved(
             evicted: Boolean,

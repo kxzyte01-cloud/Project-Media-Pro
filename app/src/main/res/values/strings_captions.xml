@@ -10,6 +10,7 @@
     <string name="captions_sync_script">Sync Script</string>
     <string name="captions_import_srt">Import SRT</string>
     <string name="captions_export_srt">Export SRT</string>
+    <string name="captions_placeholder_notice">Timing markers only: install an Open Whisper model in Settings for real speech recognition, or tap Sync Script to align pasted lyrics.</string>
     <string name="captions_empty_hint">Import an SRT file, paste lyrics/script to auto-sync to your audio, or generate beat/speech timing markers offline.</string>
     <string name="captions_section_preset">Tempo &amp; Flow Preset</string>
     <string name="captions_section_template">Animation Template</string>

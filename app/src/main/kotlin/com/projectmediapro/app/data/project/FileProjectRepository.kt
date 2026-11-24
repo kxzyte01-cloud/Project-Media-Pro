@@ -12,6 +12,8 @@ import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerializationException
@@ -170,6 +172,9 @@ class FileProjectRepository(
             if (!isValidId(newId) || newId == id) {
                 throw IOException("Generated duplicate project ID is invalid.")
             }
+            if (projectFile(newId).exists()) {
+                throw IOException("Generated duplicate project ID already exists: $newId")
+            }
 
             mediaStorage?.copyProjectMedia(sourceProjectId = id, targetProjectId = newId)
 
@@ -208,8 +213,23 @@ class FileProjectRepository(
                     }
                     writeProjectAtomically(cloned)
                 }
-            } catch (ex: IOException) {
-                mediaStorage?.deleteProjectMedia(newId)
+            } catch (cancelled: CancellationException) {
+                withContext(NonCancellable) {
+                    try {
+                        mediaStorage?.deleteProjectMedia(newId)
+                    } catch (_: Exception) {
+                        // Best-effort cleanup of copied media on cancellation.
+                    }
+                }
+                throw cancelled
+            } catch (ex: Exception) {
+                withContext(NonCancellable) {
+                    try {
+                        mediaStorage?.deleteProjectMedia(newId)
+                    } catch (_: Exception) {
+                        // Best-effort cleanup of copied media on failure.
+                    }
+                }
                 throw ex
             }
             try {

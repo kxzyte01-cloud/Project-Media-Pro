@@ -3,7 +3,6 @@ package com.projectmediapro.app.editor
 import android.graphics.Bitmap
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -44,10 +43,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -59,6 +56,8 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.projectmediapro.app.R
 import com.projectmediapro.core.designsystem.theme.MediaProShapes
@@ -553,7 +552,7 @@ private fun TimelineRichClipBlock(
     }
 
     if (!isAudioLane && filePath != null) {
-        val frameCount = TimelineScale.desiredThumbnailCount(blockWidth.value, maxFrames = 20)
+        val frameCount = TimelineScale.desiredThumbnailCount(blockWidth.value, maxFrames = 6)
         LaunchedEffect(filePath, clip.isStillImage, clip.trimStartMs, clip.trimEndMs, frameCount) {
             filmstrip = TimelineMediaCache.loadVideoFilmstrip(
                 filePath = filePath,
@@ -599,50 +598,23 @@ private fun TimelineRichClipBlock(
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             if (!isAudioLane && filmstrip.isNotEmpty()) {
-                Row(modifier = Modifier.fillMaxSize()) {
-                    filmstrip.forEach { bitmap ->
-                        if (!bitmap.isRecycled) {
-                            Image(
-                                bitmap = bitmap.asImageBitmap(),
-                                contentDescription = null,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight(),
+                val imageBitmaps = remember(filmstrip) { filmstrip.map { it.asImageBitmap() } }
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val tileSize = size.height.toInt().coerceAtLeast(1)
+                    val totalW = size.width.toInt().coerceAtLeast(tileSize)
+                    val tileCount = ((totalW + tileSize - 1) / tileSize).coerceAtLeast(1)
+                    val frameCount = imageBitmaps.size
+                    for (i in 0 until tileCount) {
+                        val frameIdx = ((i * frameCount) / tileCount).coerceIn(0, frameCount - 1)
+                        val x = i * tileSize
+                        val drawW = (totalW - x).coerceAtMost(tileSize)
+                        if (drawW > 0) {
+                            drawImage(
+                                image = imageBitmaps[frameIdx],
+                                dstOffset = IntOffset(x, 0),
+                                dstSize = IntSize(tileSize, tileSize),
                             )
                         }
-                    }
-                }
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = if (isSelected) 0.14f else 0.22f)),
-                )
-            }
-
-            if (isAudioLane && waveform.isNotEmpty()) {
-                val barColor = contentColor.copy(alpha = 0.65f)
-                val volumeGain = ProjectTimeline.sanitizeVolume(clip.volume)
-                Canvas(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 4.dp, vertical = 6.dp),
-                ) {
-                    val stepX = size.width / waveform.size.coerceAtLeast(1)
-                    val centerY = size.height / 2f
-                    val maxHalfHeight = size.height * 0.45f
-                    val stroke = (stepX * 0.6f).coerceIn(1.5f, 4f)
-                    waveform.forEachIndexed { idx, peak ->
-                        val amplitude = (peak * volumeGain).coerceIn(0f, 1f)
-                        val half = (amplitude * maxHalfHeight).coerceAtLeast(1.5f)
-                        val x = idx * stepX + stepX / 2f
-                        drawLine(
-                            color = barColor,
-                            start = Offset(x, centerY - half),
-                            end = Offset(x, centerY + half),
-                            strokeWidth = stroke,
-                            cap = StrokeCap.Round,
-                        )
                     }
                 }
             }
@@ -853,13 +825,13 @@ private fun TimelineTimedLane(
                         }
 
                         if (canDragResize) {
-                            val clipEndMs = (clip.startTimeMs + clip.durationMs).coerceAtMost(maxTimelineMs)
+                            val clipEndMs = ProjectTimeline.saturatingAdd(clip.startTimeMs, clip.durationMs).coerceAtMost(maxTimelineMs)
                             TrimDragHandle(
                                 edge = TimelineTrimEdge.START,
                                 handleColor = selectedContentColor,
                                 modifier = Modifier
                                     .align(Alignment.CenterStart)
-                                    .pointerInput(clip.id, dpPerSecond, maxTimelineMs) {
+                                    .pointerInput(clip.id, clip.startTimeMs, clip.durationMs, dpPerSecond, maxTimelineMs) {
                                         var accDp = 0f
                                         detectHorizontalDragGestures(
                                             onDragStart = {
@@ -871,9 +843,13 @@ private fun TimelineTimedLane(
                                             onHorizontalDrag = { change, dragAmount ->
                                                 change.consume()
                                                 accDp += with(density) { dragAmount.toDp().value }
-                                                val deltaMs = TimelineScale.dpToMs(accDp, dpPerSecond)
+                                                val deltaMs = TimelineScale.signedDpToMs(accDp, dpPerSecond)
                                                 val maxStart = (clipEndMs - ProjectTimeline.MIN_CLIP_DURATION_MS).coerceAtLeast(0L)
-                                                val nextStart = (clip.startTimeMs + deltaMs).coerceIn(0L, maxStart)
+                                                val nextStart = if (deltaMs >= 0L) {
+                                                    ProjectTimeline.saturatingAdd(clip.startTimeMs, deltaMs).coerceIn(0L, maxStart)
+                                                } else {
+                                                    (clip.startTimeMs + deltaMs).coerceIn(0L, maxStart)
+                                                }
                                                 dragStartMs = nextStart
                                                 dragDurationMs = (clipEndMs - nextStart).coerceAtLeast(ProjectTimeline.MIN_CLIP_DURATION_MS)
                                             },
@@ -894,7 +870,7 @@ private fun TimelineTimedLane(
                                 handleColor = selectedContentColor,
                                 modifier = Modifier
                                     .align(Alignment.CenterEnd)
-                                    .pointerInput(clip.id, dpPerSecond, maxTimelineMs) {
+                                    .pointerInput(clip.id, clip.startTimeMs, clip.durationMs, dpPerSecond, maxTimelineMs) {
                                         var accDp = 0f
                                         detectHorizontalDragGestures(
                                             onDragStart = {
@@ -906,9 +882,13 @@ private fun TimelineTimedLane(
                                             onHorizontalDrag = { change, dragAmount ->
                                                 change.consume()
                                                 accDp += with(density) { dragAmount.toDp().value }
-                                                val deltaMs = TimelineScale.dpToMs(accDp, dpPerSecond)
+                                                val deltaMs = TimelineScale.signedDpToMs(accDp, dpPerSecond)
                                                 val maxDuration = (maxTimelineMs - clip.startTimeMs).coerceAtLeast(ProjectTimeline.MIN_CLIP_DURATION_MS)
-                                                dragDurationMs = (clip.durationMs + deltaMs).coerceIn(ProjectTimeline.MIN_CLIP_DURATION_MS, maxDuration)
+                                                dragDurationMs = if (deltaMs >= 0L) {
+                                                    ProjectTimeline.saturatingAdd(clip.durationMs, deltaMs).coerceIn(ProjectTimeline.MIN_CLIP_DURATION_MS, maxDuration)
+                                                } else {
+                                                    (clip.durationMs + deltaMs).coerceIn(ProjectTimeline.MIN_CLIP_DURATION_MS, maxDuration)
+                                                }
                                             },
                                             onDragEnd = {
                                                 val finalStart = dragStartMs

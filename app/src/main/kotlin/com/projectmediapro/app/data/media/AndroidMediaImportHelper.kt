@@ -69,13 +69,18 @@ internal fun <T> copyValidatedMediaFromContentUri(
     } catch (missing: FileNotFoundException) {
         throw VideoImportException(Reason.UNREADABLE, missing)
     }
-    if (mimeType == null || !mimeType.startsWith(requiredMimePrefix)) {
+    val isAllowedMime = mimeType != null && (
+        mimeType.startsWith(requiredMimePrefix) ||
+            (requiredMimePrefix == "audio/" && mimeType == "application/ogg")
+        )
+    if (!isAllowedMime) {
         throw VideoImportException(Reason.NOT_A_VIDEO)
     }
 
     val sourceSizeBytes = queryKnownSize(resolver, uri)
     if (sourceSizeBytes != null && sourceSizeBytes >= 0L) {
-        if (storage.availableBytes() < sourceSizeBytes + HEADROOM_BYTES) {
+        val availableForFile = (storage.availableBytes() - HEADROOM_BYTES).coerceAtLeast(0L)
+        if (sourceSizeBytes > availableForFile) {
             throw VideoImportException(Reason.NO_SPACE)
         }
     }

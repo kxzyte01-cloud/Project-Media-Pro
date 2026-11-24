@@ -22,6 +22,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 
 /**
@@ -83,10 +84,22 @@ class TemplateProjectCreator(
             applyTemplateCaptionStyle(assembled.id, template.captionStyleJson)
             return assembled.id
         } catch (cancelled: CancellationException) {
-            runCatching { projectRepository.deleteProject(created.id) }
+            withContext(NonCancellable) {
+                try {
+                    projectRepository.deleteProject(created.id)
+                } catch (_: Exception) {
+                    // Best-effort rollback of incomplete record.
+                }
+            }
             throw cancelled
         } catch (failure: Exception) {
-            runCatching { projectRepository.deleteProject(created.id) }
+            withContext(NonCancellable) {
+                try {
+                    projectRepository.deleteProject(created.id)
+                } catch (_: Exception) {
+                    // Best-effort rollback of incomplete record.
+                }
+            }
             throw failure
         }
     }

@@ -134,24 +134,29 @@ class AndroidVideoAudioExtractor : VideoAudioExtractor {
                 (trackDurationUs / MICROS_PER_MS).coerceAtLeast(0L)
             }
 
+            if (muxerStarted) {
+                activeMuxer.stop()
+                muxerStarted = false
+            }
             ExtractedAudioResult(
                 durationMs = measuredDurationMs.coerceAtLeast(MIN_EXTRACTED_DURATION_MS),
             )
         } catch (cancelled: CancellationException) {
-            outputFile.delete()
             throw cancelled
         } catch (error: IOException) {
-            outputFile.delete()
             throw error
         } catch (error: RuntimeException) {
-            outputFile.delete()
             throw IOException("Failed to extract audio from video", error)
         } finally {
+            val failed = muxerStarted
             if (muxerStarted) {
                 runCatching { muxer?.stop() }
             }
             runCatching { muxer?.release() }
             runCatching { extractor.release() }
+            if (failed || !outputFile.exists() || outputFile.length() == 0L) {
+                runCatching { outputFile.delete() }
+            }
         }
     }
 

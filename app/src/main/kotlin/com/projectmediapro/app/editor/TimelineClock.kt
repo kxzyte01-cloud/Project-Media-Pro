@@ -23,11 +23,11 @@ object TimelineClock {
         val clampedIndex = mediaItemIndex.coerceAtMost(clipDurationsMs.lastIndex)
         var offsetMs = 0L
         for (i in 0 until clampedIndex) {
-            offsetMs += clipDurationsMs[i].coerceAtLeast(0L)
+            offsetMs = ProjectTimeline.saturatingAdd(offsetMs, clipDurationsMs[i])
         }
         val currentDurationMs = clipDurationsMs[clampedIndex].coerceAtLeast(0L)
         val clampedPositionMs = positionInItemMs.coerceIn(0L, currentDurationMs)
-        return offsetMs + clampedPositionMs
+        return ProjectTimeline.saturatingAdd(offsetMs, clampedPositionMs)
     }
 
     fun timelineToPlayerPosition(
@@ -39,7 +39,7 @@ object TimelineClock {
         var offsetMs = 0L
         for (index in clipDurationsMs.indices) {
             val durationMs = clipDurationsMs[index].coerceAtLeast(0L)
-            val endMs = offsetMs + durationMs
+            val endMs = ProjectTimeline.saturatingAdd(offsetMs, durationMs)
             val isLast = index == clipDurationsMs.lastIndex
             if (targetMs < endMs || isLast) {
                 return index to (targetMs - offsetMs).coerceIn(0L, durationMs)
@@ -60,7 +60,7 @@ object TimelineClock {
             val clip = clips[index]
             val durationMs = ProjectTimeline.effectiveDurationMs(clip)
             if (durationMs <= 0L) continue
-            val endMs = offsetMs + durationMs
+            val endMs = ProjectTimeline.saturatingAdd(offsetMs, durationMs)
             val isLast = index == clips.lastIndex
             if (clampedPos < endMs || isLast) {
                 val posInClip = (clampedPos - offsetMs).coerceIn(0L, durationMs)
@@ -82,6 +82,7 @@ object TimelineClock {
         val durationMs = clip.durationMs.coerceAtLeast(0L)
         if (durationMs <= 0L) return false
         val startMs = clip.startTimeMs.coerceAtLeast(0L)
-        return timelinePositionMs >= startMs && timelinePositionMs < startMs + durationMs
+        val endMs = ProjectTimeline.saturatingAdd(startMs, durationMs)
+        return timelinePositionMs >= startMs && timelinePositionMs < endMs
     }
 }

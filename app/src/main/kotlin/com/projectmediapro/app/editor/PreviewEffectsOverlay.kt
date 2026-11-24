@@ -44,7 +44,10 @@ internal fun PreviewEffectsOverlay(
     }
 
     Box(modifier = modifier.fillMaxSize()) {
-        if (transitionTransform != null && transitionTransform.scrimAlpha > 0.001f) {
+        // At resting position 0ms (before playback starts), skip the fade-in scrim so the first video
+        // frame and ExoPlayer Play button remain clearly visible; once playback advances (> 0ms),
+        // render the full transition scrim (export always renders from 0ms).
+        if (timelinePositionMs > 0L && transitionTransform != null && transitionTransform.scrimAlpha > 0.001f) {
             val baseColor = if (transitionTransform.scrimIsWhite) Color.White else Color.Black
             Box(
                 modifier = Modifier

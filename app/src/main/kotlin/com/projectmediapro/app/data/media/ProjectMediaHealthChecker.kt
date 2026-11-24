@@ -57,11 +57,14 @@ object ProjectMediaHealthChecker {
         if (missingClipIds.isEmpty()) return project
         val cleanedTracks = project.tracks.map { track ->
             val remaining = track.clips.filterNot { it.id in missingClipIds }
-            if (track.type == TrackType.VIDEO) {
+            if (track.type == TrackType.VIDEO || track.type == TrackType.AUDIO) {
                 var cursorMs = 0L
                 val relaid = remaining.map { clip ->
                     val positioned = clip.copy(startTimeMs = cursorMs)
-                    cursorMs += clip.durationMs.coerceAtLeast(0L)
+                    cursorMs = com.projectmediapro.core.model.ProjectTimeline.saturatingAdd(
+                        cursorMs,
+                        clip.durationMs.coerceAtLeast(0L),
+                    )
                     positioned
                 }
                 track.copy(clips = relaid)
@@ -70,9 +73,12 @@ object ProjectMediaHealthChecker {
             }
         }
         val newDurationMs = cleanedTracks
-            .filter { it.type == TrackType.VIDEO }
-            .flatMap { it.clips }
-            .sumOf { it.durationMs.coerceAtLeast(0L) }
+            .asSequence()
+            .flatMap { it.clips.asSequence() }
+            .maxOfOrNull {
+                com.projectmediapro.core.model.ProjectTimeline.saturatingAdd(it.startTimeMs, it.durationMs)
+            }
+            ?: 0L
         return project.copy(
             tracks = cleanedTracks,
             durationMs = newDurationMs,

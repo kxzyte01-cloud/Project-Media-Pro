@@ -173,9 +173,9 @@ class MediaCodecPcmAudioExtractor(
         var codecStarted = false
 
         try {
-            extractor = MediaExtractor().apply {
-                setDataSource(file.absolutePath)
-            }
+            val localExtractor = MediaExtractor()
+            extractor = localExtractor
+            localExtractor.setDataSource(file.absolutePath)
 
             val trackSelection = selectFirstAudioTrack(extractor)
                 ?: return@withContext PcmAudioData(samples = ShortArray(0), durationUs = 0L)
@@ -196,17 +196,19 @@ class MediaCodecPcmAudioExtractor(
                 AudioFormat.ENCODING_PCM_16BIT,
             )
 
-            codec = MediaCodec.createDecoderByType(mimeType).apply {
-                configure(inputFormat, null, null, 0)
-                start()
-            }
+            val localCodec = MediaCodec.createDecoderByType(mimeType)
+            codec = localCodec
+            localCodec.configure(inputFormat, null, null, 0)
+            localCodec.start()
             codecStarted = true
 
             val bufferInfo = MediaCodec.BufferInfo()
             val resampler = ContinuousMono16kResampler(maxSamples = maxSamples)
             var sawInputEos = false
+            var pendingInputEos = false
             var sawOutputEos = false
             var idlePollsAfterEos = 0
+            var consecutiveIdlePolls = 0
 
             while (!sawOutputEos) {
                 coroutineContext.ensureActive()
@@ -216,9 +218,7 @@ class MediaCodecPcmAudioExtractor(
                     if (inputIndex >= 0) {
                         val inputBuffer = codec.getInputBuffer(inputIndex)
                         if (inputBuffer != null) {
-                            val sampleSize = extractor.readSampleData(inputBuffer, 0)
-                            val sampleTimeUs = extractor.sampleTime
-                            if (sampleSize < 0 || (trimEndUs < Long.MAX_VALUE && sampleTimeUs > trimEndUs)) {
+                            if (pendingInputEos) {
                                 codec.queueInputBuffer(
                                     inputIndex,
                                     0,
@@ -228,14 +228,30 @@ class MediaCodecPcmAudioExtractor(
                                 )
                                 sawInputEos = true
                             } else {
-                                codec.queueInputBuffer(
-                                    inputIndex,
-                                    0,
-                                    sampleSize,
-                                    sampleTimeUs.coerceAtLeast(0L),
-                                    0,
-                                )
-                                extractor.advance()
+                                val sampleSize = extractor.readSampleData(inputBuffer, 0)
+                                val sampleTimeUs = extractor.sampleTime
+                                if (sampleSize < 0 || (trimEndUs < Long.MAX_VALUE && sampleTimeUs > trimEndUs)) {
+                                    codec.queueInputBuffer(
+                                        inputIndex,
+                                        0,
+                                        0,
+                                        0L,
+                                        MediaCodec.BUFFER_FLAG_END_OF_STREAM,
+                                    )
+                                    sawInputEos = true
+                                } else {
+                                    consecutiveIdlePolls = 0
+                                    codec.queueInputBuffer(
+                                        inputIndex,
+                                        0,
+                                        sampleSize,
+                                        sampleTimeUs.coerceAtLeast(0L),
+                                        0,
+                                    )
+                                    if (!extractor.advance()) {
+                                        pendingInputEos = true
+                                    }
+                                }
                             }
                         }
                     }
@@ -245,6 +261,7 @@ class MediaCodecPcmAudioExtractor(
                 when {
                     outputIndex >= 0 -> {
                         idlePollsAfterEos = 0
+                        consecutiveIdlePolls = 0
                         try {
                             if (bufferInfo.size > 0 &&
                                 bufferInfo.presentationTimeUs >= safeTrimStartUs &&
@@ -274,6 +291,7 @@ class MediaCodecPcmAudioExtractor(
 
                     outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
                         idlePollsAfterEos = 0
+                        consecutiveIdlePolls = 0
                         val newFormat = codec.outputFormat
                         sampleRate = newFormat.getIntOrDefault(MediaFormat.KEY_SAMPLE_RATE, sampleRate)
                         channelCount = newFormat.getIntOrDefault(MediaFormat.KEY_CHANNEL_COUNT, channelCount)
@@ -283,6 +301,8 @@ class MediaCodecPcmAudioExtractor(
                     outputIndex == MediaCodec.INFO_TRY_AGAIN_LATER -> {
                         if (sawInputEos && ++idlePollsAfterEos >= MAX_IDLE_POLLS_AFTER_EOS) {
                             sawOutputEos = true
+                        } else if (++consecutiveIdlePolls >= MAX_CONSECUTIVE_IDLE_POLLS) {
+                            throw PcmExtractionException("Audio decoder stalled during PCM extraction")
                         }
                     }
                 }
@@ -373,5 +393,6 @@ class MediaCodecPcmAudioExtractor(
         const val CODEC_TIMEOUT_US = 10_000L
         const val DEFAULT_SOURCE_RATE = 44_100
         const val MAX_IDLE_POLLS_AFTER_EOS = 500
+        private const val MAX_CONSECUTIVE_IDLE_POLLS = 500
     }
 }

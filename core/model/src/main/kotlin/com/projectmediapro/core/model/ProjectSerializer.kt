@@ -7,6 +7,7 @@ object ProjectSerializer {
     private val json = Json {
         prettyPrint = true
         ignoreUnknownKeys = true
+        coerceInputValues = true
         encodeDefaults = true
     }
 

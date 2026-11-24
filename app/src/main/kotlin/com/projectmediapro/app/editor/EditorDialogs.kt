@@ -269,6 +269,7 @@ internal fun editorErrorStringRes(error: EditorError): Int = when (error) {
     EditorError.EXPORT_NOTHING -> R.string.error_export_nothing
     EditorError.CAPTIONS_FAILED -> R.string.error_captions_failed
     EditorError.CAPTIONS_TRUNCATED -> R.string.error_captions_truncated
+    EditorError.CAPTIONS_PLACEHOLDER_FALLBACK -> R.string.error_captions_placeholder_fallback
     EditorError.FREEZE_FRAME_FAILED -> R.string.error_freeze_frame_failed
     EditorError.EXTRACT_AUDIO_FAILED -> R.string.error_extract_audio_failed
     EditorError.BEATS_DETECT_FAILED -> R.string.error_beats_detect_failed

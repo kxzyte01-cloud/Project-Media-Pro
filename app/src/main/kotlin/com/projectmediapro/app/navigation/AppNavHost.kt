@@ -1,6 +1,8 @@
 package com.projectmediapro.app.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -76,6 +78,7 @@ fun AppNavHost(
                 }
             }
 
+            LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
             HomeScreen(
                 uiState = uiState,
                 onEvent = viewModel::onEvent,
@@ -131,7 +134,7 @@ fun AppNavHost(
                         launchSingleTop = true
                     }
                 },
-                onNavigateBack = { navController.popBackStack() },
+                onNavigateBack = { if (navController.previousBackStackEntry != null) navController.popBackStack() },
             )
         }
 
@@ -158,7 +161,7 @@ fun AppNavHost(
             TemplateBuilderScreen(
                 uiState = uiState,
                 onEvent = viewModel::onEvent,
-                onNavigateBack = { navController.popBackStack() },
+                onNavigateBack = { if (navController.previousBackStackEntry != null) navController.popBackStack() },
             )
         }
 
@@ -196,7 +199,7 @@ fun AppNavHost(
             UseTemplateScreen(
                 uiState = uiState,
                 onEvent = viewModel::onEvent,
-                onNavigateBack = { navController.popBackStack() },
+                onNavigateBack = { if (navController.previousBackStackEntry != null) navController.popBackStack() },
             )
         }
 
@@ -235,7 +238,7 @@ fun AppNavHost(
             EditorScreen(
                 uiState = uiState,
                 onEvent = viewModel::onEvent,
-                onNavigateBack = { navController.popBackStack() },
+                onNavigateBack = { if (navController.previousBackStackEntry != null) navController.popBackStack() },
                 onOpenProject = { nextProjectId ->
                     navController.navigate(AppRoutes.editorRoute(nextProjectId)) {
                         launchSingleTop = true
@@ -258,7 +261,7 @@ fun AppNavHost(
             SettingsScreen(
                 uiState = uiState,
                 onEvent = viewModel::onEvent,
-                onNavigateBack = { navController.popBackStack() },
+                onNavigateBack = { if (navController.previousBackStackEntry != null) navController.popBackStack() },
             )
         }
     }

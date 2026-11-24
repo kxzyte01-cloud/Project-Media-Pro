@@ -29,3 +29,4 @@ add_subdirectory(${WHISPER_DIR} ${CMAKE_CURRENT_BINARY_DIR}/whisper_build EXCLUD
 add_library(mediapro_whisper SHARED mediapro_whisper_jni.cpp)
 target_link_libraries(mediapro_whisper PRIVATE whisper log)
 target_compile_options(mediapro_whisper PRIVATE -O3)
+target_link_options(mediapro_whisper PRIVATE "-Wl,-z,max-page-size=16384")

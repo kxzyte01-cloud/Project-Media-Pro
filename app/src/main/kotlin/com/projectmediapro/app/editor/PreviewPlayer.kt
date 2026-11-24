@@ -213,7 +213,14 @@ fun PreviewPlayer(
         }
     }
 
-    LaunchedEffect(activeVideoClips) {
+    val videoStructureKey = remember(activeVideoClips) {
+        activeVideoClips.map { listOf(it.path, it.isStillImage, it.durationMs, it.trimStartMs, it.trimEndMs) }
+    }
+    val audioStructureKey = remember(activeAudioClips) {
+        activeAudioClips.map { listOf(it.path, it.durationMs, it.trimStartMs, it.trimEndMs) }
+    }
+
+    LaunchedEffect(videoStructureKey) {
         val mediaItems = buildPreviewMediaItems(activeVideoClips)
         player.playWhenReady = false
         audioPlayer.playWhenReady = false
@@ -230,7 +237,7 @@ fun PreviewPlayer(
         }
     }
 
-    LaunchedEffect(activeAudioClips) {
+    LaunchedEffect(audioStructureKey) {
         val mediaItems = buildPreviewMediaItems(activeAudioClips)
         audioPlayer.playWhenReady = false
         if (mediaItems.isEmpty()) {
@@ -240,6 +247,17 @@ fun PreviewPlayer(
             audioPlayer.setMediaItems(mediaItems)
             audioPlayer.prepare()
             reportPosition(syncAudioSeek = true)
+        }
+    }
+
+    // Apply live volume, boost, EQ, and speed changes in place without tearing down ExoPlayer or resetting to 0:00.
+    LaunchedEffect(activeVideoClips, activeAudioClips) {
+        if (activeVideoClips.isNotEmpty()) {
+            val idx = player.currentMediaItemIndex.coerceIn(0, activeVideoClips.lastIndex)
+            applyActiveVideoParams(idx)
+        }
+        if (activeAudioClips.isNotEmpty()) {
+            reportPosition(syncAudioSeek = false)
         }
     }
 
@@ -361,6 +379,9 @@ fun PreviewPlayer(
                     }
                 }
             }
+        },
+        onRelease = { playerView ->
+            playerView.player = null
         },
         modifier = modifier,
     )

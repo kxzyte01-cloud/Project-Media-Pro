@@ -47,16 +47,15 @@ object TemplateApplier {
         val totalVideoMs = ProjectTimeline.videoDurationMs(project)
         for (slot in template.overlaySlots()) {
             val media = resolvedMediaBySlotId[slot.id] ?: continue
-            val rawDurationMs = slot.durationMs.coerceAtLeast(ProjectTimeline.MIN_CLIP_DURATION_MS)
-            val resolvedDurationMs = if (totalVideoMs > 0L) {
-                minOf(rawDurationMs, totalVideoMs)
-            } else {
-                rawDurationMs
-            }
+            val (clampedStartMs, resolvedDurationMs) = clampTimedPlacement(
+                rawStartMs = slot.startTimeMs,
+                rawDurationMs = slot.durationMs,
+                totalVideoMs = totalVideoMs,
+            ) ?: continue
             val clip = Clip(
                 id = idProvider(),
                 mediaUri = media.relativePath,
-                startTimeMs = slot.startTimeMs.coerceAtLeast(0L),
+                startTimeMs = clampedStartMs,
                 durationMs = resolvedDurationMs,
                 overlayCenterX = slot.overlayCenterX,
                 overlayCenterY = slot.overlayCenterY,
@@ -73,16 +72,15 @@ object TemplateApplier {
 
         for (textTemplate in template.textClips) {
             if (textTemplate.textContent.isBlank()) continue
-            val rawDurationMs = textTemplate.durationMs.coerceAtLeast(ProjectTimeline.MIN_CLIP_DURATION_MS)
-            val resolvedDurationMs = if (totalVideoMs > 0L) {
-                minOf(rawDurationMs, totalVideoMs)
-            } else {
-                rawDurationMs
-            }
+            val (clampedStartMs, resolvedDurationMs) = clampTimedPlacement(
+                rawStartMs = textTemplate.startTimeMs,
+                rawDurationMs = textTemplate.durationMs,
+                totalVideoMs = totalVideoMs,
+            ) ?: continue
             val textClip = Clip(
                 id = idProvider(),
                 mediaUri = "",
-                startTimeMs = textTemplate.startTimeMs.coerceAtLeast(0L),
+                startTimeMs = clampedStartMs,
                 durationMs = resolvedDurationMs,
                 overlayCenterX = textTemplate.centerX,
                 overlayCenterY = textTemplate.centerY,
@@ -101,6 +99,23 @@ object TemplateApplier {
         return project
     }
 
+    private fun clampTimedPlacement(
+        rawStartMs: Long,
+        rawDurationMs: Long,
+        totalVideoMs: Long,
+    ): Pair<Long, Long>? {
+        val startMs = rawStartMs.coerceAtLeast(0L)
+        val safeDurationMs = rawDurationMs.coerceAtLeast(ProjectTimeline.MIN_CLIP_DURATION_MS)
+        if (totalVideoMs <= 0L) {
+            return startMs to safeDurationMs
+        }
+        val remainingMs = totalVideoMs - startMs
+        if (remainingMs < ProjectTimeline.MIN_CLIP_DURATION_MS) {
+            return null
+        }
+        return startMs to minOf(safeDurationMs, remainingMs)
+    }
+
     private fun appendSequentialSlots(
         project: Project,
         slots: List<Slot>,
@@ -115,15 +130,23 @@ object TemplateApplier {
             if (sourceMs <= 0L) continue
 
             // Never stretch a shorter clip; compute required source span for slot timeline duration at safeSpeed.
-            val safeSpeed = slot.playbackSpeed.coerceIn(Clip.MIN_PLAYBACK_SPEED, Clip.MAX_PLAYBACK_SPEED)
+            val effectiveRamp = if (trackType == TrackType.VIDEO) slot.speedRamp else SpeedRampPreset.NONE
+            val safeSpeed = if (effectiveRamp == SpeedRampPreset.NONE) {
+                ProjectTimeline.sanitizeSpeed(slot.playbackSpeed)
+            } else {
+                Clip.DEFAULT_PLAYBACK_SPEED
+            }
             val desiredSourceMs = if (slot.durationMs >= ProjectTimeline.MIN_CLIP_DURATION_MS) {
                 (slot.durationMs * safeSpeed).toLong().coerceAtLeast(ProjectTimeline.MIN_CLIP_DURATION_MS)
             } else {
                 sourceMs
             }
             val targetTrimEndMs = minOf(sourceMs, desiredSourceMs)
-            val effectiveDurationMs = (targetTrimEndMs / safeSpeed).toLong()
-                .coerceAtLeast(ProjectTimeline.MIN_CLIP_DURATION_MS)
+            val effectiveDurationMs = SpeedRampEvaluator.scaledDurationMs(
+                sourceSpanMs = targetTrimEndMs,
+                playbackSpeed = safeSpeed,
+                preset = effectiveRamp,
+            ).coerceAtLeast(1L)
 
             val clip = Clip(
                 id = idProvider(),

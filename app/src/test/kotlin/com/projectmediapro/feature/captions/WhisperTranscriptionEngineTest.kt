@@ -58,7 +58,7 @@ class WhisperTranscriptionEngineTest {
 
         // Create a valid-sized dummy model file -> invokes Whisper
         val fakeModel = File(modelsDir, WhisperModelManager.MODEL_FILE_NAME)
-        RandomAccessFile(fakeModel, "rw").use { it.setLength(WhisperModelManager.MIN_VALID_MODEL_BYTES + 16L) }
+        RandomAccessFile(fakeModel, "rw").use { it.write("lmgg".toByteArray(Charsets.US_ASCII)); it.setLength(WhisperModelManager.MIN_VALID_MODEL_BYTES + 16L) }
         manager.refreshState()
         assertTrue(manager.state.value is WhisperModelState.Installed)
 
@@ -83,7 +83,7 @@ class WhisperTranscriptionEngineTest {
 
         // Install Base model only
         val baseFile = File(modelsDir, WhisperModelVariant.BASE.fileName)
-        RandomAccessFile(baseFile, "rw").use { it.setLength(WhisperModelVariant.BASE.minValidBytes + 16L) }
+        RandomAccessFile(baseFile, "rw").use { it.write("lmgg".toByteArray(Charsets.US_ASCII)); it.setLength(WhisperModelVariant.BASE.minValidBytes + 16L) }
         manager.selectVariant(WhisperModelVariant.BASE)
 
         assertEquals(WhisperModelVariant.BASE, manager.selectedVariant.value)

@@ -67,6 +67,8 @@
     <string name="editor_remix_open">Open</string>
     <string name="editor_missing_media_banner">%1$d clip(s) have missing or empty media files.</string>
     <string name="editor_missing_media_cleanup">Clean up</string>
+    <string name="editor_captions_ready_banner">Lyric style ready — tap Captions to generate or sync lyrics.</string>
+    <string name="editor_captions_ready_open">Captions</string>
     <string name="home_project_clip_count_zero">Empty</string>
     <string name="home_project_clip_count_one">1 clip</string>
     <string name="home_project_clip_count_many">%1$d clips</string>
@@ -314,6 +316,7 @@
     <string name="settings_about_license_value">Apache License 2.0</string>
     <string name="error_captions_failed">Could not process captions. Check the clip audio or subtitle file.</string>
     <string name="error_captions_truncated">Timeline exceeds 20 minutes; captions were generated for the first 20 minutes.</string>
+    <string name="error_captions_placeholder_fallback">Whisper model not active — timing markers were placed instead. Download a Whisper model in Settings or use Sync Script for real words.</string>
     <string name="editor_tool_speed">Speed</string>
     <string name="editor_tool_transform">Rotate / Flip</string>
     <string name="editor_tool_duplicate">Duplicate</string>

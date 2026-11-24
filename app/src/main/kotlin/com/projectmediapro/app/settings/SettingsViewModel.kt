@@ -8,6 +8,7 @@ import com.projectmediapro.feature.captions.WhisperModelManager
 import com.projectmediapro.feature.captions.WhisperModelState
 import com.projectmediapro.feature.captions.WhisperModelVariant
 import java.io.IOException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -148,6 +149,7 @@ class SettingsViewModel(
                 whisperDownloadJob = null
             }
             SettingsEvent.DeleteWhisperModel -> {
+                whisperModelManager?.cancelActiveDownload()
                 whisperDownloadJob?.cancel()
                 whisperDownloadJob = null
                 whisperModelManager?.deleteModel()
@@ -179,12 +181,19 @@ class SettingsViewModel(
     private fun refreshStorageSnapshot() {
         val inspector = storageInspector ?: return
         viewModelScope.launch {
-            val snapshot = inspector.inspect()
-            storageSliceFlow.value = storageSliceFlow.value.copy(snapshot = snapshot)
+            try {
+                val snapshot = inspector.inspect()
+                storageSliceFlow.value = storageSliceFlow.value.copy(snapshot = snapshot)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Keep previous storage snapshot on transient filesystem errors.
+            }
         }
     }
 
     override fun onCleared() {
+        whisperModelManager?.cancelActiveDownload()
         whisperDownloadJob?.cancel()
         super.onCleared()
     }

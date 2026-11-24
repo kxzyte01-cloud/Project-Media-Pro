@@ -96,6 +96,9 @@ Java_com_projectmediapro_feature_captions_WhisperNativeBridge_nativeGetSegmentTe
         return env->NewByteArray(0);
     }
     auto *ctx = reinterpret_cast<struct whisper_context *>(contextPtr);
+    if (index >= whisper_full_n_segments(ctx)) {
+        return env->NewByteArray(0);
+    }
     const char *text = whisper_full_get_segment_text(ctx, index);
     if (text == nullptr) {
         return env->NewByteArray(0);
@@ -118,6 +121,9 @@ Java_com_projectmediapro_feature_captions_WhisperNativeBridge_nativeGetSegmentT0
         return 0L;
     }
     auto *ctx = reinterpret_cast<struct whisper_context *>(contextPtr);
+    if (index >= whisper_full_n_segments(ctx)) {
+        return 0L;
+    }
     // whisper_full_get_segment_t0 returns centiseconds (10 ms units).
     return static_cast<jlong>(whisper_full_get_segment_t0(ctx, index)) * 10L;
 }
@@ -132,6 +138,9 @@ Java_com_projectmediapro_feature_captions_WhisperNativeBridge_nativeGetSegmentT1
         return 0L;
     }
     auto *ctx = reinterpret_cast<struct whisper_context *>(contextPtr);
+    if (index >= whisper_full_n_segments(ctx)) {
+        return 0L;
+    }
     return static_cast<jlong>(whisper_full_get_segment_t1(ctx, index)) * 10L;
 }
 

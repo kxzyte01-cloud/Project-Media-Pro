@@ -2,6 +2,11 @@ package com.projectmediapro.app.data.media
 
 import android.content.Context
 import android.net.Uri
+import kotlinx.coroutines.ensureActive
+import java.nio.file.StandardCopyOption
+import java.nio.file.Files
+import java.nio.file.AtomicMoveNotSupportedException
+import android.content.ContentResolver
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -47,6 +52,9 @@ class CustomFontStorage(
             throw IOException("Could not create custom fonts directory")
         }
         val uri = Uri.parse(sourceUriString)
+        if (uri.scheme != ContentResolver.SCHEME_CONTENT) {
+            throw IOException("Only content:// font URIs are supported")
+        }
         val tempFile = File(fontsDirectory, "font_${UUID.randomUUID()}.tmp")
         try {
             val header = ByteArray(4)
@@ -59,6 +67,7 @@ class CustomFontStorage(
                 FileOutputStream(tempFile).use { out ->
                     val buf = ByteArray(16 * 1024)
                     while (true) {
+                        coroutineContext.ensureActive()
                         val read = stream.read(buf)
                         if (read < 0) break
                         if (headerFilled < 4) {
@@ -82,9 +91,19 @@ class CustomFontStorage(
 
             val ext = if (header[0].toInt() == 'O'.code) "otf" else "ttf"
             val finalFile = File(fontsDirectory, "custom_${UUID.randomUUID()}.$ext")
-            if (!tempFile.renameTo(finalFile)) {
-                tempFile.copyTo(finalFile, overwrite = true)
-                tempFile.delete()
+            try {
+                Files.move(
+                    tempFile.toPath(),
+                    finalFile.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING,
+                    StandardCopyOption.ATOMIC_MOVE,
+                )
+            } catch (_: AtomicMoveNotSupportedException) {
+                Files.move(
+                    tempFile.toPath(),
+                    finalFile.toPath(),
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
             }
             finalFile
         } catch (cancelled: CancellationException) {
