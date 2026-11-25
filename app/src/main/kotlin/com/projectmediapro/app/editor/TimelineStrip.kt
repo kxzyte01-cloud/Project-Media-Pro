@@ -9,7 +9,9 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -22,6 +24,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.material3.Icon
@@ -38,6 +41,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -67,6 +71,8 @@ import com.projectmediapro.core.model.BeatMarker
 import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.ProjectTimeline
 import java.util.Locale
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 private val RULER_HEIGHT_DP = 28.dp
 private val VIDEO_LANE_HEIGHT_DP = 56.dp
@@ -95,6 +101,10 @@ fun TimelineStrip(
     timelinePositionMs: Long = 0L,
     totalDurationMs: Long = 0L,
     onSeekTimeline: (Long) -> Unit = {},
+    onScrubTimeline: (Long, Boolean) -> Unit = { ms, _ -> onSeekTimeline(ms) },
+    onSplitAtPlayhead: (() -> Unit)? = null,
+    onTrimLeftToPlayhead: (() -> Unit)? = null,
+    onTrimRightToPlayhead: (() -> Unit)? = null,
     onTrimClip: (clipId: String, startMs: Long, endMs: Long) -> Unit = { _, _, _ -> },
     onResizeTimedClip: (clipId: String, startTimeMs: Long, durationMs: Long) -> Unit = { _, _, _ -> },
     showHistoryControls: Boolean = true,
@@ -111,11 +121,48 @@ fun TimelineStrip(
         )
         computed.coerceAtLeast(1_000L)
     }
+    val density = LocalDensity.current
     val contentWidthDp = remember(effectiveTotalMs, dpPerSecond) {
         (TimelineScale.msToDp(effectiveTotalMs, dpPerSecond).coerceAtLeast(240f)).dp + TIMELINE_TRAILING_PAD_DP
     }
-    val playheadOffsetDp = remember(timelinePositionMs, effectiveTotalMs, dpPerSecond) {
-        TimelineScale.msToDp(timelinePositionMs.coerceIn(0L, effectiveTotalMs), dpPerSecond).dp
+    val isDragged by scrollState.interactionSource.collectIsDraggedAsState()
+    var isUserScrubbing by remember { mutableStateOf(false) }
+    val latestOnScrub by rememberUpdatedState(onScrubTimeline)
+
+    LaunchedEffect(isDragged) {
+        if (isDragged) {
+            isUserScrubbing = true
+        }
+    }
+
+    LaunchedEffect(scrollState, dpPerSecond, effectiveTotalMs, isEnabled) {
+        var lastEmittedMs = -1L
+        snapshotFlow { Triple(scrollState.value, scrollState.isScrollInProgress, isUserScrubbing) }
+            .collect { (scrollPx, inProgress, userScrubbing) ->
+                if (!isEnabled || !userScrubbing) return@collect
+                val scrolledDp = with(density) { scrollPx.toDp().value }
+                val targetMs = TimelineScale.dpToMs(scrolledDp, dpPerSecond).coerceIn(0L, effectiveTotalMs)
+                if (inProgress) {
+                    if (lastEmittedMs < 0L || abs(targetMs - lastEmittedMs) >= 16L) {
+                        lastEmittedMs = targetMs
+                        latestOnScrub(targetMs, true)
+                    }
+                } else {
+                    isUserScrubbing = false
+                    lastEmittedMs = targetMs
+                    latestOnScrub(targetMs, false)
+                }
+            }
+    }
+
+    LaunchedEffect(timelinePositionMs, dpPerSecond, effectiveTotalMs, isUserScrubbing) {
+        if (isUserScrubbing) return@LaunchedEffect
+        val targetPx = with(density) {
+            TimelineScale.msToDp(timelinePositionMs.coerceIn(0L, effectiveTotalMs), dpPerSecond).dp.toPx()
+        }.roundToInt().coerceIn(0, scrollState.maxValue)
+        if (abs(scrollState.value - targetPx) > 2) {
+            scrollState.scrollTo(targetPx)
+        }
     }
 
     Column(modifier = modifier.fillMaxWidth()) {
@@ -187,6 +234,45 @@ fun TimelineStrip(
             }
         }
 
+        if (clips.isNotEmpty() && (onSplitAtPlayhead != null || onTrimLeftToPlayhead != null || onTrimRightToPlayhead != null)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = MediaProSpacing.ExtraSmall),
+            ) {
+                if (onSplitAtPlayhead != null) {
+                    TimelineQuickCutChip(
+                        label = stringResource(R.string.editor_tool_split),
+                        contentDesc = stringResource(R.string.cd_timeline_split_playhead),
+                        enabled = isEnabled,
+                        accent = true,
+                        onClick = onSplitAtPlayhead,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                if (onTrimLeftToPlayhead != null) {
+                    TimelineQuickCutChip(
+                        label = stringResource(R.string.editor_tool_cut_left),
+                        contentDesc = stringResource(R.string.cd_timeline_cut_left),
+                        enabled = isEnabled,
+                        onClick = onTrimLeftToPlayhead,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                if (onTrimRightToPlayhead != null) {
+                    TimelineQuickCutChip(
+                        label = stringResource(R.string.editor_tool_cut_right),
+                        contentDesc = stringResource(R.string.cd_timeline_cut_right),
+                        enabled = isEnabled,
+                        onClick = onTrimRightToPlayhead,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        }
+
         Surface(
             shape = MediaProShapes.Medium,
             color = MaterialTheme.colorScheme.surfaceVariant,
@@ -203,26 +289,48 @@ fun TimelineStrip(
                     }
                 },
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(scrollState)
-                    .padding(MediaProSpacing.Small),
-            ) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
-                    modifier = Modifier.width(contentWidthDp),
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val halfViewportDp = (maxWidth / 2f).coerceAtLeast(1.dp)
+                val halfViewportPx = with(density) { halfViewportDp.toPx() }
+                val visibleStartMs = TimelineScale.dpToMs(
+                    with(density) { (scrollState.value - halfViewportPx).coerceAtLeast(0f).toDp().value },
+                    dpPerSecond,
+                ).coerceIn(0L, effectiveTotalMs)
+                val visibleEndMs = TimelineScale.dpToMs(
+                    with(density) { (scrollState.value + halfViewportPx).coerceAtLeast(0f).toDp().value },
+                    dpPerSecond,
+                ).coerceIn(visibleStartMs, effectiveTotalMs)
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(scrollState)
+                        .padding(
+                            start = halfViewportDp,
+                            end = halfViewportDp,
+                            top = MediaProSpacing.Small,
+                            bottom = MediaProSpacing.Small,
+                        ),
                 ) {
-                    TimelineRuler(
-                        totalDurationMs = effectiveTotalMs,
-                        dpPerSecond = dpPerSecond,
-                        isEnabled = isEnabled,
-                        beatMarkers = beatMarkers,
-                        onSeekTimeline = onSeekTimeline,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(RULER_HEIGHT_DP),
-                    )
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
+                        modifier = Modifier.width(contentWidthDp),
+                    ) {
+                        TimelineRuler(
+                            totalDurationMs = effectiveTotalMs,
+                            dpPerSecond = dpPerSecond,
+                            isEnabled = isEnabled,
+                            visibleStartMs = visibleStartMs,
+                            visibleEndMs = visibleEndMs,
+                            beatMarkers = beatMarkers,
+                            onSeekTimeline = { targetMs ->
+                                isUserScrubbing = false
+                                latestOnScrub(targetMs, false)
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(RULER_HEIGHT_DP),
+                        )
 
                     if (clips.isNotEmpty()) {
                         TimelineLaneHeader(text = stringResource(R.string.editor_lane_video))
@@ -330,19 +438,83 @@ fun TimelineStrip(
                     }
                 }
 
-                Box(
+                }
+
+                // CapCut / Vita Fixed Center Playhead Indicator
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier
+                        .align(Alignment.Center)
                         .matchParentSize(),
                 ) {
                     Box(
                         modifier = Modifier
-                            .offset(x = playheadOffsetDp)
-                            .width(2.dp)
-                            .fillMaxHeight()
-                            .background(MaterialTheme.colorScheme.primary),
+                            .width(10.dp)
+                            .height(6.dp)
+                            .clip(CircleShape)
+                            .background(Color.White),
+                    )
+                    Box(
+                        modifier = Modifier
+                            .width(2.5.dp)
+                            .weight(1f)
+                            .background(Color.White),
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun TimelineQuickCutChip(
+    label: String,
+    contentDesc: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    accent: Boolean = false,
+) {
+    val containerColor = when {
+        !enabled -> MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
+        accent -> MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+        else -> MaterialTheme.colorScheme.surface
+    }
+    val borderColor = when {
+        !enabled -> MaterialTheme.colorScheme.outlineVariant
+        accent -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.outline
+    }
+    val textColor = when {
+        !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+        accent -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.onSurface
+    }
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        shape = MediaProShapes.Small,
+        color = containerColor,
+        border = BorderStroke(MediaProSpacing.BorderThin, borderColor),
+        modifier = modifier
+            .defaultMinSize(minHeight = 40.dp)
+            .clearAndSetSemantics {
+                role = Role.Button
+                contentDescription = contentDesc
+            },
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = textColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -359,7 +531,7 @@ private fun TimelineZoomButton(
         shape = MediaProShapes.Small,
         color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(MediaProSpacing.BorderThin, MaterialTheme.colorScheme.outline),
-        modifier = Modifier.defaultMinSize(minWidth = 34.dp, minHeight = 34.dp),
+        modifier = Modifier.defaultMinSize(minWidth = 40.dp, minHeight = 40.dp),
     ) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 8.dp)) {
             Text(
@@ -389,6 +561,8 @@ private fun TimelineRuler(
     totalDurationMs: Long,
     dpPerSecond: Float,
     isEnabled: Boolean,
+    visibleStartMs: Long = 0L,
+    visibleEndMs: Long = totalDurationMs,
     beatMarkers: List<BeatMarker> = emptyList(),
     onSeekTimeline: (Long) -> Unit,
     modifier: Modifier = Modifier,
@@ -420,10 +594,13 @@ private fun TimelineRuler(
                 }
             },
     ) {
+        val cullStartMs = (visibleStartMs - stepMs).coerceAtLeast(0L)
+        val cullEndMs = (visibleEndMs + stepMs).coerceAtMost(totalDurationMs)
+
         Canvas(modifier = Modifier.fillMaxSize()) {
             val minorStepMs = (stepMs / 2L).coerceAtLeast(500L)
-            var tMs = 0L
-            while (tMs <= totalDurationMs) {
+            var tMs = (cullStartMs / minorStepMs) * minorStepMs
+            while (tMs <= cullEndMs) {
                 val xPx = with(density) { TimelineScale.msToDp(tMs, dpPerSecond).dp.toPx() }
                 if (xPx > size.width) break
                 val isMajor = tMs % stepMs == 0L
@@ -439,22 +616,32 @@ private fun TimelineRuler(
 
             val diamondRadius = 5.dp.toPx()
             val diamondY = size.height - diamondRadius - 2f
-            beatMarkers.forEach { marker ->
-                val bx = with(density) { TimelineScale.msToDp(marker.timeMs, dpPerSecond).dp.toPx() }
-                if (bx in 0f..size.width) {
-                    diamondPath.reset()
-                    diamondPath.moveTo(bx, diamondY - diamondRadius)
-                    diamondPath.lineTo(bx + diamondRadius, diamondY)
-                    diamondPath.lineTo(bx, diamondY + diamondRadius)
-                    diamondPath.lineTo(bx - diamondRadius, diamondY)
-                    diamondPath.close()
-                    drawPath(diamondPath, color = beatMarkerColor(marker.effect))
+            if (beatMarkers.isNotEmpty()) {
+                var lo = 0
+                var hi = beatMarkers.size
+                while (lo < hi) {
+                    val mid = (lo + hi) ushr 1
+                    if (beatMarkers[mid].timeMs < cullStartMs) lo = mid + 1 else hi = mid
+                }
+                for (idx in lo until beatMarkers.size) {
+                    val marker = beatMarkers[idx]
+                    if (marker.timeMs > cullEndMs) break
+                    val bx = with(density) { TimelineScale.msToDp(marker.timeMs, dpPerSecond).dp.toPx() }
+                    if (bx in 0f..size.width) {
+                        diamondPath.reset()
+                        diamondPath.moveTo(bx, diamondY - diamondRadius)
+                        diamondPath.lineTo(bx + diamondRadius, diamondY)
+                        diamondPath.lineTo(bx, diamondY + diamondRadius)
+                        diamondPath.lineTo(bx - diamondRadius, diamondY)
+                        diamondPath.close()
+                        drawPath(diamondPath, color = beatMarkerColor(marker.effect))
+                    }
                 }
             }
         }
 
-        var labelMs = 0L
-        while (labelMs <= totalDurationMs) {
+        var labelMs = (cullStartMs / stepMs) * stepMs
+        while (labelMs <= cullEndMs) {
             val xDp = TimelineScale.msToDp(labelMs, dpPerSecond).dp
             Text(
                 text = ProjectTimeline.formatDuration(labelMs),

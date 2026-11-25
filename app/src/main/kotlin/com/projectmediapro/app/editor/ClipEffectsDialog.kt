@@ -90,6 +90,7 @@ fun ClipEffectsDialog(
     clip: Clip,
     onConfirm: (ClipVisualEffects) -> Unit,
     onDismiss: () -> Unit,
+    onApplyToAll: ((ClipVisualEffects) -> Unit)? = null,
 ) {
     val clipDurationMs = ProjectTimeline.effectiveDurationMs(clip)
     val maxFadeMs = minOf(ClipVisualEffects.MAX_FADE_MS, (clipDurationMs / 2L).coerceAtLeast(0L))
@@ -244,10 +245,18 @@ fun ClipEffectsDialog(
             }
         },
         confirmButton = {
-            DialogActionButton(
-                label = stringResource(R.string.editor_apply),
-                onClick = { onConfirm(currentEffects) },
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.ExtraSmall)) {
+                if (onApplyToAll != null) {
+                    DialogActionButton(
+                        label = stringResource(R.string.editor_apply_to_all),
+                        onClick = { onApplyToAll(currentEffects) },
+                    )
+                }
+                DialogActionButton(
+                    label = stringResource(R.string.editor_apply),
+                    onClick = { onConfirm(currentEffects) },
+                )
+            }
         },
         dismissButton = {
             DialogActionButton(

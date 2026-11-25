@@ -2,7 +2,8 @@ package com.projectmediapro.app.editor
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -259,13 +260,11 @@ internal fun BeatSyncSheet(
 
                 Spacer(modifier = Modifier.height(MediaProSpacing.Small))
 
-                Row(
+                LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.ExtraSmall),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
-                    beatMarkers.forEach { marker ->
+                    items(items = beatMarkers, key = { it.id }) { marker ->
                         val chipColor = beatMarkerColor(marker.effect)
                         Surface(
                             shape = MediaProShapes.Small,

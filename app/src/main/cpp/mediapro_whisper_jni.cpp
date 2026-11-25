@@ -57,7 +57,7 @@ Java_com_projectmediapro_feature_captions_WhisperNativeBridge_nativeFullTranscri
     }
 
     struct whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
-    params.n_threads = numThreads > 0 ? numThreads : 4;
+    params.n_threads = (numThreads > 0 && numThreads <= 4) ? numThreads : 4;
     params.print_progress = false;
     params.print_special = false;
     params.print_realtime = false;
@@ -68,6 +68,11 @@ Java_com_projectmediapro_feature_captions_WhisperNativeBridge_nativeFullTranscri
     params.single_segment = false;
     params.token_timestamps = false;
     params.greedy.best_of = 1;
+    // Speed up long music/video transcription while preserving hallucination escape:
+    // temperature_inc = 0.4f cuts fallback retries from 5 down to 2 without causing loop freezes.
+    params.temperature_inc = 0.4f;
+    params.suppress_blank = true;
+    params.no_speech_thold = 0.6f;
 
     const int result = whisper_full(ctx, params, samples, static_cast<int>(length));
     env->ReleaseFloatArrayElements(audioData, samples, JNI_ABORT);

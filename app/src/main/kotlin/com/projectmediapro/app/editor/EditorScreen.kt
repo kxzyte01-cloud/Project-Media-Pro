@@ -513,6 +513,7 @@ private fun LoadedStudioWorkspace(
         onPlaybackEnded = { onEvent(EditorEvent.StopAudioPreview) },
     )
 
+    Box(modifier = Modifier.fillMaxSize()) {
     Column(modifier = Modifier.fillMaxSize()) {
         StudioStatusBanners(
             exportState = state.export,
@@ -619,7 +620,26 @@ private fun LoadedStudioWorkspace(
                             seekRequest = PreviewSeekRequest(
                                 timelinePositionMs = targetMs.coerceAtLeast(0L),
                                 requestId = seekRequestCounter,
+                                isScrubbing = false,
                             )
+                        },
+                        onScrubTimeline = { targetMs, isScrubbing ->
+                            timelinePositionMs = targetMs.coerceAtLeast(0L)
+                            seekRequestCounter += 1L
+                            seekRequest = PreviewSeekRequest(
+                                timelinePositionMs = targetMs.coerceAtLeast(0L),
+                                requestId = seekRequestCounter,
+                                isScrubbing = isScrubbing,
+                            )
+                        },
+                        onSplitAtPlayhead = {
+                            onEvent(EditorEvent.SplitAtPlayhead(timelinePositionMs))
+                        },
+                        onTrimLeftToPlayhead = {
+                            onEvent(EditorEvent.TrimLeftToPlayhead(timelinePositionMs))
+                        },
+                        onTrimRightToPlayhead = {
+                            onEvent(EditorEvent.TrimRightToPlayhead(timelinePositionMs))
                         },
                         onTrimClip = { _, startMs, endMs ->
                             onEvent(EditorEvent.ApplyTrim(startMs = startMs, endMs = endMs))
@@ -678,6 +698,16 @@ private fun LoadedStudioWorkspace(
         )
     }
 
+    ExportProgressOverlay(
+        exportState = state.export,
+        startedAtNanos = state.exportStartedAtNanos,
+        finalElapsedMs = state.exportElapsedMs,
+        finishedAtEpochMs = state.exportFinishedAtEpochMs,
+        onCancelExport = { onEvent(EditorEvent.CancelExport) },
+        onDismissDone = { onEvent(EditorEvent.DismissExportDone) },
+    )
+    }
+
     when (val dialog = state.activeDialog) {
         is EditorDialog.Trim -> {
             val location = state.project.findClipLocation(dialog.clipId)
@@ -731,6 +761,21 @@ private fun LoadedStudioWorkspace(
                                 audioEnhance = audioEnhance,
                             ),
                         )
+                    },
+                    onApplyToAll = if ((location.isAudio && audioClips.size > 1) || (location.isVideo && clips.size > 1)) {
+                        { volume, audioBoost, fadeInMs, fadeOutMs, audioEnhance ->
+                            onEvent(
+                                EditorEvent.ApplyVolumeToAll(
+                                    volume = volume,
+                                    audioBoost = audioBoost,
+                                    fadeInMs = fadeInMs,
+                                    fadeOutMs = fadeOutMs,
+                                    audioEnhance = audioEnhance,
+                                ),
+                            )
+                        }
+                    } else {
+                        null
                     },
                     onDismiss = { onEvent(EditorEvent.DismissDialog) },
                 )
@@ -790,6 +835,11 @@ private fun LoadedStudioWorkspace(
                     clip = location.clip,
                     onConfirm = { effects ->
                         onEvent(EditorEvent.ApplyClipEffects(effects))
+                    },
+                    onApplyToAll = if (clips.size > 1) {
+                        { effects -> onEvent(EditorEvent.ApplyClipEffectsToAll(effects)) }
+                    } else {
+                        null
                     },
                     onDismiss = { onEvent(EditorEvent.DismissDialog) },
                 )

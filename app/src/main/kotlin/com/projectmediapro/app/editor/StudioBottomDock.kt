@@ -328,11 +328,23 @@ private fun SelectedClipDockItems(
                 enabled = editsEnabled && ProjectTimeline.canTrimClip(clip),
                 onClick = { onEvent(EditorEvent.OpenTrim) },
             )
+            val clipEndMs = ProjectTimeline.saturatingAdd(
+                clip.startTimeMs,
+                ProjectTimeline.effectiveDurationMs(clip),
+            )
+            val canSplitHere = timelinePositionMs >= clip.startTimeMs + ProjectTimeline.MIN_CLIP_DURATION_MS &&
+                timelinePositionMs <= clipEndMs - ProjectTimeline.MIN_CLIP_DURATION_MS
             StudioDockTile(
                 icon = StudioToolIconKind.SPLIT,
                 label = stringResource(R.string.editor_tool_split),
                 enabled = editsEnabled && ProjectTimeline.canSplitClip(clip),
-                onClick = { onEvent(EditorEvent.OpenSplit) },
+                onClick = {
+                    if (canSplitHere) {
+                        onEvent(EditorEvent.SplitAtPlayhead(timelinePositionMs))
+                    } else {
+                        onEvent(EditorEvent.OpenSplit)
+                    }
+                },
             )
             StudioDockTile(
                 icon = StudioToolIconKind.SPEED,

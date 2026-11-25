@@ -263,7 +263,7 @@ object CaptionCanvasRenderer {
             else -> Unit
         }
 
-        if (style.backgroundBoxEnabled) {
+        if (style.backgroundBoxEnabled && !style.transparentBackground) {
             drawBackgroundBox(
                 canvas = canvas,
                 scratch = scratch,
@@ -555,16 +555,19 @@ object CaptionCanvasRenderer {
         fontPx: Float,
         frameState: CaptionFrameState,
     ) {
-        // Soft dark atmospheric card scrim behind the Music Player lyric stack for crisp contrast
-        val scrimHalfW = widthPx * 0.44f
-        scratch.boxRect.set(
-            centerX - scrimHalfW,
-            blockTop - fontPx * 1.25f,
-            centerX + scrimHalfW,
-            blockTop + blockHeight + fontPx * 2.25f,
-        )
-        scratch.boxPaint.color = applyAlpha(0x52050811.toInt(), frameState.lineAlpha)
-        canvas.drawRoundRect(scratch.boxRect, fontPx * 0.45f, fontPx * 0.45f, scratch.boxPaint)
+        // Transparent by default so Music Player floats cleanly over any video;
+        // draws atmospheric dark card scrim only when Background Box is enabled.
+        if (!frameState.style.transparentBackground) {
+            val scrimHalfW = widthPx * 0.44f
+            scratch.boxRect.set(
+                centerX - scrimHalfW,
+                blockTop - fontPx * 1.25f,
+                centerX + scrimHalfW,
+                blockTop + blockHeight + fontPx * 2.25f,
+            )
+            scratch.boxPaint.color = applyAlpha(0x52050811.toInt(), frameState.lineAlpha)
+            canvas.drawRoundRect(scratch.boxRect, fontPx * 0.45f, fontPx * 0.45f, scratch.boxPaint)
+        }
 
         // Viral multi-layer parallax falling rain streaks + drifting bokeh droplets
         val tSec = frameState.presentationTimeUs / 1_000_000f
@@ -801,9 +804,12 @@ object CaptionCanvasRenderer {
         val alpha = frameState.lineAlpha.coerceIn(0f, 1f)
         if (alpha <= 0.01f) return
 
-        // Pure black solid background for hard-cut contrast
-        scratch.boxPaint.color = applyAlpha(0xFF000000.toInt(), alpha)
-        canvas.drawRect(0f, 0f, widthPx, heightPx, scratch.boxPaint)
+        // Transparent by default so Blackout Kinetic typography works over any video;
+        // restores classic pure black full-frame backdrop when Background Box is enabled.
+        if (!style.transparentBackground) {
+            scratch.boxPaint.color = applyAlpha(0xFF000000.toInt(), alpha)
+            canvas.drawRect(0f, 0f, widthPx, heightPx, scratch.boxPaint)
+        }
 
         val visibleWords = frameState.words.filter { it.alpha > 0.01f && it.visibleCharCount > 0 }
         if (visibleWords.isEmpty()) return
@@ -819,7 +825,16 @@ object CaptionCanvasRenderer {
         val prevLetterSpacing = scratch.fillPaint.letterSpacing
         val prevTypeface = scratch.fillPaint.typeface
         val fillPaint = scratch.fillPaint
-        fillPaint.clearShadowLayer()
+        if (!style.transparentBackground) {
+            fillPaint.clearShadowLayer()
+        } else {
+            fillPaint.setShadowLayer(
+                max(2f, baseSize * 0.08f),
+                0f,
+                max(1f, baseSize * 0.04f),
+                applyAlpha(0xB8000000.toInt(), alpha),
+            )
+        }
 
         try {
             val centerX = widthPx * style.position.xFraction.coerceIn(CaptionStyleBounds.POSITION_X_RANGE)
@@ -972,6 +987,7 @@ object CaptionCanvasRenderer {
             fillPaint.textAlign = prevFillAlign
             fillPaint.letterSpacing = prevLetterSpacing
             fillPaint.typeface = prevTypeface
+            fillPaint.clearShadowLayer()
         }
     }
 
@@ -993,9 +1009,12 @@ object CaptionCanvasRenderer {
         val prevFxAlign = scratch.fxPaint.textAlign
 
         try {
-            // 1. Dark monitor room scrim + subtle CRT scanlines
-            scratch.boxPaint.color = applyAlpha(0xD9090C12.toInt(), alpha)
-            canvas.drawRect(0f, 0f, widthPx, heightPx, scratch.boxPaint)
+            // 1. Transparent by default so the floating IDE card works over any video;
+            // draws full-frame dark monitor room scrim only when Background Box is enabled.
+            if (!style.transparentBackground) {
+                scratch.boxPaint.color = applyAlpha(0xD9090C12.toInt(), alpha)
+                canvas.drawRect(0f, 0f, widthPx, heightPx, scratch.boxPaint)
+            }
 
             val scanStep = max(4f, minDim * 0.0065f)
             scratch.fxStrokePaint.strokeWidth = 1f
@@ -1266,8 +1285,12 @@ object CaptionCanvasRenderer {
         val fgColor = if (isInvertedWhiteBg) 0xFF0A0A0C.toInt() else 0xFFFFFFFF.toInt()
         val strokeColor = if (isInvertedWhiteBg) 0xFFFFFFFF.toInt() else 0xFF0A0A0C.toInt()
 
-        scratch.boxPaint.color = applyAlpha(bgColor, alpha)
-        canvas.drawRect(0f, 0f, widthPx, heightPx, scratch.boxPaint)
+        // Transparent by default so Cold Invert typography + Twitch split works over any video;
+        // restores full-frame alternating black/white strobe backdrop when Background Box is enabled.
+        if (!style.transparentBackground) {
+            scratch.boxPaint.color = applyAlpha(bgColor, alpha)
+            canvas.drawRect(0f, 0f, widthPx, heightPx, scratch.boxPaint)
+        }
 
         val minDim = min(widthPx, heightPx)
         val typeface = resolveCustomTypeface(style.customFontPath) ?: if (useDistressedSerif) {
@@ -1419,6 +1442,42 @@ object CaptionCanvasRenderer {
         val centerY = heightPx * style.position.yFraction.coerceIn(0.25f, 0.75f)
         val baselineY = centerY - (fm.ascent + fm.descent) / 2f
         val maskAlpha = frameState.lineAlpha.coerceIn(0f, 1f)
+
+        if (style.transparentBackground) {
+            // Transparent-background mode: same template font with hollow outline so video remains visible
+            val wordScale = if (activeWord.isActive) activeWord.scale.coerceIn(0.6f, 1.4f) else 1.0f
+            canvas.save()
+            canvas.scale(wordScale, wordScale, centerX, centerY)
+            val prevFillAlign = scratch.fillPaint.textAlign
+            val prevFillFace = scratch.fillPaint.typeface
+            val prevStrokeAlign = scratch.strokePaint.textAlign
+            val prevStrokeFace = scratch.strokePaint.typeface
+            try {
+                scratch.fillPaint.apply {
+                    this.typeface = typeface
+                    textSize = fittedSize
+                    textAlign = Paint.Align.CENTER
+                    color = applyAlpha(0x38FFFFFF, maskAlpha)
+                    clearShadowLayer()
+                }
+                canvas.drawText(wordText, centerX, baselineY, scratch.fillPaint)
+                scratch.strokePaint.apply {
+                    this.typeface = typeface
+                    textSize = fittedSize
+                    textAlign = Paint.Align.CENTER
+                    strokeWidth = max(3f, fittedSize * 0.045f)
+                    color = applyAlpha(0xFFFFFFFF.toInt(), maskAlpha)
+                }
+                canvas.drawText(wordText, centerX, baselineY, scratch.strokePaint)
+            } finally {
+                scratch.fillPaint.textAlign = prevFillAlign
+                scratch.fillPaint.typeface = prevFillFace
+                scratch.strokePaint.textAlign = prevStrokeAlign
+                scratch.strokePaint.typeface = prevStrokeFace
+                canvas.restore()
+            }
+            return
+        }
 
         val saveCount = canvas.saveLayer(0f, 0f, widthPx, heightPx, null)
         try {
@@ -1572,10 +1631,13 @@ object CaptionCanvasRenderer {
         val minDim = min(widthPx, heightPx)
         val timeSec = frameState.presentationTimeUs / 1_000_000f
 
-        // Subtle paper / blood-red mood wash over the underlying sketch or footage
-        val washColor = if (isCrimsonPhase) 0x7A4A0404 else 0x26F5EFE0
-        scratch.boxPaint.color = applyAlpha(washColor, alpha)
-        canvas.drawRect(0f, 0f, widthPx, heightPx, scratch.boxPaint)
+        // Transparent by default so Crimson Zine overlays cleanly over any video;
+        // restores full-frame paper / blood-red mood wash when Background Box is enabled.
+        if (!frameState.style.transparentBackground) {
+            val washColor = if (isCrimsonPhase) 0x7A4A0404 else 0x26F5EFE0
+            scratch.boxPaint.color = applyAlpha(washColor, alpha)
+            canvas.drawRect(0f, 0f, widthPx, heightPx, scratch.boxPaint)
+        }
 
         // Horizontal zine bar slicing behind the lyric block
         val barHalfH = max(blockHeight * 0.42f, fontPx * 0.65f)
@@ -1779,50 +1841,130 @@ object CaptionCanvasRenderer {
         if (wordWidth <= 2f || alpha <= 0.01f) return
         val glyphTop = baselineY + fontMetrics.ascent * 0.85f
         val glyphHeight = (fontMetrics.descent - fontMetrics.ascent).coerceAtLeast(fontPx * 0.6f)
-        val dropCount = (wordWidth / max(12f, fontPx * 0.42f)).toInt().coerceIn(3, 14)
+        val dropCount = (wordWidth / max(18f, fontPx * 0.52f)).toInt().coerceIn(4, 14)
 
-        val streakPaint = scratch.fxStrokePaint
-        val beadPaint = scratch.fxPaint
+        val strokePaint = scratch.fxStrokePaint
+        val fillPaint = scratch.fxPaint
 
+        // 1. Subtle cool wet-glass mist sheen across the word span
+        val mistPadX = fontPx * 0.14f
+        val mistPadY = fontPx * 0.08f
+        fillPaint.color = applyAlpha(0x24BAE6FD, alpha * 0.55f)
+        canvas.drawRoundRect(
+            drawX - mistPadX,
+            glyphTop - mistPadY,
+            drawX + wordWidth + mistPadX,
+            baselineY + fontMetrics.descent + mistPadY,
+            fontPx * 0.22f,
+            fontPx * 0.22f,
+            fillPaint,
+        )
+
+        // 2. Curved organic water rivulets ending in glossy teardrop water droplets
         for (i in 0 until dropCount) {
             val seed = (wordIndex * 19 + i * 31 + 7)
-            val laneFraction = (i + 0.35f + ((seed % 5) * 0.09f)) / dropCount.toFloat()
-            val x = drawX + wordWidth * laneFraction.coerceIn(0.04f, 0.96f)
+            val laneFraction = (i + 0.30f + ((seed % 5) * 0.10f)) / dropCount.toFloat()
+            val baseX = drawX + wordWidth * laneFraction.coerceIn(0.05f, 0.95f)
 
-            val fallSpeed = 0.65f + (seed % 5) * 0.16f
+            val fallSpeed = 0.36f + (seed % 5) * 0.11f
             val cycle = ((timeSec * fallSpeed) + ((seed % 100) / 100f)) % 1.0f
-            val travelDist = glyphHeight * 1.45f
+            val travelDist = glyphHeight * 1.38f
             val tipY = glyphTop + cycle * travelDist
-            val tailLen = fontPx * (0.28f + (seed % 3) * 0.12f)
-            val tailTopY = max(glyphTop - fontPx * 0.12f, tipY - tailLen)
+            val tailLen = fontPx * (0.34f + (seed % 3) * 0.14f)
+            val tailTopY = max(glyphTop - fontPx * 0.10f, tipY - tailLen)
 
             val envelope = when {
-                cycle < 0.18f -> cycle / 0.18f
-                cycle > 0.72f -> ((1f - cycle) / 0.28f).coerceIn(0f, 1f)
+                cycle < 0.16f -> cycle / 0.16f
+                cycle > 0.76f -> ((1f - cycle) / 0.24f).coerceIn(0f, 1f)
                 else -> 1f
             }
             val dropAlpha = alpha * envelope
             if (dropAlpha <= 0.02f) continue
 
-            val windDrift = -tailLen * 0.08f
-            streakPaint.strokeWidth = max(1f, fontPx * (if (i % 3 == 0) 0.036f else 0.022f))
-            streakPaint.color = applyAlpha(0xC8E0F2FE.toInt(), dropAlpha * 0.72f)
-            canvas.drawLine(x - windDrift, tailTopY, x, tipY, streakPaint)
+            // Curved segmented rivulet trail (subtle S-wobble like water on glass)
+            val swayAmp = fontPx * 0.045f * (if (seed % 2 == 0) 1f else -1f)
+            val segs = 3
+            var prevX = baseX
+            var prevY = tailTopY
+            for (s in 1..segs) {
+                val frac = s / segs.toFloat()
+                val nextY = tailTopY + (tipY - tailTopY) * frac
+                val nextX = baseX + sin((frac * 3.14159f + seed).toDouble()).toFloat() * swayAmp * frac
+                strokePaint.strokeWidth = max(1.1f, fontPx * (0.018f + 0.022f * frac))
+                strokePaint.color = applyAlpha(0x9CE0F2FE.toInt(), dropAlpha * (0.35f + 0.45f * frac))
+                canvas.drawLine(prevX, prevY, nextX, nextY, strokePaint)
+                prevX = nextX
+                prevY = nextY
+            }
 
-            val beadRadius = max(1.1f, fontPx * (if (i % 3 == 0) 0.034f else 0.022f))
-            beadPaint.color = applyAlpha(0xFFFFFFFF.toInt(), dropAlpha * 0.88f)
-            canvas.drawCircle(x, tipY, beadRadius, beadPaint)
+            // Glossy teardrop water bead (dark bottom refraction + translucent cyan body + bright specular glint)
+            val rx = max(1.8f, fontPx * (if (i % 3 == 0) 0.058f else 0.040f))
+            val ry = rx * 1.32f
+            val dropCx = prevX
+            val dropCy = tipY
+
+            // Soft dark lower-right refraction shadow
+            fillPaint.color = applyAlpha(0x66082F49, dropAlpha * 0.80f)
+            canvas.drawOval(
+                dropCx - rx * 0.92f + rx * 0.14f,
+                dropCy - ry * 0.82f + ry * 0.20f,
+                dropCx + rx * 1.08f + rx * 0.14f,
+                dropCy + ry * 1.12f + ry * 0.20f,
+                fillPaint,
+            )
+
+            // Translucent cool-glass water body
+            fillPaint.color = applyAlpha(0x9EE0F2FE.toInt(), dropAlpha * 0.82f)
+            canvas.drawOval(
+                dropCx - rx,
+                dropCy - ry,
+                dropCx + rx,
+                dropCy + ry,
+                fillPaint,
+            )
+
+            // Thin bright rim arc on lower edge (internal light refraction)
+            strokePaint.strokeWidth = max(0.9f, rx * 0.24f)
+            strokePaint.color = applyAlpha(0xCCFFFFFF.toInt(), dropAlpha * 0.62f)
+            canvas.drawArc(
+                dropCx - rx * 0.85f,
+                dropCy - ry * 0.85f,
+                dropCx + rx * 0.85f,
+                dropCy + ry * 0.85f,
+                25f,
+                115f,
+                false,
+                strokePaint,
+            )
+
+            // Crisp upper-left white specular catchlight
+            fillPaint.color = applyAlpha(0xFFFFFFFF.toInt(), dropAlpha * 0.95f)
+            canvas.drawOval(
+                dropCx - rx * 0.56f,
+                dropCy - ry * 0.58f,
+                dropCx - rx * 0.06f,
+                dropCy - ry * 0.12f,
+                fillPaint,
+            )
         }
 
-        val glintCount = (dropCount / 2).coerceIn(2, 6)
-        for (g in 0 until glintCount) {
+        // 3. Clinging static condensation micro-droplets on the glass face
+        val clingCount = (dropCount / 2 + 2).coerceIn(3, 8)
+        for (g in 0 until clingCount) {
             val gSeed = wordIndex * 13 + g * 29 + 3
             val gx = drawX + wordWidth * (((gSeed * 37) % 90 + 5) / 100f)
-            val gy = glyphTop + glyphHeight * (((gSeed * 53) % 72 + 12) / 100f)
-            val shimmer = 0.45f + 0.55f * ((sin((timeSec * 3.2f + gSeed).toDouble()).toFloat() + 1f) * 0.5f)
-            val glintR = max(1.2f, fontPx * 0.028f)
-            beadPaint.color = applyAlpha(0xD9F0F9FF.toInt(), alpha * shimmer * 0.65f)
-            canvas.drawCircle(gx, gy, glintR, beadPaint)
+            val gy = glyphTop + glyphHeight * (((gSeed * 53) % 76 + 10) / 100f)
+            val shimmer = 0.60f + 0.40f * ((sin((timeSec * 2.4f + gSeed).toDouble()).toFloat() + 1f) * 0.5f)
+            val cr = max(1.4f, fontPx * (0.026f + (gSeed % 3) * 0.011f))
+            // Subtle shadow
+            fillPaint.color = applyAlpha(0x4D082F49, alpha * 0.65f)
+            canvas.drawCircle(gx + cr * 0.2f, gy + cr * 0.25f, cr * 1.05f, fillPaint)
+            // Translucent bead
+            fillPaint.color = applyAlpha(0xA8BAE6FD.toInt(), alpha * shimmer * 0.78f)
+            canvas.drawCircle(gx, gy, cr, fillPaint)
+            // Tiny white specular dot
+            fillPaint.color = applyAlpha(0xFFFFFFFF.toInt(), alpha * shimmer * 0.92f)
+            canvas.drawCircle(gx - cr * 0.30f, gy - cr * 0.30f, cr * 0.34f, fillPaint)
         }
     }
 

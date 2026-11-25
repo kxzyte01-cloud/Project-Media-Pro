@@ -54,6 +54,13 @@ fun VolumeDialog(
         audioEnhance: AudioEnhanceConfig,
     ) -> Unit,
     onDismiss: () -> Unit,
+    onApplyToAll: ((
+        volume: Float,
+        audioBoost: Float,
+        fadeInMs: Long,
+        fadeOutMs: Long,
+        audioEnhance: AudioEnhanceConfig,
+    ) -> Unit)? = null,
 ) {
     val combinedGain = ProjectTimeline.sanitizeVolume(clip.volume) *
         ProjectTimeline.sanitizeAudioBoost(clip.audioBoost)
@@ -89,22 +96,28 @@ fun VolumeDialog(
         else -> stringResource(R.string.editor_volume_value, percent)
     }
 
+    fun buildPayload(
+        target: (Float, Float, Long, Long, AudioEnhanceConfig) -> Unit,
+    ) {
+        val vol = (percent.coerceAtMost(100) / 100f).coerceIn(0f, 1f)
+        val boost = if (percent > 100) (percent / 100f).coerceIn(1f, Clip.MAX_AUDIO_BOOST) else 1f
+        val enhance = AudioEnhanceConfig(
+            eqPreset = selectedEq,
+            noiseGateEnabled = noiseGateEnabled,
+            autoDuckMusicEnabled = if (isAudioTrack) autoDuckEnabled else false,
+        )
+        target(vol, boost, fadeInMs.coerceIn(0L, maxFadeMs), fadeOutMs.coerceIn(0L, maxFadeMs), enhance)
+    }
+
     EditorSliderDialog(
         title = stringResource(R.string.editor_volume_title),
         readoutText = readoutText,
         confirmLabel = stringResource(R.string.editor_apply),
         isConfirmEnabled = true,
-        onConfirm = {
-            val vol = (percent.coerceAtMost(100) / 100f).coerceIn(0f, 1f)
-            val boost = if (percent > 100) (percent / 100f).coerceIn(1f, Clip.MAX_AUDIO_BOOST) else 1f
-            val enhance = AudioEnhanceConfig(
-                eqPreset = selectedEq,
-                noiseGateEnabled = noiseGateEnabled,
-                autoDuckMusicEnabled = if (isAudioTrack) autoDuckEnabled else false,
-            )
-            onConfirm(vol, boost, fadeInMs.coerceIn(0L, maxFadeMs), fadeOutMs.coerceIn(0L, maxFadeMs), enhance)
-        },
+        onConfirm = { buildPayload(onConfirm) },
         onDismiss = onDismiss,
+        secondaryConfirmLabel = if (onApplyToAll != null) stringResource(R.string.editor_apply_to_all) else null,
+        onSecondaryConfirm = onApplyToAll?.let { cb -> { buildPayload(cb) } },
     ) {
         Slider(
             value = percent.toFloat(),

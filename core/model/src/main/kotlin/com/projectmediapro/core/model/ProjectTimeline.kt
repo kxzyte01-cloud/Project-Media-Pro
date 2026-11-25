@@ -285,6 +285,144 @@ object ProjectTimeline {
         }
     }
 
+    /**
+     * Applies [effects] to every video clip in the project, sanitizing transition durations per clip.
+     */
+    fun applyVisualEffectsToAllVideoClips(
+        project: Project,
+        effects: ClipVisualEffects,
+    ): Project {
+        val currentClips = project.videoClips()
+        if (currentClips.isEmpty()) return project
+        val updatedClips = currentClips.map { clip ->
+            val sanitized = effects.sanitized(effectiveDurationMs(clip))
+            clip.copy(visualEffects = sanitized.takeUnless { it.isIdentity })
+        }
+        return updateTrack(project, TrackType.VIDEO, updatedClips)
+    }
+
+    /**
+     * Applies audio mix settings (volume, boost, sanitized fades, and enhance config) to every
+     * eligible clip on [trackType] (all audio clips on AUDIO, or all non-still clips on VIDEO).
+     */
+    fun applyAudioMixToAllClips(
+        project: Project,
+        trackType: TrackType,
+        volume: Float,
+        audioBoost: Float = Clip.DEFAULT_AUDIO_BOOST,
+        fadeInMs: Long = 0L,
+        fadeOutMs: Long = 0L,
+        audioEnhance: AudioEnhanceConfig? = null,
+    ): Project {
+        if (trackType != TrackType.VIDEO && trackType != TrackType.AUDIO) return project
+        val currentClips = if (trackType == TrackType.VIDEO) project.videoClips() else project.audioClips()
+        if (currentClips.isEmpty()) return project
+        val safeVolume = sanitizeVolume(volume)
+        val safeBoost = sanitizeAudioBoost(audioBoost)
+        val updatedClips = currentClips.map { clip ->
+            if (trackType == TrackType.VIDEO && clip.isStillImage) {
+                clip
+            } else {
+                val clipDurationMs = effectiveDurationMs(clip)
+                val safeFadeIn = sanitizeAudioFadeMs(fadeInMs, clipDurationMs)
+                val safeFadeOut = sanitizeAudioFadeMs(fadeOutMs, clipDurationMs)
+                val sanitizedEnhance = audioEnhance?.let { cfg ->
+                    if (trackType == TrackType.VIDEO) cfg.copy(autoDuckMusicEnabled = false) else cfg
+                }?.takeUnless { it.isDefault }
+                clip.copy(
+                    volume = safeVolume,
+                    audioBoost = safeBoost,
+                    audioFadeInMs = safeFadeIn,
+                    audioFadeOutMs = safeFadeOut,
+                    audioEnhance = sanitizedEnhance,
+                )
+            }
+        }
+        return updateTrack(project, trackType, updatedClips)
+    }
+
+    /**
+     * Splits the video clip spanning [timelinePositionMs] directly at the playhead.
+     * Prefers [targetClipId] when it spans [timelinePositionMs]; enforces [MIN_CLIP_DURATION_MS]
+     * on both resulting halves.
+     */
+    fun splitVideoClipAtPlayhead(
+        project: Project,
+        timelinePositionMs: Long,
+        newClipId: String,
+        targetClipId: String? = null,
+    ): Project {
+        val clip = resolveVideoClipAtPlayhead(project, timelinePositionMs, targetClipId) ?: return project
+        if (!canSplitClip(clip)) return project
+        val deltaTimelineMs = (timelinePositionMs - clip.startTimeMs).coerceAtLeast(0L)
+        val speed = effectiveSpeed(clip)
+        val sourceOffsetMs = kotlin.math.round(deltaTimelineMs * speed.toDouble()).toLong()
+        return splitClip(project, clip.id, sourceOffsetMs, newClipId)
+    }
+
+    /**
+     * Trims the start of the video clip spanning [timelinePositionMs] up to the playhead
+     * (removes content before the playhead). Enforces [MIN_CLIP_DURATION_MS] remaining span.
+     */
+    fun trimVideoClipLeftToPlayhead(
+        project: Project,
+        timelinePositionMs: Long,
+        targetClipId: String? = null,
+    ): Project {
+        val clip = resolveVideoClipAtPlayhead(project, timelinePositionMs, targetClipId) ?: return project
+        if (!canTrimClip(clip)) return project
+        val deltaTimelineMs = timelinePositionMs - clip.startTimeMs
+        if (deltaTimelineMs <= 0L) return project
+        val speed = effectiveSpeed(clip)
+        val sourceDeltaMs = kotlin.math.round(deltaTimelineMs * speed.toDouble()).toLong()
+        val (currentStart, currentEnd) = resolvedTrimBounds(clip)
+        val newStart = currentStart + sourceDeltaMs
+        if (currentEnd - newStart < MIN_CLIP_DURATION_MS) return project
+        return trimClip(project, clip.id, newStart, currentEnd)
+    }
+
+    /**
+     * Trims the end of the video clip spanning [timelinePositionMs] back to the playhead
+     * ("Cut Till Here" — removes content after the playhead). Enforces [MIN_CLIP_DURATION_MS].
+     */
+    fun trimVideoClipRightToPlayhead(
+        project: Project,
+        timelinePositionMs: Long,
+        targetClipId: String? = null,
+    ): Project {
+        val clip = resolveVideoClipAtPlayhead(project, timelinePositionMs, targetClipId) ?: return project
+        if (!canTrimClip(clip)) return project
+        val deltaTimelineMs = timelinePositionMs - clip.startTimeMs
+        if (deltaTimelineMs <= 0L) return project
+        val speed = effectiveSpeed(clip)
+        val sourceDeltaMs = kotlin.math.round(deltaTimelineMs * speed.toDouble()).toLong()
+        val (currentStart, currentEnd) = resolvedTrimBounds(clip)
+        val newEnd = currentStart + sourceDeltaMs
+        if (newEnd >= currentEnd || newEnd - currentStart < MIN_CLIP_DURATION_MS) return project
+        return trimClip(project, clip.id, currentStart, newEnd)
+    }
+
+    private fun resolveVideoClipAtPlayhead(
+        project: Project,
+        timelinePositionMs: Long,
+        targetClipId: String?,
+    ): Clip? {
+        if (timelinePositionMs < 0L) return null
+        val videoClips = project.videoClips()
+        if (videoClips.isEmpty()) return null
+        if (targetClipId != null) {
+            val preferred = videoClips.firstOrNull { it.id == targetClipId }
+            if (preferred != null) {
+                val endMs = saturatingAdd(preferred.startTimeMs, effectiveDurationMs(preferred))
+                if (timelinePositionMs in preferred.startTimeMs..endMs) return preferred
+            }
+        }
+        return videoClips.firstOrNull { clip ->
+            val endMs = saturatingAdd(clip.startTimeMs, effectiveDurationMs(clip))
+            timelinePositionMs >= clip.startTimeMs && timelinePositionMs < endMs
+        }
+    }
+
     fun updateClipVisualEffects(
         project: Project,
         clipId: String,

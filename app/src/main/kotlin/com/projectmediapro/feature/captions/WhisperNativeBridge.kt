@@ -36,7 +36,7 @@ object WhisperNativeBridge {
             val ctx = nativeInitContext(modelPath)
             if (ctx == 0L) return@synchronized null
             try {
-                val status = nativeFullTranscribe(ctx, numThreads.coerceIn(1, 6), samplesFloat)
+                val status = nativeFullTranscribe(ctx, numThreads.coerceIn(1, 4), samplesFloat)
                 if (status != 0) return@synchronized null
                 val count = nativeGetSegmentCount(ctx).coerceAtLeast(0)
                 buildList(count) {

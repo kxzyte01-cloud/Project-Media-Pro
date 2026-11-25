@@ -23,6 +23,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.projectmediapro.app.R
@@ -60,6 +61,7 @@ data class PreviewClip(
 data class PreviewSeekRequest(
     val timelinePositionMs: Long,
     val requestId: Long,
+    val isScrubbing: Boolean = false,
 )
 
 /**
@@ -274,10 +276,19 @@ fun PreviewPlayer(
                 ?.let { ProjectTimeline.sanitizeSpeed(it.playbackSpeed) }
                 ?: Clip.DEFAULT_PLAYBACK_SPEED
             val sourcePosMs = (mapped.second * targetSpeed).roundToLong().coerceAtLeast(0L)
+            if (request.isScrubbing) {
+                if (player.isPlaying) {
+                    player.pause()
+                    audioPlayer.pause()
+                }
+                player.setSeekParameters(SeekParameters.CLOSEST_SYNC)
+            } else {
+                player.setSeekParameters(SeekParameters.EXACT)
+            }
             player.seekTo(mapped.first, sourcePosMs)
             val clampedMs = request.timelinePositionMs.coerceAtLeast(0L)
             latestOnPosition(clampedMs)
-            syncAudioToTimeline(clampedMs, player.isPlaying)
+            syncAudioToTimeline(clampedMs, shouldPlay = !request.isScrubbing && player.isPlaying)
         }
     }
 

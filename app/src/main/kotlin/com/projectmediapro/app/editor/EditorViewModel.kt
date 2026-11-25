@@ -278,6 +278,40 @@ class EditorViewModel(
                     ProjectTimeline.splitClip(project, targetId, event.offsetMs, idProvider())
                 }
             }
+            is EditorEvent.SplitAtPlayhead -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                val targetId = current.selectedClipId
+                commitUndoableEdit(targetId) { project ->
+                    ProjectTimeline.splitVideoClipAtPlayhead(
+                        project = project,
+                        timelinePositionMs = event.timelinePositionMs,
+                        newClipId = idProvider(),
+                        targetClipId = targetId,
+                    )
+                }
+            }
+            is EditorEvent.TrimLeftToPlayhead -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                val targetId = current.selectedClipId
+                commitUndoableEdit(targetId) { project ->
+                    ProjectTimeline.trimVideoClipLeftToPlayhead(
+                        project = project,
+                        timelinePositionMs = event.timelinePositionMs,
+                        targetClipId = targetId,
+                    )
+                }
+            }
+            is EditorEvent.TrimRightToPlayhead -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                val targetId = current.selectedClipId
+                commitUndoableEdit(targetId) { project ->
+                    ProjectTimeline.trimVideoClipRightToPlayhead(
+                        project = project,
+                        timelinePositionMs = event.timelinePositionMs,
+                        targetClipId = targetId,
+                    )
+                }
+            }
             is EditorEvent.ApplySpeed -> {
                 val current = _uiState.value as? EditorUiState.Loaded ?: return
                 val targetId = (current.activeDialog as? EditorDialog.Speed)?.clipId
@@ -381,6 +415,37 @@ class EditorViewModel(
                 if (current.project.findClipLocation(targetId)?.isVideo != true) return
                 commitUndoableEdit(targetId) { project ->
                     ProjectTimeline.updateClipVisualEffects(project, targetId, event.effects)
+                }
+            }
+            is EditorEvent.ApplyClipEffectsToAll -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                val targetId = (current.activeDialog as? EditorDialog.ClipEffects)?.clipId
+                    ?: current.selectedClipId
+                commitUndoableEdit(targetId) { project ->
+                    ProjectTimeline.applyVisualEffectsToAllVideoClips(project, event.effects)
+                }
+            }
+            is EditorEvent.ApplyVolumeToAll -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                val targetId = (current.activeDialog as? EditorDialog.Volume)?.clipId
+                    ?: current.selectedClipId
+                    ?: return
+                val location = current.project.findClipLocation(targetId) ?: return
+                val trackType = when {
+                    location.isAudio -> com.projectmediapro.core.model.TrackType.AUDIO
+                    location.isVideo -> com.projectmediapro.core.model.TrackType.VIDEO
+                    else -> return
+                }
+                commitUndoableEdit(targetId) { project ->
+                    ProjectTimeline.applyAudioMixToAllClips(
+                        project = project,
+                        trackType = trackType,
+                        volume = event.volume,
+                        audioBoost = event.audioBoost,
+                        fadeInMs = event.fadeInMs,
+                        fadeOutMs = event.fadeOutMs,
+                        audioEnhance = event.audioEnhance,
+                    )
                 }
             }
             is EditorEvent.ApplyCrop -> {
@@ -1123,6 +1188,9 @@ class EditorViewModel(
         _uiState.value = initial.copy(
             project = effectiveProject,
             export = ExportUiState.Running(0),
+            exportStartedAtNanos = System.nanoTime(),
+            exportElapsedMs = 0L,
+            exportFinishedAtEpochMs = 0L,
             activeDialog = null,
             audioPreview = null,
             pendingRemoveClipId = null,
@@ -1201,7 +1269,18 @@ class EditorViewModel(
 
     private fun finishExport(export: ExportUiState, error: EditorError?) {
         val current = _uiState.value as? EditorUiState.Loaded ?: return
-        _uiState.value = current.copy(export = export, error = error)
+        val elapsedMs = if (export is ExportUiState.Done && current.exportStartedAtNanos > 0L) {
+            ((System.nanoTime() - current.exportStartedAtNanos) / 1_000_000L).coerceAtLeast(0L)
+        } else {
+            current.exportElapsedMs
+        }
+        val finishedEpoch = if (export is ExportUiState.Done) System.currentTimeMillis() else 0L
+        _uiState.value = current.copy(
+            export = export,
+            exportElapsedMs = elapsedMs,
+            exportFinishedAtEpochMs = finishedEpoch,
+            error = error,
+        )
     }
 
     private fun handleGenerateCaptions(providedScript: String?) {

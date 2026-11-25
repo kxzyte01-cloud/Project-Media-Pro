@@ -563,6 +563,11 @@ private fun StyleCustomizationSection(
             onCheckedChange = { onUpdateStyle(style.copy(backgroundBoxEnabled = it)) },
         )
         StyleToggleRow(
+            label = stringResource(R.string.captions_transparent_bg_toggle),
+            checked = style.transparentBackground,
+            onCheckedChange = { onUpdateStyle(style.copy(transparentBackground = it)) },
+        )
+        StyleToggleRow(
             label = stringResource(R.string.captions_uppercase_toggle),
             checked = style.uppercase,
             onCheckedChange = { onUpdateStyle(style.copy(uppercase = it)) },

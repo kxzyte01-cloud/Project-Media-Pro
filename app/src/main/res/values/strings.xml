@@ -494,4 +494,15 @@
     <string name="editor_audio_eq_lofi_radio">Lo-Fi Radio</string>
     <string name="editor_audio_noise_gate_label">Noise gate (reduce background hum)</string>
     <string name="editor_audio_auto_duck_label">Auto-duck music under speech</string>
+    <string name="editor_apply_to_all">Apply to All</string>
+    <string name="editor_tool_cut_left">Cut Left</string>
+    <string name="editor_tool_cut_right">Cut Till Here</string>
+    <string name="cd_timeline_split_playhead">Split clip at playhead</string>
+    <string name="cd_timeline_cut_left">Cut clip start to playhead</string>
+    <string name="cd_timeline_cut_right">Cut clip end to playhead</string>
+    <string name="editor_export_complete_title">Export Complete</string>
+    <string name="editor_export_stopwatch_elapsed">Elapsed: %1$s</string>
+    <string name="editor_export_finished_in">Finished in %1$s</string>
+    <string name="editor_export_finished_at">Completed at %1$s</string>
+    <string name="editor_export_done_button">Done</string>
 </resources>

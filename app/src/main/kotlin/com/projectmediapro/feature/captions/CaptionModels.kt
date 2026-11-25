@@ -300,6 +300,7 @@ data class CaptionStyle(
     val position: CaptionPosition = CaptionPosition(),
     val customFontPath: String? = null,
     val rainFontEnabled: Boolean = false,
+    val transparentBackground: Boolean = false,
 ) {
     fun withTemplate(newTemplateId: CaptionTemplateId): CaptionStyle {
         val template = CaptionTemplateRegistry.byId(newTemplateId)

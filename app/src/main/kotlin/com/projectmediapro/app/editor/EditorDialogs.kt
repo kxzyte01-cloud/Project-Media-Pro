@@ -1,7 +1,9 @@
 package com.projectmediapro.app.editor
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -152,6 +154,8 @@ internal fun EditorSliderDialog(
     isConfirmEnabled: Boolean,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
+    secondaryConfirmLabel: String? = null,
+    onSecondaryConfirm: (() -> Unit)? = null,
     sliderContent: @Composable () -> Unit,
 ) {
     AlertDialog(
@@ -188,11 +192,20 @@ internal fun EditorSliderDialog(
             }
         },
         confirmButton = {
-            DialogActionButton(
-                label = confirmLabel,
-                enabled = isConfirmEnabled,
-                onClick = onConfirm,
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.ExtraSmall)) {
+                if (secondaryConfirmLabel != null && onSecondaryConfirm != null) {
+                    DialogActionButton(
+                        label = secondaryConfirmLabel,
+                        enabled = isConfirmEnabled,
+                        onClick = onSecondaryConfirm,
+                    )
+                }
+                DialogActionButton(
+                    label = confirmLabel,
+                    enabled = isConfirmEnabled,
+                    onClick = onConfirm,
+                )
+            }
         },
         dismissButton = {
             DialogActionButton(

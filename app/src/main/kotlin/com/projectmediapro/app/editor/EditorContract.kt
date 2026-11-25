@@ -105,6 +105,9 @@ sealed interface EditorUiState {
         val isTranscribingCaptions: Boolean = false,
         val isDetectingBeats: Boolean = false,
         val export: ExportUiState = ExportUiState.Idle,
+        val exportStartedAtNanos: Long = 0L,
+        val exportElapsedMs: Long = 0L,
+        val exportFinishedAtEpochMs: Long = 0L,
         val isSavingTemplate: Boolean = false,
         val savedTemplateName: String? = null,
         val appliedStyleTemplateName: String? = null,
@@ -159,6 +162,9 @@ sealed interface EditorEvent {
     data object DismissDialog : EditorEvent
     data class ApplyTrim(val startMs: Long, val endMs: Long) : EditorEvent
     data class ApplySplit(val offsetMs: Long) : EditorEvent
+    data class SplitAtPlayhead(val timelinePositionMs: Long) : EditorEvent
+    data class TrimLeftToPlayhead(val timelinePositionMs: Long) : EditorEvent
+    data class TrimRightToPlayhead(val timelinePositionMs: Long) : EditorEvent
     data class ApplySpeed(val speed: Float, val speedRamp: SpeedRampPreset = SpeedRampPreset.NONE) : EditorEvent
     data class ApplyVolume(
         val volume: Float,
@@ -173,6 +179,14 @@ sealed interface EditorEvent {
         val flipVertical: Boolean,
     ) : EditorEvent
     data class ApplyClipEffects(val effects: ClipVisualEffects) : EditorEvent
+    data class ApplyClipEffectsToAll(val effects: ClipVisualEffects) : EditorEvent
+    data class ApplyVolumeToAll(
+        val volume: Float,
+        val audioBoost: Float = Clip.DEFAULT_AUDIO_BOOST,
+        val fadeInMs: Long = 0L,
+        val fadeOutMs: Long = 0L,
+        val audioEnhance: AudioEnhanceConfig? = null,
+    ) : EditorEvent
     data class ApplyCrop(val crop: ClipCrop?) : EditorEvent
     data class ApplyFreezeFrame(val sourceTimeMs: Long, val durationMs: Long) : EditorEvent
     data object ExtractAudioFromSelected : EditorEvent

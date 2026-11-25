@@ -89,7 +89,23 @@ object BeatEffectEvaluator {
         var glitch = 0f
         var reactiveGlow = 0f
 
-        for (raw in markers) {
+        val windowStartMs = (timeMs - BeatMarker.MAX_EFFECT_DURATION_MS).coerceAtLeast(0L)
+        val isLikelySorted = markers.size > 16 && markers.first().timeMs <= markers.last().timeMs
+        val startIndex = if (isLikelySorted) {
+            var lo = 0
+            var hi = markers.size
+            while (lo < hi) {
+                val mid = (lo + hi) ushr 1
+                if (markers[mid].timeMs < windowStartMs) lo = mid + 1 else hi = mid
+            }
+            lo
+        } else {
+            0
+        }
+
+        for (i in startIndex until markers.size) {
+            val raw = markers[i]
+            if (isLikelySorted && raw.timeMs > timeMs) break
             val isExplicitEffect = raw.effect != BeatEffectKind.NONE
             if (!isExplicitEffect && !soundReactiveEnabled) continue
 
