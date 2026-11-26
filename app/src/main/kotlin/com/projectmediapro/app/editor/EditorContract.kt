@@ -11,6 +11,7 @@ import com.projectmediapro.core.model.ClipVisualEffects
 import com.projectmediapro.core.model.ExportBitrate
 import com.projectmediapro.core.model.ExportFrameRate
 import com.projectmediapro.core.model.ExportQuality
+import com.projectmediapro.core.model.NewsBrandPreset
 import com.projectmediapro.core.model.NewsOverlayItem
 import com.projectmediapro.core.model.OverlayKeyframe
 import com.projectmediapro.core.model.OverlayVisualStyle
@@ -187,6 +188,7 @@ sealed interface EditorEvent {
     data class AddNewsOverlay(val item: NewsOverlayItem) : EditorEvent
     data class UpdateNewsOverlay(val item: NewsOverlayItem) : EditorEvent
     data class RemoveNewsOverlay(val overlayId: String) : EditorEvent
+    data class ApplyNewsBrandPresetToAll(val preset: NewsBrandPreset) : EditorEvent
     data class ToggleSoundReactive(val enabled: Boolean) : EditorEvent
     data object OpenCanvas : EditorEvent
     data object OpenExportQuality : EditorEvent

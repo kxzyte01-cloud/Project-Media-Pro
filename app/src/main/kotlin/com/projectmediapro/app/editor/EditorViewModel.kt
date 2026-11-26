@@ -293,6 +293,13 @@ class EditorViewModel(
                     ProjectTimeline.removeNewsOverlay(project, event.overlayId)
                 }
             }
+            is EditorEvent.ApplyNewsBrandPresetToAll -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                if (current.project.newsOverlays.isEmpty()) return
+                commitUndoableEdit(preferredSelectedClipId = current.selectedClipId, keepActiveDialog = true) { project ->
+                    ProjectTimeline.applyNewsBrandPresetToAll(project, event.preset)
+                }
+            }
             EditorEvent.ApplySilenceCut -> {
                 val current = _uiState.value as? EditorUiState.Loaded ?: return
                 val scan = current.silenceScan ?: return

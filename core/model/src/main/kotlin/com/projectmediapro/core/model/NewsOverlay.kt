@@ -112,6 +112,12 @@ data class NewsContentConfig(
     val locationLabel: String = "NEW YORK DESK",
     val clockMode: NewsClockMode = NewsClockMode.SYSTEM_TIME,
     val customClockStartMinutes: Int = 9 * 60 + 30,
+    /**
+     * Deterministic SYSTEM_TIME anchor: local minutes-of-day captured when the overlay is created.
+     * -1 (default) preserves legacy v1 wall-clock behavior. When >= 0, SYSTEM_TIME renders as
+     * (anchor + elapsed timeline minutes) so preview and Media3 export are byte-identical.
+     */
+    val systemClockStartMinutes: Int = -1,
     val imageUri: String = "",
     val logoUri: String = "",
     val tickerItems: List<TickerItem> = emptyList(),
@@ -189,7 +195,7 @@ data class NewsBrandPreset(
                 name = "Global Cobalt",
                 primaryColorArgb = 0xFF1D4ED8L,
                 secondaryColorArgb = 0xFF0F172AL,
-                textColorArgb = 0xFFF8FAFC,
+                textColorArgb = 0xFFF8FAFCL,
                 highlightColorArgb = 0xFF38BDF8L,
                 fontScale = 1.0f,
                 cornerRadiusDp = 8f,
@@ -213,7 +219,7 @@ data class NewsBrandPreset(
                 name = "Dark Noir",
                 primaryColorArgb = 0xFFF59E0BL,
                 secondaryColorArgb = 0xFF0D1119L,
-                textColorArgb = 0xFFF9FAFB,
+                textColorArgb = 0xFFF9FAFBL,
                 highlightColorArgb = 0xFF22D3EEL,
                 fontScale = 1.0f,
                 cornerRadiusDp = 8f,
@@ -345,6 +351,15 @@ object NewsOverlayLayout {
 
     private const val ENTER_EXIT_MS: Long = 400L
     private const val HIGHLIGHT_SWEEP_MS: Long = 900L
+
+    // Editorial highlighter timing constants — mirrors drawMarkerHighlighterCard():
+    // first line starts at 180ms, up to 3 lines (2 stagger gaps), 750ms/speed sweep (min 250ms).
+    private const val EDITORIAL_FIRST_LINE_DELAY_MS: Float = 180f
+    private const val EDITORIAL_SWEEP_MS: Float = 750f
+    private const val EDITORIAL_MAX_LINES: Int = 3
+
+    private const val BAND_EPS: Float = 0.0005f
+
     const val STATIC_HOLD_BUCKET: Int = -1
     const val DYNAMIC_FRAME_BUCKET: Int = -2
 
@@ -368,7 +383,6 @@ object NewsOverlayLayout {
         val speed = item.motion.animationSpeed.coerceIn(0.4f, 2.5f)
         val baseEnterExit = (ENTER_EXIT_MS / speed).toLong().coerceAtLeast(120L)
         val enterExit = minOf(baseEnterExit, duration / 3L).coerceAtLeast(1L)
-
         val enterT = if (item.motion.inOutStyle == NewsMotionStyle.NONE) {
             1f
         } else {
@@ -384,9 +398,16 @@ object NewsOverlayLayout {
         val alpha = minOf(easedEnter, easedExit)
         val slideProgress = minOf(easedEnter, easedExit)
         val normalizedProgress = (elapsedMs.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
-
         val highlightProgress = when (item.templateId) {
-            NewsTemplateId.EDITORIAL_QUOTE_CARD,
+            NewsTemplateId.EDITORIAL_QUOTE_CARD -> {
+                val staggerMs = item.motion.lineStaggerMs.coerceIn(0L, 1_000L).toFloat()
+                val sweepDurMs = (EDITORIAL_SWEEP_MS / speed).coerceAtLeast(250f)
+                val totalMs = EDITORIAL_FIRST_LINE_DELAY_MS +
+                    (EDITORIAL_MAX_LINES - 1) * staggerMs + sweepDurMs
+                val sweepT = ((elapsedMs.toFloat() - EDITORIAL_FIRST_LINE_DELAY_MS) / totalMs)
+                    .coerceIn(0f, 1f)
+                easeOutCubic(sweepT)
+            }
             NewsTemplateId.CALLOUT_ANNOTATOR -> {
                 val sweepStart = if (item.motion.inOutStyle == NewsMotionStyle.NONE) 0L else enterExit / 3L
                 val sweepDur = (HIGHLIGHT_SWEEP_MS / speed).toFloat().coerceAtLeast(250f)
@@ -395,19 +416,18 @@ object NewsOverlayLayout {
             }
             else -> 1f
         }
-
         val hasContinuousMotion = when (item.templateId) {
             NewsTemplateId.BREAKING_DESK_16_9,
             NewsTemplateId.DATA_TICKER_DESK,
             NewsTemplateId.BREAKING_SHORTS_9_16,
             NewsTemplateId.STINGER_WIPE -> true
-            NewsTemplateId.LIVE_BUG_CLOCK -> item.content.showLiveDot || item.content.clockMode != NewsClockMode.OFF
+            NewsTemplateId.LIVE_BUG_CLOCK ->
+                item.content.showLiveDot || item.content.clockMode != NewsClockMode.OFF
             NewsTemplateId.STAT_PROOF_CARD -> elapsedMs < 700L
             else -> false
         }
         val inHoldWindow = elapsedMs >= enterExit && remainingMs >= enterExit && highlightProgress >= 1f
         val isStaticHold = !hasContinuousMotion && inHoldWindow
-
         return NewsAnimState(
             visible = alpha > 0.005f,
             alpha = alpha,
@@ -419,26 +439,15 @@ object NewsOverlayLayout {
         )
     }
 
-    /**
-     * Quantized cache bucket for static-region Media3 BitmapOverlay caching:
-     * - [STATIC_HOLD_BUCKET] when the overlay is completely static and can reuse its cached bitmap.
-     * - Non-negative integer bucket for 1-second clock/pulse step overlays ([NewsTemplateId.LIVE_BUG_CLOCK]).
-     * - [DYNAMIC_FRAME_BUCKET] when smooth per-frame animation or scrolling requires re-rendering.
-     */
     fun quantizedFrameBucket(item: NewsOverlayItem, timeMs: Long, anim: NewsAnimState): Int {
         if (anim.isStaticHold) return STATIC_HOLD_BUCKET
         if (item.templateId == NewsTemplateId.LIVE_BUG_CLOCK && anim.alpha >= 0.99f) {
-            // Re-rasterize only on 500ms pulse step (if dot enabled) or 1000ms clock tick.
             val stepMs = if (item.content.showLiveDot) 500L else 1_000L
             return ((timeMs - item.startTimeMs).coerceAtLeast(0L) / stepMs).toInt()
         }
         return DYNAMIC_FRAME_BUCKET
     }
 
-    /**
-     * Safe-Zone Rule: Bottom ticker crawl automatically suppresses in 9:16 portrait whenever
-     * Whisper captions are active and safe-zone lock is enabled.
-     */
     fun shouldSuppressOverlay(
         item: NewsOverlayItem,
         isPortrait: Boolean,
@@ -448,9 +457,6 @@ object NewsOverlayLayout {
         return isPortrait && captionsActive && item.templateId == NewsTemplateId.DATA_TICKER_DESK
     }
 
-    /**
-     * Vertical screen band occupied by [templateId] respecting EBU R 095 (16:9) and YouTube Shorts (9:16) safe zones.
-     */
     fun bandForTemplate(
         templateId: NewsTemplateId,
         isPortrait: Boolean,
@@ -475,6 +481,29 @@ object NewsOverlayLayout {
         }
     }
 
+    fun bandForItem(item: NewsOverlayItem, isPortrait: Boolean): OccupiedBand {
+        val portrait = isPortrait ||
+            (item.templateId == NewsTemplateId.BREAKING_DESK_16_9 && item.content.aspectModePortrait)
+        return when (item.templateId) {
+            NewsTemplateId.OTS_TOPIC_CARD -> {
+                val s = item.motion.scale.coerceIn(0.6f, 1.4f)
+                if (portrait) {
+                    OccupiedBand(0.08f, (0.12f + 0.208f * s).coerceAtMost(0.60f))
+                } else {
+                    OccupiedBand(0.08f, (0.09f + 0.423f * s).coerceAtMost(0.72f))
+                }
+            }
+            NewsTemplateId.LIVE_BUG_CLOCK -> {
+                val extra = if (item.style.fontScale > 1.2f) 0.02f else 0f
+                when (item.motion.corner) {
+                    NewsCorner.BOTTOM_LEFT, NewsCorner.BOTTOM_RIGHT -> OccupiedBand(0.84f - extra, 0.96f)
+                    else -> OccupiedBand(0.04f, 0.14f + extra)
+                }
+            }
+            else -> bandForTemplate(item.templateId, portrait, item.motion.corner)
+        }
+    }
+
     fun occupiedBandsAt(
         overlays: List<NewsOverlayItem>,
         timeMs: Long,
@@ -483,10 +512,13 @@ object NewsOverlayLayout {
     ): List<OccupiedBand> {
         if (overlays.isEmpty()) return emptyList()
         return buildList {
-            for (item in overlays) {
+            var i = 0
+            while (i < overlays.size) {
+                val item = overlays[i]
+                i++
                 if (shouldSuppressOverlay(item, isPortrait, captionsActive)) continue
                 if (evaluateAnimation(item, timeMs).visible) {
-                    val band = bandForTemplate(item.templateId, isPortrait, item.motion.corner)
+                    val band = bandForItem(item, isPortrait)
                     if (band.bottomFraction > band.topFraction) {
                         add(band)
                     }
@@ -495,9 +527,6 @@ object NewsOverlayLayout {
         }
     }
 
-    /**
-     * Convenience single-band union for callers expecting a single [OccupiedBand].
-     */
     fun computeOccupiedBand(
         timeMs: Long,
         aspectRatio: Float,
@@ -516,10 +545,20 @@ object NewsOverlayLayout {
         return OccupiedBand(minTop, maxBottom)
     }
 
-    /**
-     * Adjusts a caption's normalized vertical anchor [requestedYFraction] so it does not collide
-     * with any active [occupiedBands]. Prefers nudging cleanly above lower-third/ticker bands.
-     */
+    fun isStingerActiveAt(overlays: List<NewsOverlayItem>, timeMs: Long): Boolean {
+        var i = 0
+        while (i < overlays.size) {
+            val item = overlays[i]
+            if (item.templateId == NewsTemplateId.STINGER_WIPE &&
+                evaluateAnimation(item, timeMs).visible
+            ) {
+                return true
+            }
+            i++
+        }
+        return false
+    }
+
     fun resolveCaptionSafeYFraction(
         requestedYFraction: Float,
         occupiedBands: List<OccupiedBand>,
@@ -528,24 +567,51 @@ object NewsOverlayLayout {
     ): Float {
         if (occupiedBands.isEmpty()) return requestedYFraction
         var y = requestedYFraction.coerceIn(0.10f, 0.90f)
-        for (band in occupiedBands) {
-            // Skip full-frame stinger wipes so captions don't jump erratically during a 1s wipe.
-            if (band.topFraction <= 0.01f && band.bottomFraction >= 0.99f) continue
-            val captionTop = y - captionHalfHeight
-            val captionBottom = y + captionHalfHeight
-            val overlaps = captionBottom > (band.topFraction - margin) &&
-                captionTop < (band.bottomFraction + margin)
-            if (overlaps) {
-                val aboveY = band.topFraction - captionHalfHeight - margin
-                val belowY = band.bottomFraction + captionHalfHeight + margin
-                y = when {
-                    aboveY >= 0.12f -> aboveY
-                    belowY <= 0.88f -> belowY
-                    else -> y
-                }
+        var pass = 0
+        var stuck = false
+        while (pass < 4 && !stuck) {
+            val hit = firstCollision(y, occupiedBands, captionHalfHeight, margin)
+            if (hit < 0) return y.coerceIn(0.10f, 0.90f)
+            val band = occupiedBands[hit]
+            val aboveY = band.topFraction - captionHalfHeight - margin
+            val belowY = band.bottomFraction + captionHalfHeight + margin
+            when {
+                aboveY >= 0.12f -> y = aboveY
+                belowY <= 0.88f -> y = belowY
+                else -> stuck = true
             }
+            pass++
+        }
+        if (firstCollision(y, occupiedBands, captionHalfHeight, margin) < 0) {
+            return y.coerceIn(0.10f, 0.90f)
+        }
+        var candidate = 0.12f
+        while (candidate <= 0.8801f) {
+            if (firstCollision(candidate, occupiedBands, captionHalfHeight, margin) < 0) {
+                return candidate
+            }
+            candidate += 0.02f
         }
         return y.coerceIn(0.10f, 0.90f)
+    }
+
+    private fun firstCollision(
+        y: Float,
+        bands: List<OccupiedBand>,
+        half: Float,
+        margin: Float,
+    ): Int {
+        var i = 0
+        while (i < bands.size) {
+            val band = bands[i]
+            if (!(band.topFraction <= 0.01f && band.bottomFraction >= 0.99f)) {
+                val overlaps = (y + half) > (band.topFraction - margin + BAND_EPS) &&
+                    (y - half) < (band.bottomFraction + margin - BAND_EPS)
+                if (overlaps) return i
+            }
+            i++
+        }
+        return -1
     }
 
     private fun easeOutCubic(t: Float): Float {
