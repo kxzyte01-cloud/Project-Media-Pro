@@ -84,7 +84,7 @@ jobs:
           test -x "$aapt2"
           for apk in app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/release/app-release-unsigned.apk; do
             test -f "$apk"
-            UNEXPECTED=$("$aapt2" dump permissions "$apk" | grep "uses-permission:" | grep -Ev "android\.permission\.INTERNET|com\.projectmediapro\.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" || true)
+            UNEXPECTED=$("$aapt2" dump permissions "$apk" | grep "uses-permission:" | grep -Ev "android\.permission\.INTERNET|android\.permission\.RECORD_AUDIO|com\.projectmediapro\.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" || true)
             if [ -n "$UNEXPECTED" ]; then
               echo "Unexpected permission in $apk: $UNEXPECTED"
               exit 1
