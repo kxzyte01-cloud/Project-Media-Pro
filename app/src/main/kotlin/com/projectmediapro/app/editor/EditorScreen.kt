@@ -1010,9 +1010,7 @@ private fun LoadedStudioWorkspace(
                 onUpdateOverlay = { onEvent(EditorEvent.UpdateNewsOverlay(it)) },
                 onRemoveOverlay = { onEvent(EditorEvent.RemoveNewsOverlay(it)) },
                 onApplyBrandPresetToAll = { preset ->
-                    state.project.newsOverlays.forEach { existing ->
-                        onEvent(EditorEvent.UpdateNewsOverlay(existing.withBrandPreset(preset)))
-                    }
+                    onEvent(EditorEvent.ApplyNewsBrandPresetToAll(preset))
                 },
                 onDismiss = { onEvent(EditorEvent.DismissDialog) },
             )
@@ -1443,7 +1441,7 @@ private fun EditorPreviewStage(
                 modifier = Modifier.fillMaxSize(),
             )
             val isPortraitStage = safeAspect < 1f
-            val captionsActive = captionDocument != null && captionDocument.segments.isNotEmpty()
+            val captionsActive = captionDocument != null && captionDocument.lines.isNotEmpty()
             val newsOccupiedBands = NewsOverlayLayout.occupiedBandsAt(
                 overlays = newsOverlays,
                 timeMs = timelinePositionMs,
@@ -1456,14 +1454,16 @@ private fun EditorPreviewStage(
                 captionsActive = captionsActive,
                 modifier = Modifier.matchParentSize(),
             )
-            CaptionPreviewOverlay(
-                document = captionDocument,
-                currentPositionUs = timelinePositionMs * CaptionTime.MICROS_PER_MS,
-                videoWidth = 0,
-                videoHeight = 0,
-                occupiedBands = newsOccupiedBands,
-                modifier = Modifier.matchParentSize(),
-            )
+            if (!NewsOverlayLayout.isStingerActiveAt(newsOverlays, timelinePositionMs)) {
+                CaptionPreviewOverlay(
+                    document = captionDocument,
+                    currentPositionUs = timelinePositionMs * CaptionTime.MICROS_PER_MS,
+                    videoWidth = 0,
+                    videoHeight = 0,
+                    occupiedBands = newsOccupiedBands,
+                    modifier = Modifier.matchParentSize(),
+                )
+            }
         }
     
         }}

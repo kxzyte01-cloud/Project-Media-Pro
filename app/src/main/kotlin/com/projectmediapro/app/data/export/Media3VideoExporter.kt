@@ -281,7 +281,7 @@ class Media3VideoExporter(
             val captionOverlay = CaptionOverlayEffectFactory.createOverlay(plan.captionDocument, plan.newsOverlays)
             val newsOverlay = NewsOverlayEffectFactory.createOverlay(
                 overlays = plan.newsOverlays,
-                captionsActive = plan.captionDocument != null && plan.captionDocument.segments.isNotEmpty(),
+                captionsActive = plan.captionDocument != null && plan.captionDocument.lines.isNotEmpty(),
                 context = context,
             )
             if (plan.overlays.isNotEmpty() || plan.textOverlays.isNotEmpty() || captionOverlay != null || newsOverlay != null) {
