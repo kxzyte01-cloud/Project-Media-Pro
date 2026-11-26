@@ -33,6 +33,8 @@ import com.projectmediapro.core.model.SpeechWindowMs
 import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.ClipCrop
 import com.projectmediapro.core.model.ProjectTimeline
+import com.projectmediapro.core.model.SpeedRampEvaluator
+import com.projectmediapro.core.model.SpeedRampPreset
 import java.io.File
 import kotlin.math.roundToLong
 import kotlinx.coroutines.delay
@@ -51,6 +53,8 @@ data class PreviewClip(
     val audioBoost: Float = Clip.DEFAULT_AUDIO_BOOST,
     val audioEnhance: AudioEnhanceConfig? = null,
     val playbackSpeed: Float = Clip.DEFAULT_PLAYBACK_SPEED,
+    val speedRamp: SpeedRampPreset = SpeedRampPreset.NONE,
+    val sourceSpanMs: Long = 0L,
     val rotationDegrees: Int = 0,
     val flipHorizontal: Boolean = false,
     val flipVertical: Boolean = false,
@@ -130,6 +134,12 @@ fun PreviewPlayer(
         }
         val targetSpeed = if (clip.isStillImage) {
             Clip.DEFAULT_PLAYBACK_SPEED
+        } else if (clip.speedRamp != SpeedRampPreset.NONE && clip.sourceSpanMs > 0L) {
+            SpeedRampEvaluator.speedAt(
+                preset = clip.speedRamp,
+                sourceTimeUs = player.currentPosition.coerceAtLeast(0L) * 1_000L,
+                sourceDurationUs = clip.sourceSpanMs * 1_000L,
+            )
         } else {
             ProjectTimeline.sanitizeSpeed(clip.playbackSpeed)
         }
@@ -140,10 +150,20 @@ fun PreviewPlayer(
 
     fun currentTimelinePositionMs(): Long {
         val index = player.currentMediaItemIndex
-        val activeSpeed = activeVideoClips.getOrNull(index)
-            ?.let { ProjectTimeline.sanitizeSpeed(it.playbackSpeed) }
-            ?: Clip.DEFAULT_PLAYBACK_SPEED
-        val positionInTimelineMs = (player.currentPosition.coerceAtLeast(0L) / activeSpeed).roundToLong()
+        val activeClip = activeVideoClips.getOrNull(index)
+        val mediaPosMs = player.currentPosition.coerceAtLeast(0L)
+        val positionInTimelineMs = if (activeClip != null && activeClip.sourceSpanMs > 0L && activeClip.speedRamp != SpeedRampPreset.NONE) {
+            SpeedRampEvaluator.sourceOffsetToTimelineOffsetMs(
+                sourceOffsetMs = mediaPosMs,
+                sourceSpanMs = activeClip.sourceSpanMs,
+                baseSpeed = activeClip.playbackSpeed,
+                preset = activeClip.speedRamp,
+            )
+        } else {
+            val activeSpeed = activeClip?.let { ProjectTimeline.sanitizeSpeed(it.playbackSpeed) }
+                ?: Clip.DEFAULT_PLAYBACK_SPEED
+            (mediaPosMs / activeSpeed).roundToLong()
+        }
         return TimelineClock.playerToTimelineMs(
             clipDurationsMs = activeClipDurations,
             mediaItemIndex = index,
@@ -160,8 +180,15 @@ fun PreviewPlayer(
             1f
         }
         val effectiveVol = (baseVol * duckMult).coerceIn(0f, 1f)
-        val clipSpeed = clip?.let { ProjectTimeline.sanitizeSpeed(it.playbackSpeed) }
-            ?: Clip.DEFAULT_PLAYBACK_SPEED
+        val clipSpeed = if (clip != null && clip.speedRamp != SpeedRampPreset.NONE && clip.sourceSpanMs > 0L) {
+            SpeedRampEvaluator.speedAt(
+                preset = clip.speedRamp,
+                sourceTimeUs = audioPlayer.currentPosition.coerceAtLeast(0L) * 1_000L,
+                sourceDurationUs = clip.sourceSpanMs * 1_000L,
+            )
+        } else {
+            clip?.let { ProjectTimeline.sanitizeSpeed(it.playbackSpeed) } ?: Clip.DEFAULT_PLAYBACK_SPEED
+        }
         if (effectiveVol <= 0f) {
             trackAudioProcessor.update(Clip.DEFAULT_AUDIO_BOOST, null)
         } else {
@@ -191,9 +218,21 @@ fun PreviewPlayer(
         }
         val mapped = TimelineClock.timelineToPlayerPosition(activeAudioDurations, timelineMs)
         if (mapped != null && mapped.first in 0 until audioPlayer.mediaItemCount) {
-            val clipSpeed = applyActiveAudioParams(mapped.first, timelineMs)
-            val sourceSeekMs = (mapped.second * clipSpeed).roundToLong().coerceAtLeast(0L)
+            val audioClip = activeAudioClips.getOrNull(mapped.first)
+            val sourceSeekMs = if (audioClip != null && audioClip.sourceSpanMs > 0L && audioClip.speedRamp != SpeedRampPreset.NONE) {
+                SpeedRampEvaluator.timelineOffsetToSourceOffsetMs(
+                    timelineOffsetMs = mapped.second,
+                    sourceSpanMs = audioClip.sourceSpanMs,
+                    baseSpeed = audioClip.playbackSpeed,
+                    preset = audioClip.speedRamp,
+                ).coerceAtLeast(0L)
+            } else {
+                val clipSpeed = audioClip?.let { ProjectTimeline.sanitizeSpeed(it.playbackSpeed) }
+                    ?: Clip.DEFAULT_PLAYBACK_SPEED
+                (mapped.second * clipSpeed).roundToLong().coerceAtLeast(0L)
+            }
             audioPlayer.seekTo(mapped.first, sourceSeekMs)
+            applyActiveAudioParams(mapped.first, timelineMs)
             audioPlayer.playWhenReady = shouldPlay
         } else {
             audioPlayer.playWhenReady = false
@@ -272,10 +311,19 @@ fun PreviewPlayer(
         if (mapped.first in 0 until player.mediaItemCount) {
             currentVideoIndex = mapped.first
             applyActiveVideoParams(mapped.first)
-            val targetSpeed = activeVideoClips.getOrNull(mapped.first)
-                ?.let { ProjectTimeline.sanitizeSpeed(it.playbackSpeed) }
-                ?: Clip.DEFAULT_PLAYBACK_SPEED
-            val sourcePosMs = (mapped.second * targetSpeed).roundToLong().coerceAtLeast(0L)
+            val videoClip = activeVideoClips.getOrNull(mapped.first)
+            val sourcePosMs = if (videoClip != null && videoClip.sourceSpanMs > 0L && videoClip.speedRamp != SpeedRampPreset.NONE) {
+                SpeedRampEvaluator.timelineOffsetToSourceOffsetMs(
+                    timelineOffsetMs = mapped.second,
+                    sourceSpanMs = videoClip.sourceSpanMs,
+                    baseSpeed = videoClip.playbackSpeed,
+                    preset = videoClip.speedRamp,
+                ).coerceAtLeast(0L)
+            } else {
+                val targetSpeed = videoClip?.let { ProjectTimeline.sanitizeSpeed(it.playbackSpeed) }
+                    ?: Clip.DEFAULT_PLAYBACK_SPEED
+                (mapped.second * targetSpeed).roundToLong().coerceAtLeast(0L)
+            }
             if (request.isScrubbing) {
                 if (player.isPlaying) {
                     player.pause()
@@ -435,9 +483,18 @@ private fun applySurfaceTransform(
     val cropZoomY = if (crop != null && crop.heightFraction > 0f) 1f / crop.heightFraction else 1f
     val flipSignX = if (flipHorizontal) -1f else 1f
     val flipSignY = if (flipVertical) -1f else 1f
+    val isQuarterTurn = ((rotationDegrees % 180) + 180) % 180 != 0
+    val rotationFitScale = if (isQuarterTurn && surface.width > 0 && surface.height > 0) {
+        val parentView = surface.parent as? View
+        val stageW = (parentView?.width?.takeIf { it > 0 } ?: surface.width).toFloat()
+        val stageH = (parentView?.height?.takeIf { it > 0 } ?: surface.height).toFloat()
+        minOf(stageW / surface.height.toFloat(), stageH / surface.width.toFloat()).coerceIn(0.1f, 4f)
+    } else {
+        1f
+    }
     surface.rotation = rotationDegrees.toFloat()
-    surface.scaleX = flipSignX * cropZoomX
-    surface.scaleY = flipSignY * cropZoomY
+    surface.scaleX = flipSignX * cropZoomX * rotationFitScale
+    surface.scaleY = flipSignY * cropZoomY * rotationFitScale
     surface.translationX = if (crop != null && surface.width > 0) {
         (0.5f - crop.centerX) * surface.width * cropZoomX * flipSignX
     } else {

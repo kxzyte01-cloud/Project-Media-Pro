@@ -318,7 +318,9 @@ class HomeViewModel(
     private suspend fun refreshProjects() {
         try {
             val loaded = projectRepository.listProjects()
-            val thumbs = resolveThumbnailTargets(loaded)
+            val thumbs = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                resolveThumbnailTargets(loaded)
+            }
             _uiState.update { state ->
                 state.copy(
                     projects = loaded,

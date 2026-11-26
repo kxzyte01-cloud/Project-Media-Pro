@@ -22,6 +22,7 @@ import com.projectmediapro.app.R
 import com.projectmediapro.core.designsystem.theme.MediaProSpacing
 import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.ProjectTimeline
+import com.projectmediapro.core.model.SpeedRampEvaluator
 import kotlin.math.roundToLong
 
 private val FREEZE_DURATION_PRESETS_MS: List<Long> = listOf(1_000L, 2_000L, 3_000L, 5_000L)
@@ -33,10 +34,10 @@ fun FreezeFrameDialog(
     onConfirm: (sourceTimeMs: Long, freezeDurationMs: Long) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val speed = ProjectTimeline.effectiveSpeed(clip)
     val timelineDurationMs = ProjectTimeline.effectiveDurationMs(clip).coerceAtLeast(1L)
     val trimStartMs = ProjectTimeline.effectiveTrimStartMs(clip)
     val trimEndMs = ProjectTimeline.effectiveTrimEndMs(clip)
+    val sourceSpanMs = (trimEndMs - trimStartMs).coerceAtLeast(0L)
 
     var timelineOffsetMs by rememberSaveable(clip.id, timelineDurationMs) {
         mutableLongStateOf(timelineDurationMs / 2L)
@@ -45,7 +46,13 @@ fun FreezeFrameDialog(
         mutableLongStateOf(ProjectTimeline.DEFAULT_FREEZE_DURATION_MS)
     }
 
-    val sourceTimeMs = (trimStartMs + (timelineOffsetMs * speed).roundToLong())
+    val sourceOffsetMs = SpeedRampEvaluator.timelineOffsetToSourceOffsetMs(
+        timelineOffsetMs = timelineOffsetMs,
+        sourceSpanMs = sourceSpanMs,
+        baseSpeed = clip.playbackSpeed,
+        preset = clip.speedRamp,
+    )
+    val sourceTimeMs = (trimStartMs + sourceOffsetMs)
         .coerceIn(trimStartMs, trimEndMs.coerceAtLeast(trimStartMs))
 
     EditorSliderDialog(

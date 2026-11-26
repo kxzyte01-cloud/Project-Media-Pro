@@ -70,6 +70,7 @@ import androidx.compose.ui.graphics.Path
 import com.projectmediapro.core.model.BeatMarker
 import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.ProjectTimeline
+import com.projectmediapro.core.model.SpeedRampEvaluator
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -826,9 +827,10 @@ private fun TimelineRichClipBlock(
                     val deltaMs = TimelineScale.signedDpToMs(dragDeltaDp, dpPerSecond)
                     val edge = activeTrimEdge ?: TimelineTrimEdge.END
                     val (previewStart, previewEnd) = TimelineScale.computeDragTrimBounds(clip, edge, deltaMs)
-                    val previewTimelineMs = ProjectTimeline.scaledDurationMs(
-                        previewEnd - previewStart,
-                        clip.playbackSpeed,
+                    val previewTimelineMs = SpeedRampEvaluator.scaledDurationMs(
+                        sourceSpanMs = previewEnd - previewStart,
+                        baseSpeed = clip.playbackSpeed,
+                        preset = clip.speedRamp,
                     )
                     ProjectTimeline.formatDuration(previewTimelineMs)
                 } else {

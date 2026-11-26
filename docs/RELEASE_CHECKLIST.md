@@ -1,6 +1,6 @@
 # Project Media Pro v1.0.0 — On-Device Smoke Test Checklist
 
-Run this 10-minute verification on a physical Android phone (API 26–34) using the APK built by GitHub Actions CI:
+Run this 10-minute verification on a physical Android phone (API 26–36) using the APK built by GitHub Actions CI:
 
 1. **Home Screen & Project Management**
    - Create a new project, import 2+ videos, return to Home, and confirm the project card shows its real thumbnail, aspect badge, duration, and clip count.

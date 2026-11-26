@@ -60,6 +60,13 @@ object WhisperNativeBridge {
         return (cores / 2).coerceIn(2, 4)
     }
 
+    fun requestAbort() {
+        if (isNativeAvailable) {
+            nativeRequestAbort()
+        }
+    }
+
+    private external fun nativeRequestAbort()
     private external fun nativeInitContext(modelPath: String): Long
     private external fun nativeFreeContext(contextPtr: Long)
     private external fun nativeFullTranscribe(contextPtr: Long, numThreads: Int, audioData: FloatArray): Int

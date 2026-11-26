@@ -16,6 +16,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import com.projectmediapro.core.model.OccupiedBand
 import kotlin.math.roundToInt
 
 data class FittedVideoRect(
@@ -59,6 +60,7 @@ fun CaptionPreviewOverlay(
     videoWidth: Int,
     videoHeight: Int,
     modifier: Modifier = Modifier,
+    occupiedBands: List<OccupiedBand> = emptyList(),
 ) {
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
     val density = LocalDensity.current
@@ -93,6 +95,7 @@ fun CaptionPreviewOverlay(
                             widthPx = size.width,
                             heightPx = size.height,
                             frameState = frameState,
+                            occupiedBands = occupiedBands,
                         )
                     }
                 }

@@ -31,6 +31,9 @@ import com.projectmediapro.core.model.ExportFrameRate
 import com.projectmediapro.core.model.ExportQuality
 import com.projectmediapro.core.model.Project
 import com.projectmediapro.core.model.ProjectTimeline
+import com.projectmediapro.core.model.SilenceDetectionConfig
+import com.projectmediapro.core.model.SilenceDetector
+import com.projectmediapro.core.model.SpeedRampEvaluator
 import com.projectmediapro.core.model.TrackType
 import com.projectmediapro.core.model.UndoRedoManager
 import com.projectmediapro.core.model.audioClips
@@ -89,6 +92,10 @@ class EditorViewModel(
     private val changeMutex = Mutex()
     private val exportMutex = Mutex()
     private var exportJob: Job? = null
+    private var silenceScanJob: Job? = null
+    private var captionRevision: Long = 0L
+    private var cachedSilencePcm: Pair<String, ShortArray>? = null
+    private var silenceConfigRevision: Long = 0L
     private var captionJob: Job? = null
     private var freezeJob: Job? = null
     private var extractAudioJob: Job? = null
@@ -233,6 +240,76 @@ class EditorViewModel(
             is EditorEvent.TapBeatMarker -> handleTapBeatMarker(event.timeMs, event.effect)
             is EditorEvent.RemoveBeatMarker -> handleRemoveBeatMarker(event.markerId)
             EditorEvent.ClearBeatMarkers -> handleClearBeatMarkers()
+            EditorEvent.OpenSilenceCut -> {
+                handleOpenSilenceCut()
+            }
+            is EditorEvent.UpdateSilenceThreshold -> {
+                handleUpdateSilenceConfig(thresholdDb = event.thresholdDb, minSilenceMs = null)
+            }
+            is EditorEvent.UpdateMinSilenceMs -> {
+                handleUpdateSilenceConfig(thresholdDb = null, minSilenceMs = event.minSilenceMs)
+            }
+            is EditorEvent.ToggleSilenceSegment -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                val scan = current.silenceScan ?: return
+                val updated = scan.segments.map { seg ->
+                    if (seg.id == event.segmentId) seg.copy(selected = !seg.selected) else seg
+                }
+                _uiState.value = current.copy(silenceScan = scan.copy(segments = updated))
+            }
+            EditorEvent.CancelSilenceScan -> {
+                silenceScanJob?.cancel()
+                silenceScanJob = null
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                _uiState.value = current.copy(activeDialog = null, silenceScan = null)
+            }
+            EditorEvent.OpenNewsTemplates -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                if (current.isBusy) return
+                _uiState.value = current.copy(
+                    activeDialog = EditorDialog.NewsTemplates,
+                    audioPreview = null,
+                    error = null,
+                )
+            }
+            is EditorEvent.AddNewsOverlay -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                val withId = event.item.copy(id = event.item.id.ifBlank { idProvider() })
+                commitUndoableEdit(preferredSelectedClipId = current.selectedClipId, keepActiveDialog = true) { project ->
+                    ProjectTimeline.addNewsOverlay(project, withId)
+                }
+            }
+            is EditorEvent.UpdateNewsOverlay -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                commitUndoableEdit(preferredSelectedClipId = current.selectedClipId, keepActiveDialog = true) { project ->
+                    ProjectTimeline.updateNewsOverlay(project, event.item)
+                }
+            }
+            is EditorEvent.RemoveNewsOverlay -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                commitUndoableEdit(preferredSelectedClipId = current.selectedClipId, keepActiveDialog = true) { project ->
+                    ProjectTimeline.removeNewsOverlay(project, event.overlayId)
+                }
+            }
+            EditorEvent.ApplySilenceCut -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                val scan = current.silenceScan ?: return
+                val selected = scan.segments.filter { it.selected }
+                if (selected.isEmpty()) return
+                silenceScanJob?.cancel()
+                silenceScanJob = null
+                cachedSilencePcm = null
+                commitUndoableEdit(scan.clipId) { project ->
+                    ProjectTimeline.removeSilencesFromVideoClip(
+                        project = project,
+                        clipId = scan.clipId,
+                        silences = selected,
+                        idProvider = idProvider,
+                    )
+                }
+                val after = _uiState.value as? EditorUiState.Loaded ?: return
+                _uiState.value = after.copy(activeDialog = null, silenceScan = null)
+            }
             EditorEvent.AutoCutOnBeats -> handleAutoCutOnBeats()
             is EditorEvent.ToggleSoundReactive -> commitUndoableEdit(
                 preferredSelectedClipId = null,
@@ -255,8 +332,10 @@ class EditorViewModel(
                 _uiState.value = current.copy(activeDialog = EditorDialog.Quality, audioPreview = null)
             }
             EditorEvent.DismissDialog -> {
+                silenceScanJob?.cancel()
+                silenceScanJob = null
                 val current = _uiState.value as? EditorUiState.Loaded ?: return
-                _uiState.value = current.copy(activeDialog = null)
+                _uiState.value = current.copy(activeDialog = null, silenceScan = null)
             }
             is EditorEvent.ApplyTrim -> {
                 val current = _uiState.value as? EditorUiState.Loaded ?: return
@@ -592,7 +671,7 @@ class EditorViewModel(
                 doc.copy(style = doc.style.withTemplate(event.templateId))
             }
             is EditorEvent.UpdateCaptionOffsetUs -> updateCaptions { doc ->
-                doc.copy(globalOffsetUs = event.offsetUs)
+                doc.copy(globalOffsetUs = event.offsetUs.coerceIn(-2_000_000L, 2_000_000L))
             }
             is EditorEvent.UpdateCaptionStyle -> updateCaptions { doc ->
                 doc.copy(style = event.style)
@@ -956,7 +1035,13 @@ class EditorViewModel(
                 try {
                     repository.saveProject(targetProject)
                     onSaveSuccess(targetProject)
-                    _uiState.value = latest.withSyncedProject(
+                    val remappedCaptions = latest.captionDocument?.let { doc ->
+                        remapCaptionDocumentForTimelineChange(previousProject, targetProject, doc)
+                    }
+                    if (remappedCaptions != null) {
+                        runCatching { captionRepository?.saveCaptions(remappedCaptions) }
+                    }
+                    val synced = latest.withSyncedProject(
                         previousProject = previousProject,
                         targetProject = targetProject,
                         preferredSelectedId = preferredSelectedClipId ?: latest.selectedClipId,
@@ -964,6 +1049,11 @@ class EditorViewModel(
                         history = history,
                         keepActiveDialog = keepActiveDialog,
                     )
+                    _uiState.value = if (remappedCaptions != null) {
+                        synced.copy(captionDocument = remappedCaptions)
+                    } else {
+                        synced
+                    }
                 } catch (_: IOException) {
                     onSaveFailure()
                     _uiState.value = latest.withSaveFailedRollback(
@@ -1180,7 +1270,7 @@ class EditorViewModel(
             )
             return
         }
-        if (cacheSpaceProvider() < ExportPlanner.estimateExportBytes(plan.totalDurationMs)) {
+        if (cacheSpaceProvider() < ExportPlanner.estimateExportBytes(plan)) {
             _uiState.value = initial.copy(activeDialog = null, error = EditorError.EXPORT_NO_SPACE)
             return
         }
@@ -1300,6 +1390,7 @@ class EditorViewModel(
         if (videoClips.isEmpty() && audioClips.isEmpty()) return
 
         captionJob?.cancel()
+        com.projectmediapro.feature.captions.WhisperNativeBridge.requestAbort()
         _uiState.value = current.copy(isTranscribingCaptions = true, error = null)
         captionJob = viewModelScope.launch {
             try {
@@ -1392,6 +1483,7 @@ class EditorViewModel(
 
     private fun persistCaptionChange(previous: CaptionDocument?, updated: CaptionDocument) {
         val current = _uiState.value as? EditorUiState.Loaded ?: return
+        val editRevision = ++captionRevision
         _uiState.value = current.copy(captionDocument = updated, error = null)
         viewModelScope.launch {
             changeMutex.withLock {
@@ -1401,10 +1493,14 @@ class EditorViewModel(
                     throw cancelled
                 } catch (_: IOException) {
                     val latest = _uiState.value as? EditorUiState.Loaded ?: return@withLock
-                    _uiState.value = latest.copy(
-                        captionDocument = previous,
-                        error = EditorError.SAVE_FAILED,
-                    )
+                    if (captionRevision == editRevision) {
+                        _uiState.value = latest.copy(
+                            captionDocument = previous,
+                            error = EditorError.SAVE_FAILED,
+                        )
+                    } else {
+                        _uiState.value = latest.copy(error = EditorError.SAVE_FAILED)
+                    }
                 }
             }
         }
@@ -1414,6 +1510,7 @@ class EditorViewModel(
         val current = _uiState.value as? EditorUiState.Loaded ?: return
         val previous = current.captionDocument
         captionJob?.cancel()
+        com.projectmediapro.feature.captions.WhisperNativeBridge.requestAbort()
         _uiState.value = current.copy(
             captionDocument = null,
             isTranscribingCaptions = false,
@@ -1544,7 +1641,8 @@ class EditorViewModel(
         }
 
         val sourceClipId = location.clip.id
-        val (trimStartMs, trimEndMs) = ProjectTimeline.resolvedTrimBounds(location.clip)
+        val trimStartMs = ProjectTimeline.effectiveTrimStartMs(location.clip)
+        val trimEndMs = ProjectTimeline.effectiveTrimEndMs(location.clip)
         _uiState.value = initial.copy(
             importingTrack = TrackType.AUDIO,
             activeDialog = null,
@@ -1779,8 +1877,13 @@ class EditorViewModel(
             return
         }
         val offsetInClipMs = active?.positionInClipMs ?: 0L
-        val sourceTimeMs = (ProjectTimeline.effectiveTrimStartMs(clip) +
-            (offsetInClipMs * ProjectTimeline.effectiveSpeed(clip)).toLong()).coerceAtLeast(0L)
+        val sourceOffsetMs = SpeedRampEvaluator.timelineOffsetToSourceOffsetMs(
+            timelineOffsetMs = offsetInClipMs,
+            sourceSpanMs = ProjectTimeline.effectiveSourceSpanMs(clip),
+            baseSpeed = clip.playbackSpeed,
+            preset = clip.speedRamp,
+        )
+        val sourceTimeMs = (ProjectTimeline.effectiveTrimStartMs(clip) + sourceOffsetMs).coerceAtLeast(0L)
         val title = current.project.title
 
         snapshotJob?.cancel()
@@ -1988,13 +2091,156 @@ class EditorViewModel(
         }
     }
 
+    private fun handleOpenSilenceCut() {
+        val current = _uiState.value as? EditorUiState.Loaded ?: return
+        if (current.isBusy) return
+        val targetId = current.selectedClipId ?: current.project.videoClips().firstOrNull()?.id ?: return
+        val location = current.project.findClipLocation(targetId) ?: return
+        if (!location.isVideo || !ProjectTimeline.canTrimClip(location.clip)) return
+        val clip = location.clip
+        val clipDurationMs = ProjectTimeline.effectiveDurationMs(clip)
+        val file = mediaStorage.resolve(clip.mediaUri)
+        if (file == null || !file.exists()) return
+        val extractor = pcmAudioExtractor ?: return
+
+        silenceScanJob?.cancel()
+        val initialScan = SilenceScanUiState(
+            clipId = clip.id,
+            clipDurationMs = clipDurationMs,
+            isScanning = true,
+        )
+        _uiState.value = current.copy(
+            activeDialog = EditorDialog.SilenceCut(clip.id),
+            silenceScan = initialScan,
+            audioPreview = null,
+            error = null,
+        )
+
+        val trimStartMs = ProjectTimeline.effectiveTrimStartMs(clip)
+        val trimEndMs = ProjectTimeline.effectiveTrimEndMs(clip)
+        val sourceSpanMs = (trimEndMs - trimStartMs).coerceAtLeast(0L)
+        val cacheKey = "${clip.id}_${clip.mediaUri}_${trimStartMs}_${trimEndMs}"
+        silenceScanJob = viewModelScope.launch {
+            try {
+                val samples = cachedSilencePcm?.takeIf { it.first == cacheKey }?.second
+                    ?: withContext(kotlinx.coroutines.Dispatchers.Default) {
+                        extractor.extractMono16kPcm(
+                            file = file,
+                            trimStartUs = trimStartMs * 1_000L,
+                            trimEndUs = trimEndMs * 1_000L,
+                        ).samples
+                    }.also { cachedSilencePcm = cacheKey to it }
+
+                val latest = _uiState.value as? EditorUiState.Loaded ?: return@launch
+                val scan = latest.silenceScan ?: return@launch
+                val detected = withContext(kotlinx.coroutines.Dispatchers.Default) {
+                    detectAndMapSilences(
+                        samples = samples,
+                        clip = clip,
+                        sourceSpanMs = sourceSpanMs,
+                        thresholdDb = scan.thresholdDb,
+                        minSilenceMs = scan.minSilenceMs,
+                    )
+                }
+                _uiState.value = latest.copy(
+                    silenceScan = scan.copy(segments = detected, isScanning = false),
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                val latest = _uiState.value as? EditorUiState.Loaded ?: return@launch
+                _uiState.value = latest.copy(
+                    silenceScan = latest.silenceScan?.copy(isScanning = false, segments = emptyList()),
+                )
+            }
+        }
+    }
+
+    private fun handleUpdateSilenceConfig(thresholdDb: Float?, minSilenceMs: Long?) {
+        val current = _uiState.value as? EditorUiState.Loaded ?: return
+        val scan = current.silenceScan ?: return
+        val nextThreshold = thresholdDb ?: scan.thresholdDb
+        val nextMinMs = minSilenceMs ?: scan.minSilenceMs
+        val protectedRanges = scan.segments.filter { !it.selected }.map { it.startMs to it.endMs }
+        val updatedScan = scan.copy(thresholdDb = nextThreshold, minSilenceMs = nextMinMs)
+        _uiState.value = current.copy(silenceScan = updatedScan)
+
+        val location = current.project.findClipLocation(scan.clipId) ?: return
+        val clip = location.clip
+        val trimStartMs = ProjectTimeline.effectiveTrimStartMs(clip)
+        val trimEndMs = ProjectTimeline.effectiveTrimEndMs(clip)
+        val sourceSpanMs = (trimEndMs - trimStartMs).coerceAtLeast(0L)
+        val cacheKey = "${clip.id}_${clip.mediaUri}_${trimStartMs}_${trimEndMs}"
+        val samples = cachedSilencePcm?.takeIf { it.first == cacheKey }?.second ?: return
+
+        silenceScanJob?.cancel()
+        val revision = ++silenceConfigRevision
+        silenceScanJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(80L)
+            val mapped = withContext(kotlinx.coroutines.Dispatchers.Default) {
+                detectAndMapSilences(
+                    samples = samples,
+                    clip = clip,
+                    sourceSpanMs = sourceSpanMs,
+                    thresholdDb = nextThreshold,
+                    minSilenceMs = nextMinMs,
+                ).map { seg ->
+                    val isProtected = protectedRanges.any { (pStart, pEnd) ->
+                        seg.startMs < pEnd && seg.endMs > pStart
+                    }
+                    if (isProtected) seg.copy(selected = false) else seg
+                }
+            }
+            if (revision != silenceConfigRevision) return@launch
+            val latest = _uiState.value as? EditorUiState.Loaded ?: return@launch
+            val latestScan = latest.silenceScan ?: return@launch
+            _uiState.value = latest.copy(silenceScan = latestScan.copy(segments = mapped))
+        }
+    }
+
+    private fun detectAndMapSilences(
+        samples: ShortArray,
+        clip: Clip,
+        sourceSpanMs: Long,
+        thresholdDb: Float,
+        minSilenceMs: Long,
+    ): List<com.projectmediapro.core.model.SilenceSegment> {
+        val raw = SilenceDetector.detectSilences(
+            samples = samples,
+            sampleRateHz = 16_000,
+            config = SilenceDetectionConfig(
+                thresholdDb = thresholdDb,
+                minSilenceMs = minSilenceMs,
+            ),
+        )
+        return raw.map { seg ->
+            seg.copy(
+                startMs = SpeedRampEvaluator.sourceOffsetToTimelineOffsetMs(
+                    sourceOffsetMs = seg.startMs,
+                    sourceSpanMs = sourceSpanMs,
+                    baseSpeed = clip.playbackSpeed,
+                    preset = clip.speedRamp,
+                ),
+                endMs = SpeedRampEvaluator.sourceOffsetToTimelineOffsetMs(
+                    sourceOffsetMs = seg.endMs,
+                    sourceSpanMs = sourceSpanMs,
+                    baseSpeed = clip.playbackSpeed,
+                    preset = clip.speedRamp,
+                ),
+            )
+        }
+    }
+
     override fun onCleared() {
+        silenceScanJob?.cancel()
+        cachedSilencePcm = null
         saveTemplateJob?.cancel()
         snapshotJob?.cancel()
         beatJob?.cancel()
         extractAudioJob?.cancel()
         freezeJob?.cancel()
         captionJob?.cancel()
+        com.projectmediapro.feature.captions.WhisperNativeBridge.requestAbort()
         exportJob?.cancel()
         exportTempFile().delete()
         super.onCleared()

@@ -13,6 +13,7 @@ import androidx.compose.ui.res.stringResource
 import com.projectmediapro.app.R
 import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.ProjectTimeline
+import com.projectmediapro.core.model.SpeedRampEvaluator
 import kotlin.math.roundToLong
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -31,7 +32,12 @@ fun SplitDialog(
     val initialOffsetMs = (safeTimelineDurationMs / 2L).coerceIn(minTimelinePartMs, maxOffsetMs)
 
     var offsetMs by rememberSaveable(clip.id, safeTimelineDurationMs) { mutableLongStateOf(initialOffsetMs) }
-    val sourceOffsetMs = (offsetMs * speed).roundToLong()
+    val sourceOffsetMs = SpeedRampEvaluator.timelineOffsetToSourceOffsetMs(
+        timelineOffsetMs = offsetMs,
+        sourceSpanMs = sourceSpanMs,
+        baseSpeed = clip.playbackSpeed,
+        preset = clip.speedRamp,
+    )
     val canSplitHere = sourceOffsetMs >= ProjectTimeline.MIN_CLIP_DURATION_MS &&
         (sourceSpanMs - sourceOffsetMs) >= ProjectTimeline.MIN_CLIP_DURATION_MS
 

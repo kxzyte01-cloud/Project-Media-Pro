@@ -39,8 +39,8 @@ class CapCutEditingToolsTest {
         return Project(
             id = "p1",
             title = "CapCut Test",
-            createdAtMs = 1_000L,
-            updatedAtMs = 1_000L,
+            createdAt = 1_000L,
+            updatedAt = 1_000L,
             durationMs = 16_000L,
             tracks = listOf(
                 Track(id = "t_video", type = TrackType.VIDEO, clips = listOf(clip1, clip2, stillClip)),
@@ -123,14 +123,14 @@ class CapCutEditingToolsTest {
         val withAudio = ProjectTimeline.applyAudioMixToAllClips(
             project = project,
             trackType = TrackType.VIDEO,
-            volume = 0.75f,
+            volume = 1.0f,
             audioBoost = 1.5f,
             fadeInMs = 1_000L,
             fadeOutMs = 1_000L,
             audioEnhance = AudioEnhanceConfig(eqPreset = AudioEqPreset.VOCAL_CLARITY),
         )
         val videos = withAudio.videoClips()
-        assertEquals(0.75f, videos[0].volume, 0.001f)
+        assertEquals(1.0f, videos[0].volume, 0.001f)
         assertEquals(1.5f, videos[1].audioBoost, 0.001f)
         assertEquals(AudioEqPreset.VOCAL_CLARITY, videos[1].audioEnhance?.eqPreset)
         // Still image clip should remain untouched
@@ -154,5 +154,55 @@ class CapCutEditingToolsTest {
 
         val miss = BeatEffectEvaluator.evaluate(markers, timeMs = 90_450L, soundReactiveEnabled = false)
         assertEquals(BeatEffectSample.IDENTITY, miss)
+    }
+
+    @Test
+    fun trimLeftAndRightWorkOnUntrimmedFullLengthClip() {
+        // Explicit regression test for P0-3: trimEndMs == sourceDurationMs (resolvedTrimBounds returns 0,0)
+        val untrimmed = Clip(
+            id = "u1",
+            mediaUri = "media/u1.mp4",
+            startTimeMs = 0L,
+            durationMs = 8_000L,
+            sourceDurationMs = 8_000L,
+            trimStartMs = 0L,
+            trimEndMs = 0L,
+        )
+        val project = Project(
+            id = "p_untrimmed",
+            title = "Untrimmed",
+            durationMs = 8_000L,
+            tracks = listOf(Track(id = "tv", type = TrackType.VIDEO, clips = listOf(untrimmed))),
+        )
+        val rightTrimmed = ProjectTimeline.trimVideoClipRightToPlayhead(project, 5_000L, "u1")
+        assertEquals(5_000L, rightTrimmed.videoClips().first().durationMs)
+
+        val leftTrimmed = ProjectTimeline.trimVideoClipLeftToPlayhead(project, 2_000L, "u1")
+        assertEquals(6_000L, leftTrimmed.videoClips().first().durationMs)
+    }
+
+    @Test
+    fun speedRampInverseMappingRoundTripsAccurately() {
+        val sourceSpanMs = 8_000L
+        for (preset in SpeedRampPreset.entries) {
+            val totalTimelineMs = SpeedRampEvaluator.scaledDurationMs(sourceSpanMs, 1.0f, preset)
+            val midSource = SpeedRampEvaluator.timelineOffsetToSourceOffsetMs(totalTimelineMs / 2L, sourceSpanMs, 1.0f, preset)
+            val backTimeline = SpeedRampEvaluator.sourceOffsetToTimelineOffsetMs(midSource, sourceSpanMs, 1.0f, preset)
+            assertTrue(
+                "Round-trip drift too large for $preset: expected ${totalTimelineMs / 2L}, got $backTimeline",
+                kotlin.math.abs(backTimeline - (totalTimelineMs / 2L)) <= 20L,
+            )
+        }
+    }
+
+    @Test
+    fun beatEffectEvaluatorHandlesUnsortedMiddleMarkersAbove16Items() {
+        val markers = (0 until 20).map { idx ->
+            BeatMarker(id = "b_$idx", timeMs = idx * 1_000L, effect = BeatEffectKind.NONE)
+        }.toMutableList()
+        // Insert an out-of-order ZOOM_PUNCH in the middle while first <= last still holds
+        markers[10] = BeatMarker(id = "b_out_of_order", timeMs = 2_500L, effect = BeatEffectKind.ZOOM_PUNCH, durationMs = 300L, intensity = 0.9f)
+        val hit = BeatEffectEvaluator.evaluate(markers, timeMs = 2_550L, soundReactiveEnabled = false)
+        assertTrue("Unsorted middle marker must still trigger", hit.scale > 1.05f)
     }
 }

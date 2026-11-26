@@ -79,13 +79,13 @@ class WhisperModelManager(
     fun cancelActiveDownload() {
         runCatching { activeConnection?.disconnect() }
     }
-    private val _selectedVariant = MutableStateFlow(loadSavedVariant())
+    private val _selectedVariant = MutableStateFlow(WhisperModelVariant.TINY)
     val selectedVariant: StateFlow<WhisperModelVariant> = _selectedVariant.asStateFlow()
 
-    private val _installedVariants = MutableStateFlow(scanInstalledVariants())
+    private val _installedVariants = MutableStateFlow<Set<WhisperModelVariant>>(emptySet())
     val installedVariants: StateFlow<Set<WhisperModelVariant>> = _installedVariants.asStateFlow()
 
-    private val _state = MutableStateFlow<WhisperModelState>(resolveDiskState(_selectedVariant.value))
+    private val _state = MutableStateFlow<WhisperModelState>(WhisperModelState.NotInstalled)
     val state: StateFlow<WhisperModelState> = _state.asStateFlow()
 
     fun modelFile(variant: WhisperModelVariant = _selectedVariant.value): File =
@@ -101,6 +101,10 @@ class WhisperModelManager(
      * installed variant if another model is present on disk.
      */
     fun installedModelFileOrNull(): File? {
+        val saved = loadSavedVariant()
+        if (_state.value !is WhisperModelState.Downloading && _selectedVariant.value != saved) {
+            _selectedVariant.value = saved
+        }
         val active = _selectedVariant.value
         if (isInstalled(active)) return modelFile(active)
         val fallbackOrder = listOf(WhisperModelVariant.SMALL, WhisperModelVariant.BASE, WhisperModelVariant.TINY)
@@ -116,6 +120,9 @@ class WhisperModelManager(
     }
 
     fun refreshState() {
+        if (_state.value !is WhisperModelState.Downloading) {
+            _selectedVariant.value = loadSavedVariant()
+        }
         _installedVariants.value = scanInstalledVariants()
         if (_state.value !is WhisperModelState.Downloading) {
             _state.value = resolveDiskState(_selectedVariant.value)
@@ -144,6 +151,10 @@ class WhisperModelManager(
             connection = openHttpsFollowingRedirects(customDownloadUrl ?: variant.downloadUrl)
             activeConnection = connection
             val contentLength = connection.contentLengthLong
+            val maxAllowedBytes = maxOf(variant.expectedBytes, variant.minValidBytes) + 64L * 1024L * 1024L
+            if (contentLength > maxAllowedBytes) {
+                throw IOException("Whisper model download exceeds maximum allowed size ($contentLength > $maxAllowedBytes)")
+            }
             val totalBytes = contentLength.takeIf { it > 0L } ?: variant.expectedBytes
             var downloadedBytes = 0L
             var lastPercent = -1
@@ -156,9 +167,12 @@ class WhisperModelManager(
                         coroutineContext.ensureActive()
                         val read = input.read(buffer)
                         if (read < 0) break
+                        downloadedBytes += read
+                        if (downloadedBytes > maxAllowedBytes) {
+                            throw IOException("Whisper model download exceeded hard byte cap ($maxAllowedBytes bytes)")
+                        }
                         output.write(buffer, 0, read)
                         sha256Digest.update(buffer, 0, read)
-                        downloadedBytes += read
                         val pct = ((downloadedBytes * 100L) / totalBytes).toInt().coerceIn(0, 99)
                         if (pct != lastPercent) {
                             lastPercent = pct

@@ -9,6 +9,11 @@ import java.io.IOException
 class ProjectMediaStorage(
     private val rootDirectory: File,
 ) {
+    private val cachedCanonicalRoot: File by lazy { rootDirectory.canonicalFile }
+    private val cachedRootPrefix: String by lazy {
+        val rootPath = cachedCanonicalRoot.path
+        if (rootPath.endsWith(File.separator)) rootPath else "$rootPath${File.separator}"
+    }
 
     /**
      * Returns a relative path "<projectId>/<clipId>.<ext>" inside [rootDirectory].
@@ -46,15 +51,8 @@ class ProjectMediaStorage(
         }
 
         return try {
-            val canonicalRoot = rootDirectory.canonicalFile
-            val canonicalTarget = File(canonicalRoot, relativePath).canonicalFile
-            val rootPath = canonicalRoot.path
-            val rootPrefix = if (rootPath.endsWith(File.separator)) {
-                rootPath
-            } else {
-                "$rootPath${File.separator}"
-            }
-            if (canonicalTarget.path.startsWith(rootPrefix)) canonicalTarget else null
+            val canonicalTarget = File(cachedCanonicalRoot, relativePath).canonicalFile
+            if (canonicalTarget.path.startsWith(cachedRootPrefix)) canonicalTarget else null
         } catch (_: IOException) {
             null
         } catch (_: SecurityException) {

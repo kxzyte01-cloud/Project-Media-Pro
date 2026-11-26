@@ -1,5 +1,7 @@
 package com.projectmediapro.feature.captions
 
+import com.projectmediapro.core.model.SilenceDetectionConfig
+import com.projectmediapro.core.model.SilenceDetector
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -37,10 +39,46 @@ class WhisperTranscriptionEngine(
                 if (samples.isEmpty()) {
                     return@withContext TranscriptionResult(emptyList(), 0f, usedPlaceholderTokens = false)
                 }
-                val floatPcm = ShortArrayToFloatConverter.toNormalizedFloat(samples)
-                val segments = transcribeInvoker(modelFile.absolutePath, floatPcm)
-                if (segments.isNullOrEmpty()) {
+                val sampleRate = request.pcmAudio.sampleRateHz.coerceAtLeast(1)
+                val totalDurationMs = (samples.size.toLong() * 1_000L) / sampleRate.toLong()
+                // Speech-Only Whisper Fast-Pass: on clips >= 10s with >= 15% silence, compact out
+                // dead air before whisper.cpp runs and remap returned timestamps to original time.
+                val compacted = if (totalDurationMs >= 10_000L) {
+                    val silences = SilenceDetector.detectSilences(
+                        samples = samples,
+                        sampleRateHz = sampleRate,
+                        config = SilenceDetectionConfig(
+                            thresholdDb = -36f,
+                            minSilenceMs = 700L,
+                            paddingMs = 120L,
+                        ),
+                    )
+                    val silenceMs = silences.sumOf { it.durationMs }
+                    if (silenceMs * 100L >= totalDurationMs * 15L) {
+                        val speechIntervals = SilenceDetector.computeSpeechIntervals(totalDurationMs, silences)
+                        SilenceDetector.compactSpeechPcm(samples, sampleRate, speechIntervals)
+                            .takeIf { it.floatPcm.isNotEmpty() && it.mappings.isNotEmpty() }
+                    } else {
+                        null
+                    }
+                } else {
+                    null
+                }
+
+                val floatPcm = compacted?.floatPcm ?: ShortArrayToFloatConverter.toNormalizedFloat(samples)
+                val rawSegments = transcribeInvoker(modelFile.absolutePath, floatPcm)
+                if (rawSegments.isNullOrEmpty()) {
                     return@withContext fallbackEngine.transcribe(request)
+                }
+                val segments = if (compacted != null) {
+                    rawSegments.map { seg ->
+                        val remappedStart = SilenceDetector.remapPackedTimeMs(seg.startMs, compacted.mappings)
+                        val remappedEnd = SilenceDetector.remapPackedTimeMs(seg.endMs, compacted.mappings)
+                            .coerceAtLeast(remappedStart + 80L)
+                        seg.copy(startMs = remappedStart, endMs = remappedEnd)
+                    }
+                } else {
+                    rawSegments
                 }
                 val words = WhisperSegmentMapper.toWordTimings(
                     clipId = request.clipId,
@@ -57,6 +95,8 @@ class WhisperTranscriptionEngine(
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
+            } catch (_: OutOfMemoryError) {
+                fallbackEngine.transcribe(request)
             } catch (_: Exception) {
                 fallbackEngine.transcribe(request)
             }

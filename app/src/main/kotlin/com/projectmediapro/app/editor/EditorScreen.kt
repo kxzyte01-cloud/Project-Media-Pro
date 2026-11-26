@@ -81,7 +81,11 @@ import com.projectmediapro.core.model.overlayClips
 import com.projectmediapro.core.model.textClips
 import com.projectmediapro.core.model.videoClips
 import com.projectmediapro.feature.captions.CaptionDocument
+import com.projectmediapro.core.model.NewsOverlayItem
+import com.projectmediapro.core.model.NewsOverlayLayout
 import com.projectmediapro.feature.captions.CaptionPreviewOverlay
+import com.projectmediapro.feature.news.NewsPreviewOverlay
+import com.projectmediapro.feature.news.NewsTemplateSheet
 import com.projectmediapro.feature.captions.CaptionSheetCallbacks
 import com.projectmediapro.feature.captions.CaptionTime
 import com.projectmediapro.feature.captions.CaptionsEditorSheet
@@ -557,6 +561,7 @@ private fun LoadedStudioWorkspace(
                 overlayClips = overlayClips,
                 overlayFilePaths = state.overlayFilePaths,
                 textClips = textClips,
+                newsOverlays = state.project.newsOverlays,
                 captionDocument = state.captionDocument,
                 beatMarkers = state.project.beatMarkers,
                 soundReactiveEnabled = state.project.soundReactiveEnabled,
@@ -957,6 +962,30 @@ private fun LoadedStudioWorkspace(
                 )
             }
         }
+        is EditorDialog.SilenceCut -> {
+            val scanState = state.silenceScan
+            if (scanState != null) {
+                SilenceCutSheet(
+                    state = scanState,
+                    onThresholdChange = { onEvent(EditorEvent.UpdateSilenceThreshold(it)) },
+                    onMinSilenceMsChange = { onEvent(EditorEvent.UpdateMinSilenceMs(it)) },
+                    onToggleSegment = { onEvent(EditorEvent.ToggleSilenceSegment(it)) },
+                    onApplyCut = { onEvent(EditorEvent.ApplySilenceCut) },
+                    onCancelScan = { onEvent(EditorEvent.CancelSilenceScan) },
+                    onDismiss = { onEvent(EditorEvent.DismissDialog) },
+                )
+            }
+        }
+        EditorDialog.NewsTemplates -> {
+            NewsTemplateSheet(
+                overlays = state.project.newsOverlays,
+                timelinePositionMs = timelinePositionMs,
+                onAddOverlay = { onEvent(EditorEvent.AddNewsOverlay(it)) },
+                onUpdateOverlay = { onEvent(EditorEvent.UpdateNewsOverlay(it)) },
+                onRemoveOverlay = { onEvent(EditorEvent.RemoveNewsOverlay(it)) },
+                onDismiss = { onEvent(EditorEvent.DismissDialog) },
+            )
+        }
         EditorDialog.Beats -> {
             BeatSyncSheet(
                 beatMarkers = state.project.beatMarkers,
@@ -1271,6 +1300,7 @@ private fun EditorPreviewStage(
     overlayClips: List<Clip>,
     overlayFilePaths: Map<String, String>,
     textClips: List<Clip>,
+    newsOverlays: List<NewsOverlayItem> = emptyList(),
     captionDocument: CaptionDocument?,
     beatMarkers: List<BeatMarker> = emptyList(),
     soundReactiveEnabled: Boolean = false,
@@ -1378,11 +1408,23 @@ private fun EditorPreviewStage(
                 onCommitTextTransform = onCommitTextTransform,
                 modifier = Modifier.fillMaxSize(),
             )
+            val isPortraitStage = safeAspect < 1f
+            val newsOccupiedBands = NewsOverlayLayout.occupiedBandsAt(
+                overlays = newsOverlays,
+                timeMs = timelinePositionMs,
+                isPortrait = isPortraitStage,
+            )
+            NewsPreviewOverlay(
+                overlays = newsOverlays,
+                timelinePositionMs = timelinePositionMs,
+                modifier = Modifier.matchParentSize(),
+            )
             CaptionPreviewOverlay(
                 document = captionDocument,
                 currentPositionUs = timelinePositionMs * CaptionTime.MICROS_PER_MS,
                 videoWidth = 0,
                 videoHeight = 0,
+                occupiedBands = newsOccupiedBands,
                 modifier = Modifier.matchParentSize(),
             )
         }

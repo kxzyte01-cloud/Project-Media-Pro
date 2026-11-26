@@ -13,6 +13,8 @@ import androidx.media3.effect.OverlayEffect
 import androidx.media3.effect.OverlaySettings
 import androidx.media3.effect.TextureOverlay
 import com.google.common.collect.ImmutableList
+import com.projectmediapro.core.model.NewsOverlayItem
+import com.projectmediapro.core.model.NewsOverlayLayout
 
 /**
  * Pure-JVM visual equality comparator for [CaptionFrameState].
@@ -70,6 +72,7 @@ internal object CaptionFrameVisualEquality {
 @OptIn(UnstableApi::class)
 class CaptionBitmapOverlay(
     private val document: CaptionDocument,
+    private val newsOverlays: List<NewsOverlayItem> = emptyList(),
 ) : BitmapOverlay() {
 
     private var bufferA: Bitmap? = null
@@ -113,6 +116,7 @@ class CaptionBitmapOverlay(
         val frameState = CaptionFrameEvaluator.evaluate(document, presentationTimeUs)
         val cached = lastReturnedBitmap
         if (
+            newsOverlays.isEmpty() &&
             cached != null &&
             !cached.isRecycled &&
             CaptionFrameVisualEquality.isVisuallyIdentical(lastRenderedState, frameState)
@@ -123,11 +127,17 @@ class CaptionBitmapOverlay(
         val (targetBitmap, targetCanvas) = acquireNextBuffer()
         targetCanvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
         if (frameState.hasVisibleContent) {
+            val occupiedBands = NewsOverlayLayout.occupiedBandsAt(
+                overlays = newsOverlays,
+                timeMs = (presentationTimeUs / 1_000L).coerceAtLeast(0L),
+                isPortrait = targetBitmap.height > targetBitmap.width,
+            )
             CaptionCanvasRenderer.render(
                 canvas = targetCanvas,
                 widthPx = targetBitmap.width.toFloat(),
                 heightPx = targetBitmap.height.toFloat(),
                 frameState = frameState,
+                occupiedBands = occupiedBands,
             )
         }
         lastRenderedState = frameState
@@ -189,9 +199,12 @@ class CaptionBitmapOverlay(
 object CaptionOverlayEffectFactory {
 
     @OptIn(UnstableApi::class)
-    fun createOverlay(document: CaptionDocument?): TextureOverlay? {
+    fun createOverlay(
+        document: CaptionDocument?,
+        newsOverlays: List<NewsOverlayItem> = emptyList(),
+    ): TextureOverlay? {
         if (document == null || document.lines.isEmpty()) return null
-        return CaptionBitmapOverlay(document)
+        return CaptionBitmapOverlay(document, newsOverlays)
     }
 
     @OptIn(UnstableApi::class)

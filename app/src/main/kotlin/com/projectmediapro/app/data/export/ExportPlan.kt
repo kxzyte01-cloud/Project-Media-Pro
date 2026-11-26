@@ -12,11 +12,13 @@ import com.projectmediapro.core.model.ClipVisualEffects
 import com.projectmediapro.core.model.ExportBitrate
 import com.projectmediapro.core.model.ExportFrameRate
 import com.projectmediapro.core.model.ExportQuality
+import com.projectmediapro.core.model.NewsOverlayItem
 import com.projectmediapro.core.model.KeyframeInterpolator
 import com.projectmediapro.core.model.OverlayKeyframe
 import com.projectmediapro.core.model.OverlayVisualStyle
 import com.projectmediapro.core.model.Project
 import com.projectmediapro.core.model.ProjectTimeline
+import com.projectmediapro.core.model.SpeedRampEvaluator
 import com.projectmediapro.core.model.SpeedRampPreset
 import com.projectmediapro.core.model.TextOverlayStyle
 import com.projectmediapro.core.model.audioClips as modelAudioClips
@@ -68,6 +70,8 @@ data class ExportAudioClip(
     val audioFadeOutMs: Long = 0L,
     val audioEnhance: AudioEnhanceConfig? = null,
     val playbackSpeed: Float = Clip.DEFAULT_PLAYBACK_SPEED,
+    val speedRamp: SpeedRampPreset = SpeedRampPreset.NONE,
+    val sourceSpanMs: Long = 0L,
 )
 
 /**
@@ -115,6 +119,7 @@ data class ExportPlan(
     val beatMarkers: List<BeatMarker> = emptyList(),
     val soundReactiveEnabled: Boolean = false,
     val opticalFlowEnabled: Boolean = false,
+    val newsOverlays: List<NewsOverlayItem> = emptyList(),
 )
 
 object ExportPlanner {
@@ -204,6 +209,7 @@ object ExportPlanner {
             beatMarkers = project.beatMarkers.map { it.sanitized() },
             soundReactiveEnabled = project.soundReactiveEnabled,
             opticalFlowEnabled = project.opticalFlowEnabled,
+            newsOverlays = project.newsOverlays,
         )
     }
 
@@ -238,7 +244,12 @@ object ExportPlanner {
                 0L
             }
             val exportedSourceMs = if (isCutByVideoEnd) {
-                (exportedTimelineMs * speed).roundToLong().coerceIn(1L, sourceSpanMs.coerceAtLeast(1L))
+                SpeedRampEvaluator.timelineOffsetToSourceOffsetMs(
+                    timelineOffsetMs = exportedTimelineMs,
+                    sourceSpanMs = sourceSpanMs,
+                    baseSpeed = clip.playbackSpeed,
+                    preset = clip.speedRamp,
+                ).coerceIn(1L, sourceSpanMs.coerceAtLeast(1L))
             } else {
                 sourceSpanMs
             }
@@ -257,6 +268,8 @@ object ExportPlanner {
                     audioFadeOutMs = ProjectTimeline.sanitizeAudioFadeMs(clip.audioFadeOutMs, exportedTimelineMs),
                     audioEnhance = clip.audioEnhance?.takeUnless { it.isIdentity },
                     playbackSpeed = speed,
+                    speedRamp = clip.speedRamp,
+                    sourceSpanMs = exportedSourceMs,
                 ),
             )
             timelineMs += exportedTimelineMs
@@ -371,6 +384,24 @@ object ExportPlanner {
     }
 
     /**
+     * Plan-aware export size estimate incorporating target resolution, FPS, bitrate tier,
+     * audio (~192 kbps), optional optical-flow overhead (+15%), and a 50% safety margin.
+     */
+    fun estimateExportBytes(plan: ExportPlan): Long {
+        if (plan.totalDurationMs <= 0L) return MIN_ESTIMATED_BYTES
+        val videoBps = ExportGeometry.targetBitrateBps(
+            quality = plan.exportQuality,
+            frameRate = plan.exportFrameRate,
+            bitrate = plan.exportBitrate,
+        ).toDouble()
+        val effectiveVideoBps = if (plan.opticalFlowEnabled) videoBps * 1.15 else videoBps
+        val totalBytesPerSec = (effectiveVideoBps + 192_000.0) / 8.0
+        val durationSec = plan.totalDurationMs / 1_000.0
+        val estimated = (totalBytesPerSec * durationSec * 1.5).roundToLong()
+        return maxOf(MIN_ESTIMATED_BYTES, estimated)
+    }
+
+    /**
      * Output size for a clip of [width] x [height] (already rotated): the long side is capped at
      * [MAX_LONG_SIDE_PX] and both sides are made even, as H.264 requires. Returns null for bad input.
      */
@@ -381,7 +412,7 @@ object ExportPlanner {
     fun canTransmuxVideo(plan: ExportPlan, sourceLongSidePx: Int?): Boolean {
         if (plan.clips.size != 1) return false
         if (plan.canvasAspect != CanvasAspect.ORIGINAL) return false
-        if (plan.overlays.isNotEmpty() || plan.textOverlays.isNotEmpty() || plan.captionDocument != null) return false
+        if (plan.overlays.isNotEmpty() || plan.textOverlays.isNotEmpty() || plan.captionDocument != null || plan.newsOverlays.isNotEmpty()) return false
         if (plan.beatMarkers.any { it.effect != BeatEffectKind.NONE }) return false
         if (plan.soundReactiveEnabled && plan.beatMarkers.isNotEmpty()) return false
         if (plan.opticalFlowEnabled) return false

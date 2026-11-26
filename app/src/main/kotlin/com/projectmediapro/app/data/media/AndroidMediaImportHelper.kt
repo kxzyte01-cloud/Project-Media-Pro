@@ -69,10 +69,12 @@ internal fun <T> copyValidatedMediaFromContentUri(
     } catch (missing: FileNotFoundException) {
         throw VideoImportException(Reason.UNREADABLE, missing)
     }
-    val resolvedMimeType = mimeType?.takeIf {
-        it.startsWith(requiredMimePrefix) ||
-            (requiredMimePrefix == "audio/" && it == "application/ogg")
-    } ?: throw VideoImportException(Reason.NOT_A_VIDEO)
+    val resolvedMimeType = when {
+        mimeType == null || mimeType == "application/octet-stream" -> null
+        mimeType.startsWith(requiredMimePrefix) ||
+            (requiredMimePrefix == "audio/" && mimeType == "application/ogg") -> mimeType
+        else -> throw VideoImportException(Reason.NOT_A_VIDEO)
+    }
 
     val sourceSizeBytes = queryKnownSize(resolver, uri)
     if (sourceSizeBytes != null && sourceSizeBytes >= 0L) {
@@ -82,7 +84,15 @@ internal fun <T> copyValidatedMediaFromContentUri(
         }
     }
 
-    val extension = extensionForMime(resolvedMimeType)
+    val extension = if (resolvedMimeType != null) {
+        extensionForMime(resolvedMimeType)
+    } else {
+        when (requiredMimePrefix) {
+            "audio/" -> "m4a"
+            "image/" -> "png"
+            else -> "mp4"
+        }
+    }
     val relativePath = try {
         storage.clipRelativePath(projectId, clipIdProvider(), extension)
     } catch (invalidId: IllegalArgumentException) {
@@ -99,11 +109,22 @@ internal fun <T> copyValidatedMediaFromContentUri(
             val inputStream = resolver.openInputStream(uri)
                 ?: throw VideoImportException(Reason.UNREADABLE)
             inputStream.use { input ->
+                var copiedBytes = 0L
+                var nextSpaceCheckBytes = 4L * 1024L * 1024L
                 copyStreamAtomically(
                     input = input,
                     partFile = partFile,
                     finalFile = finalFile,
-                    onChunk = checkActive,
+                    onChunk = {
+                        checkActive()
+                        copiedBytes = partFile.length()
+                        if (copiedBytes >= nextSpaceCheckBytes) {
+                            nextSpaceCheckBytes = copiedBytes + 4L * 1024L * 1024L
+                            if (copiedBytes > 4L * 1024L * 1024L * 1024L || storage.availableBytes() < HEADROOM_BYTES) {
+                                throw VideoImportException(Reason.NO_SPACE)
+                            }
+                        }
+                    },
                 )
             }
         } catch (cancelled: CancellationException) {

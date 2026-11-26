@@ -90,7 +90,7 @@ object BeatEffectEvaluator {
         var reactiveGlow = 0f
 
         val windowStartMs = (timeMs - BeatMarker.MAX_EFFECT_DURATION_MS).coerceAtLeast(0L)
-        val isLikelySorted = markers.size > 16 && markers.first().timeMs <= markers.last().timeMs
+        val isLikelySorted = markers.size > 16 && (1 until markers.size).all { markers[it].timeMs >= markers[it - 1].timeMs }
         val startIndex = if (isLikelySorted) {
             var lo = 0
             var hi = markers.size

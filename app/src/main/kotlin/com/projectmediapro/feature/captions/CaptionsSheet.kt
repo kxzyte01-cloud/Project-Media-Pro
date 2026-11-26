@@ -14,9 +14,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -286,6 +288,7 @@ fun CaptionsEditorSheet(
                 ) {
                     OutlinedButton(
                         onClick = { callbacks.onUpdateOffsetUs(document.globalOffsetUs - CaptionTime.NUDGE_STEP_US) },
+                        enabled = document.globalOffsetUs > -2_000_000L,
                         modifier = Modifier
                             .weight(1f)
                             .defaultMinSize(minHeight = 48.dp),
@@ -302,6 +305,7 @@ fun CaptionsEditorSheet(
                     }
                     OutlinedButton(
                         onClick = { callbacks.onUpdateOffsetUs(document.globalOffsetUs + CaptionTime.NUDGE_STEP_US) },
+                        enabled = document.globalOffsetUs < 2_000_000L,
                         modifier = Modifier
                             .weight(1f)
                             .defaultMinSize(minHeight = 48.dp),
@@ -318,11 +322,13 @@ fun CaptionsEditorSheet(
                 )
 
                 SectionHeader(title = stringResource(R.string.captions_section_words))
-                Column(
+                LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 360.dp),
                 ) {
-                    document.lines.forEach { line ->
+                    items(items = document.lines, key = { it.id }) { line ->
                         Surface(
                             shape = MediaProShapes.Medium,
                             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),

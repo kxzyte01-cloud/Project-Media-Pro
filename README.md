@@ -16,10 +16,10 @@ An offline-first, native Android video editor built with Kotlin, Jetpack Compose
 - Zero telemetry, zero analytics, zero ad SDKs.
 
 ## Toolchain & Requirements
-- **Android Gradle Plugin:** `8.5.2` | **Gradle:** `8.7` | **JDK:** `17`
+- **Android Gradle Plugin:** `8.9.1` | **Gradle:** `8.11.1` | **JDK:** `17`
 - **Kotlin:** `1.9.24` | **Compose Compiler:** `1.5.14` | **Compose BOM:** `2024.06.00`
 - **AndroidX Media3:** `1.4.1`
-- **SDK:** `minSdk 26` | `compileSdk 34` | `targetSdk 34` | ABIs: `arm64-v8a`, `armeabi-v7a`
+- **SDK:** `minSdk 26` | `compileSdk 36` | `targetSdk 36` | ABIs: `arm64-v8a`, `armeabi-v7a`
 
 ## Module Structure
 - **`:app`** — Android application, Compose UI screens (`home`, `editor`, `template`, `settings`, `feature/captions`), ViewModels, Media3 preview/export, JNI `whisper.cpp` bridge, and local storage repositories.
@@ -28,5 +28,5 @@ An offline-first, native Android video editor built with Kotlin, Jetpack Compose
 
 ## Build & Verification
 ```bash
-./gradlew :core:model:testDebugUnitTest :app:testDebugUnitTest lintDebug assembleDebug assembleRelease
+gradle :core:model:testDebugUnitTest :app:testDebugUnitTest lintDebug assembleDebug assembleRelease
 ```

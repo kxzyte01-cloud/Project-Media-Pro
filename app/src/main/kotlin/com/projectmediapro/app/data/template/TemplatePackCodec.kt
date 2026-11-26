@@ -34,18 +34,38 @@ object TemplatePackCodec {
     ) {
         ZipOutputStream(outputStream).use { zipOut ->
             val jsonBytes = TemplateSerializer.serialize(template).toByteArray(Charsets.UTF_8)
+            if (jsonBytes.size.toLong() > MAX_JSON_BYTES) {
+                throw IOException("Template metadata exceeds maximum allowed pack JSON size")
+            }
             zipOut.putNextEntry(ZipEntry(TEMPLATE_JSON_ENTRY))
             zipOut.write(jsonBytes)
             zipOut.closeEntry()
 
+            var exportedBytes = jsonBytes.size.toLong()
+            var exportedEntries = 1
             val seenUris = LinkedHashSet<String>()
+            val seenEntryNames = HashSet<String>()
             template.slots.forEach { slot ->
                 val rel = slot.filledMediaUri?.takeIf { it.isNotBlank() } ?: return@forEach
                 if (!seenUris.add(rel)) return@forEach
-                val file = mediaStorage.resolve(rel) ?: return@forEach
-                if (!file.isFile) return@forEach
+                val file = mediaStorage.resolve(rel)
+                    ?: throw IOException("Missing locked template media for slot ${slot.id}: $rel")
+                if (!file.isFile) {
+                    throw IOException("Locked template media file does not exist for slot ${slot.id}: $rel")
+                }
+                exportedEntries += 1
+                if (exportedEntries > MAX_ENTRIES) {
+                    throw IOException("Template pack exceeds maximum entry limit ($MAX_ENTRIES)")
+                }
+                exportedBytes += file.length()
+                if (exportedBytes > MAX_PACK_BYTES) {
+                    throw IOException("Template pack exceeds maximum size limit ($MAX_PACK_BYTES bytes)")
+                }
 
                 val safeEntryName = "$MEDIA_PREFIX${file.name}"
+                if (!seenEntryNames.add(safeEntryName)) {
+                    throw IOException("Duplicate media filename in template pack: ${file.name}")
+                }
                 zipOut.putNextEntry(ZipEntry(safeEntryName))
                 FileInputStream(file).use { input -> input.copyTo(zipOut) }
                 zipOut.closeEntry()
@@ -74,7 +94,10 @@ object TemplatePackCodec {
                         throw IOException("Template pack contains too many entries")
                     }
                     val entryName = entry.name
-                    if (entry.isDirectory || entryName.contains("..") || entryName.startsWith("/") || entryName.contains('\\')) {
+                    if (entryName.contains("..") || entryName.startsWith("/") || entryName.contains('\\')) {
+                        throw IOException("Template pack contains unsafe entry path: $entryName")
+                    }
+                    if (entry.isDirectory) {
                         zipIn.closeEntry()
                         continue
                     }
@@ -86,17 +109,23 @@ object TemplatePackCodec {
                         parsedTemplate = TemplateSerializer.deserialize(bytes.toString(Charsets.UTF_8))
                     } else if (entryName.startsWith(MEDIA_PREFIX)) {
                         val rawName = entryName.removePrefix(MEDIA_PREFIX)
-                        if (rawName.isNotEmpty() && !rawName.contains('/')) {
-                            val ext = rawName.substringAfterLast('.', "mp4").lowercase()
-                            val clipId = idProvider()
-                            val relPath = mediaStorage.clipRelativePath(newTemplateId, clipId, ext)
-                            val destFile = mediaStorage.resolve(relPath)
-                                ?: throw IOException("Could not resolve media destination")
-                            destFile.parentFile?.mkdirs()
-                            val written = copyBounded(zipIn, destFile, MAX_PACK_BYTES - totalBytes)
-                            totalBytes += written
-                            extractedByFileName[rawName] = relPath
+                        if (rawName.isEmpty() || rawName.contains('/')) {
+                            throw IOException("Invalid media entry in template pack: $entryName")
                         }
+                        if (extractedByFileName.containsKey(rawName)) {
+                            throw IOException("Duplicate media entry in template pack: $rawName")
+                        }
+                        val ext = rawName.substringAfterLast('.', "mp4").lowercase()
+                        val clipId = idProvider()
+                        val relPath = mediaStorage.clipRelativePath(newTemplateId, clipId, ext)
+                        val destFile = mediaStorage.resolve(relPath)
+                            ?: throw IOException("Could not resolve media destination")
+                        destFile.parentFile?.mkdirs()
+                        val written = copyBounded(zipIn, destFile, MAX_PACK_BYTES - totalBytes)
+                        totalBytes += written
+                        extractedByFileName[rawName] = relPath
+                    } else {
+                        throw IOException("Unexpected entry in template pack: $entryName")
                     }
                     zipIn.closeEntry()
                 }

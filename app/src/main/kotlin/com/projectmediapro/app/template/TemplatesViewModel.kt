@@ -131,6 +131,9 @@ class TemplatesViewModel(
                             canvasAspect = event.starter.canvasAspect,
                             canvasBackground = event.starter.canvasBackground,
                             captionStyleJson = event.starter.captionStyleJson,
+                            soundReactiveEnabled = event.starter.soundReactiveEnabled,
+                            opticalFlowEnabled = event.starter.opticalFlowEnabled,
+                            textClips = event.starter.textClips.map { it.copy(id = idProvider()) },
                         )
                         templateRepository.saveTemplate(customized)
                         customized

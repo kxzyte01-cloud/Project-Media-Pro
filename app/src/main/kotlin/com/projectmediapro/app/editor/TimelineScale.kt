@@ -2,6 +2,7 @@ package com.projectmediapro.app.editor
 
 import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.ProjectTimeline
+import com.projectmediapro.core.model.SpeedRampPreset
 import kotlin.math.abs
 import kotlin.math.roundToLong
 
@@ -88,8 +89,15 @@ object TimelineScale {
         val sourceDurationMs = ProjectTimeline.effectiveSourceDurationMs(clip)
         val currentStartMs = ProjectTimeline.effectiveTrimStartMs(clip)
         val currentEndMs = ProjectTimeline.effectiveTrimEndMs(clip)
-        val speed = ProjectTimeline.effectiveSpeed(clip)
-        val deltaSourceMs = (deltaTimelineMs * speed).roundToLong()
+        val currentSourceSpanMs = (currentEndMs - currentStartMs).coerceAtLeast(1L)
+        val currentTimelineMs = ProjectTimeline.effectiveDurationMs(clip).coerceAtLeast(1L)
+        val deltaSourceMs = if (clip.speedRamp != SpeedRampPreset.NONE) {
+            val effectiveAvgSpeed = currentSourceSpanMs.toDouble() / currentTimelineMs.toDouble()
+            (deltaTimelineMs * effectiveAvgSpeed).roundToLong()
+        } else {
+            val speed = ProjectTimeline.effectiveSpeed(clip)
+            (deltaTimelineMs * speed).roundToLong()
+        }
         val minSpanMs = ProjectTimeline.MIN_CLIP_DURATION_MS
 
         return when (edge) {

@@ -17,7 +17,11 @@ import com.projectmediapro.core.model.UndoRedoManager
 import com.projectmediapro.core.model.audioClips
 import com.projectmediapro.core.model.overlayClips
 import com.projectmediapro.core.model.textClips
+import com.projectmediapro.core.model.SpeedRampEvaluator
 import com.projectmediapro.core.model.videoClips
+import com.projectmediapro.feature.captions.CaptionDocument
+import com.projectmediapro.feature.captions.LyricsPacingEngine
+import com.projectmediapro.feature.captions.LyricsPresetRegistry
 
 internal object FailingAudioImporter : AudioImporter {
     override suspend fun importAudio(projectId: String, sourceUri: String): ImportedAudio {
@@ -81,6 +85,8 @@ internal fun resolvePreviewClips(
             audioBoost = ProjectTimeline.sanitizeAudioBoost(clip.audioBoost),
             audioEnhance = clip.audioEnhance?.takeUnless { it.isIdentity },
             playbackSpeed = ProjectTimeline.effectiveSpeed(clip),
+            speedRamp = clip.speedRamp,
+            sourceSpanMs = ProjectTimeline.effectiveSourceSpanMs(clip),
             rotationDegrees = ProjectTimeline.normalizeRotationDegrees(clip.rotationDegrees),
             flipHorizontal = clip.flipHorizontal,
             flipVertical = clip.flipVertical,
@@ -106,6 +112,8 @@ internal fun resolvePreviewAudioClips(
             audioBoost = ProjectTimeline.sanitizeAudioBoost(clip.audioBoost),
             audioEnhance = clip.audioEnhance?.takeUnless { it.isIdentity },
             playbackSpeed = ProjectTimeline.effectiveSpeed(clip),
+            speedRamp = clip.speedRamp,
+            sourceSpanMs = ProjectTimeline.effectiveSourceSpanMs(clip),
         )
     }
 
@@ -254,4 +262,102 @@ internal fun mapExportError(reason: VideoExportException.Reason): EditorError = 
     VideoExportException.Reason.UNSUPPORTED -> EditorError.EXPORT_UNSUPPORTED
     VideoExportException.Reason.NO_SPACE -> EditorError.EXPORT_NO_SPACE
     VideoExportException.Reason.FAILED -> EditorError.EXPORT_FAILED
+}
+
+/**
+ * Piece-wise remaps [document] word timestamps when video clip boundaries, trims, order,
+ * or speed ramps change between [previousProject] and [targetProject].
+ * Returns null if the video timeline layout is unchanged.
+ */
+internal fun remapCaptionDocumentForTimelineChange(
+    previousProject: Project,
+    targetProject: Project,
+    document: CaptionDocument,
+): CaptionDocument? {
+    if (document.rawWords.isEmpty()) return null
+    val oldClips = previousProject.videoClips()
+    val newClips = targetProject.videoClips()
+    val unchanged = oldClips.size == newClips.size && oldClips.indices.all { i ->
+        val a = oldClips[i]
+        val b = newClips[i]
+        a.id == b.id &&
+            a.mediaUri == b.mediaUri &&
+            a.startTimeMs == b.startTimeMs &&
+            ProjectTimeline.effectiveDurationMs(a) == ProjectTimeline.effectiveDurationMs(b) &&
+            ProjectTimeline.effectiveTrimStartMs(a) == ProjectTimeline.effectiveTrimStartMs(b) &&
+            ProjectTimeline.effectiveTrimEndMs(a) == ProjectTimeline.effectiveTrimEndMs(b) &&
+            a.playbackSpeed == b.playbackSpeed &&
+            a.speedRamp == b.speedRamp
+    }
+    if (unchanged) return null
+    if (oldClips.isEmpty() || newClips.isEmpty()) {
+        val preset = LyricsPresetRegistry.byId(document.presetId)
+        return document.copy(
+            rawWords = emptyList(),
+            lines = LyricsPacingEngine.buildLines(emptyList(), preset),
+        )
+    }
+
+    val remappedWords = buildList(document.rawWords.size) {
+        for (word in document.rawWords) {
+            val midMs = ((word.startUs + word.endUs) / 2L) / 1_000L
+            val oldClip = oldClips.firstOrNull { clip ->
+                val dur = ProjectTimeline.effectiveDurationMs(clip)
+                midMs >= clip.startTimeMs && midMs < clip.startTimeMs + dur
+            } ?: continue
+
+            val oldSourceSpanMs = ProjectTimeline.effectiveSourceSpanMs(oldClip).coerceAtLeast(1L)
+            val oldTrimStartMs = ProjectTimeline.effectiveTrimStartMs(oldClip)
+            val relStartMs = (word.startUs / 1_000L - oldClip.startTimeMs).coerceAtLeast(0L)
+            val relEndMs = (word.endUs / 1_000L - oldClip.startTimeMs).coerceAtLeast(relStartMs)
+
+            val srcStartMs = oldTrimStartMs + SpeedRampEvaluator.timelineOffsetToSourceOffsetMs(
+                timelineOffsetMs = relStartMs,
+                sourceSpanMs = oldSourceSpanMs,
+                baseSpeed = oldClip.playbackSpeed,
+                preset = oldClip.speedRamp,
+            )
+            val srcEndMs = oldTrimStartMs + SpeedRampEvaluator.timelineOffsetToSourceOffsetMs(
+                timelineOffsetMs = relEndMs,
+                sourceSpanMs = oldSourceSpanMs,
+                baseSpeed = oldClip.playbackSpeed,
+                preset = oldClip.speedRamp,
+            )
+            val srcMidMs = (srcStartMs + srcEndMs) / 2L
+
+            val targetClip = newClips.firstOrNull { candidate ->
+                candidate.mediaUri == oldClip.mediaUri &&
+                    srcMidMs >= ProjectTimeline.effectiveTrimStartMs(candidate) &&
+                    srcMidMs <= ProjectTimeline.effectiveTrimEndMs(candidate)
+            } ?: continue
+
+            val newTrimStartMs = ProjectTimeline.effectiveTrimStartMs(targetClip)
+            val newTrimEndMs = ProjectTimeline.effectiveTrimEndMs(targetClip)
+            val newSourceSpanMs = (newTrimEndMs - newTrimStartMs).coerceAtLeast(1L)
+            val clampedSrcStart = (srcStartMs - newTrimStartMs).coerceIn(0L, newSourceSpanMs)
+            val clampedSrcEnd = (srcEndMs - newTrimStartMs).coerceIn(clampedSrcStart, newSourceSpanMs)
+
+            val newRelStartMs = SpeedRampEvaluator.sourceOffsetToTimelineOffsetMs(
+                sourceOffsetMs = clampedSrcStart,
+                sourceSpanMs = newSourceSpanMs,
+                baseSpeed = targetClip.playbackSpeed,
+                preset = targetClip.speedRamp,
+            )
+            val newRelEndMs = SpeedRampEvaluator.sourceOffsetToTimelineOffsetMs(
+                sourceOffsetMs = clampedSrcEnd,
+                sourceSpanMs = newSourceSpanMs,
+                baseSpeed = targetClip.playbackSpeed,
+                preset = targetClip.speedRamp,
+            )
+            val newStartUs = (targetClip.startTimeMs + newRelStartMs) * 1_000L
+            val newEndUs = ((targetClip.startTimeMs + newRelEndMs) * 1_000L).coerceAtLeast(newStartUs + 40_000L)
+            add(word.copy(startUs = newStartUs, endUs = newEndUs))
+        }
+    }.sortedBy { it.startUs }
+
+    val preset = LyricsPresetRegistry.byId(document.presetId)
+    return document.copy(
+        rawWords = remappedWords,
+        lines = LyricsPacingEngine.buildLines(remappedWords, preset),
+    )
 }

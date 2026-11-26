@@ -57,6 +57,7 @@ data class Project(
     val beatMarkers: List<BeatMarker> = emptyList(),
     val soundReactiveEnabled: Boolean = false,
     val opticalFlowEnabled: Boolean = false,
+    val newsOverlays: List<NewsOverlayItem> = emptyList(),
 ) {
     companion object {
         const val CURRENT_SCHEMA_VERSION = 1

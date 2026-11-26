@@ -292,13 +292,16 @@ object ProjectTimeline {
         project: Project,
         effects: ClipVisualEffects,
     ): Project {
-        val currentClips = project.videoClips()
+        val trackIndex = project.tracks.indexOfFirst { it.type == TrackType.VIDEO }
+        if (trackIndex < 0) return project
+        val currentClips = project.tracks[trackIndex].clips
         if (currentClips.isEmpty()) return project
         val updatedClips = currentClips.map { clip ->
             val sanitized = effects.sanitized(effectiveDurationMs(clip))
             clip.copy(visualEffects = sanitized.takeUnless { it.isIdentity })
         }
-        return updateTrack(project, TrackType.VIDEO, updatedClips)
+        if (updatedClips == currentClips) return project
+        return updateTrack(project, trackIndex, updatedClips)
     }
 
     /**
@@ -315,10 +318,12 @@ object ProjectTimeline {
         audioEnhance: AudioEnhanceConfig? = null,
     ): Project {
         if (trackType != TrackType.VIDEO && trackType != TrackType.AUDIO) return project
-        val currentClips = if (trackType == TrackType.VIDEO) project.videoClips() else project.audioClips()
+        val trackIndex = project.tracks.indexOfFirst { it.type == trackType }
+        if (trackIndex < 0) return project
+        val currentClips = project.tracks[trackIndex].clips
         if (currentClips.isEmpty()) return project
         val safeVolume = sanitizeVolume(volume)
-        val safeBoost = sanitizeAudioBoost(audioBoost)
+        val safeBoost = if (safeVolume < 1.0f) Clip.DEFAULT_AUDIO_BOOST else sanitizeAudioBoost(audioBoost)
         val updatedClips = currentClips.map { clip ->
             if (trackType == TrackType.VIDEO && clip.isStillImage) {
                 clip
@@ -328,7 +333,7 @@ object ProjectTimeline {
                 val safeFadeOut = sanitizeAudioFadeMs(fadeOutMs, clipDurationMs)
                 val sanitizedEnhance = audioEnhance?.let { cfg ->
                     if (trackType == TrackType.VIDEO) cfg.copy(autoDuckMusicEnabled = false) else cfg
-                }?.takeUnless { it.isDefault }
+                }?.takeUnless { it.isIdentity }
                 clip.copy(
                     volume = safeVolume,
                     audioBoost = safeBoost,
@@ -338,7 +343,8 @@ object ProjectTimeline {
                 )
             }
         }
-        return updateTrack(project, trackType, updatedClips)
+        if (updatedClips == currentClips) return project
+        return updateTrack(project, trackIndex, updatedClips)
     }
 
     /**
@@ -355,8 +361,13 @@ object ProjectTimeline {
         val clip = resolveVideoClipAtPlayhead(project, timelinePositionMs, targetClipId) ?: return project
         if (!canSplitClip(clip)) return project
         val deltaTimelineMs = (timelinePositionMs - clip.startTimeMs).coerceAtLeast(0L)
-        val speed = effectiveSpeed(clip)
-        val sourceOffsetMs = kotlin.math.round(deltaTimelineMs * speed.toDouble()).toLong()
+        val sourceSpanMs = effectiveSourceSpanMs(clip)
+        val sourceOffsetMs = SpeedRampEvaluator.timelineOffsetToSourceOffsetMs(
+            timelineOffsetMs = deltaTimelineMs,
+            sourceSpanMs = sourceSpanMs,
+            baseSpeed = clip.playbackSpeed,
+            preset = clip.speedRamp,
+        )
         return splitClip(project, clip.id, sourceOffsetMs, newClipId)
     }
 
@@ -373,9 +384,15 @@ object ProjectTimeline {
         if (!canTrimClip(clip)) return project
         val deltaTimelineMs = timelinePositionMs - clip.startTimeMs
         if (deltaTimelineMs <= 0L) return project
-        val speed = effectiveSpeed(clip)
-        val sourceDeltaMs = kotlin.math.round(deltaTimelineMs * speed.toDouble()).toLong()
-        val (currentStart, currentEnd) = resolvedTrimBounds(clip)
+        val currentStart = effectiveTrimStartMs(clip)
+        val currentEnd = effectiveTrimEndMs(clip)
+        val sourceSpanMs = (currentEnd - currentStart).coerceAtLeast(0L)
+        val sourceDeltaMs = SpeedRampEvaluator.timelineOffsetToSourceOffsetMs(
+            timelineOffsetMs = deltaTimelineMs,
+            sourceSpanMs = sourceSpanMs,
+            baseSpeed = clip.playbackSpeed,
+            preset = clip.speedRamp,
+        )
         val newStart = currentStart + sourceDeltaMs
         if (currentEnd - newStart < MIN_CLIP_DURATION_MS) return project
         return trimClip(project, clip.id, newStart, currentEnd)
@@ -394,12 +411,94 @@ object ProjectTimeline {
         if (!canTrimClip(clip)) return project
         val deltaTimelineMs = timelinePositionMs - clip.startTimeMs
         if (deltaTimelineMs <= 0L) return project
-        val speed = effectiveSpeed(clip)
-        val sourceDeltaMs = kotlin.math.round(deltaTimelineMs * speed.toDouble()).toLong()
-        val (currentStart, currentEnd) = resolvedTrimBounds(clip)
+        val currentStart = effectiveTrimStartMs(clip)
+        val currentEnd = effectiveTrimEndMs(clip)
+        val sourceSpanMs = (currentEnd - currentStart).coerceAtLeast(0L)
+        val sourceDeltaMs = SpeedRampEvaluator.timelineOffsetToSourceOffsetMs(
+            timelineOffsetMs = deltaTimelineMs,
+            sourceSpanMs = sourceSpanMs,
+            baseSpeed = clip.playbackSpeed,
+            preset = clip.speedRamp,
+        )
         val newEnd = currentStart + sourceDeltaMs
         if (newEnd >= currentEnd || newEnd - currentStart < MIN_CLIP_DURATION_MS) return project
         return trimClip(project, clip.id, currentStart, newEnd)
+    }
+
+    /**
+     * Removes all `selected == true` [silences] (measured relative to the clip's active playback
+     * start) from video clip [clipId], producing trimmed clips each >= [MIN_CLIP_DURATION_MS] and
+     * repositioning the video track in a single undoable operation.
+     */
+    fun removeSilencesFromVideoClip(
+        project: Project,
+        clipId: String,
+        silences: List<SilenceSegment>,
+        idProvider: () -> String,
+    ): Project {
+        val trackIndex = project.tracks.indexOfFirst { it.type == TrackType.VIDEO }
+        if (trackIndex < 0) return project
+        val videoClips = project.tracks[trackIndex].clips
+        val clipIndex = videoClips.indexOfFirst { it.id == clipId }
+        if (clipIndex < 0) return project
+        val clip = videoClips[clipIndex]
+        if (!canTrimClip(clip)) return project
+
+        val activeSilences = silences.filter { it.selected && it.durationMs > 0L }
+        if (activeSilences.isEmpty()) return project
+
+        val trimStart = effectiveTrimStartMs(clip)
+        val trimEnd = effectiveTrimEndMs(clip)
+        val sourceSpanMs = (trimEnd - trimStart).coerceAtLeast(0L)
+        if (sourceSpanMs < MIN_CLIP_DURATION_MS) return project
+
+        val speed = effectiveSpeed(clip)
+        val sourceSilences = activeSilences.map { seg ->
+            val sStart = SpeedRampEvaluator.timelineOffsetToSourceOffsetMs(
+                timelineOffsetMs = seg.startMs,
+                sourceSpanMs = sourceSpanMs,
+                baseSpeed = clip.playbackSpeed,
+                preset = clip.speedRamp,
+            ).coerceIn(0L, sourceSpanMs)
+            val sEnd = SpeedRampEvaluator.timelineOffsetToSourceOffsetMs(
+                timelineOffsetMs = seg.endMs,
+                sourceSpanMs = sourceSpanMs,
+                baseSpeed = clip.playbackSpeed,
+                preset = clip.speedRamp,
+            ).coerceIn(sStart, sourceSpanMs)
+            seg.copy(startMs = sStart, endMs = sEnd)
+        }
+        val speechIntervals = SilenceDetector.computeSpeechIntervals(sourceSpanMs, sourceSilences)
+            .filter { (it.last - it.first) >= MIN_CLIP_DURATION_MS }
+        if (speechIntervals.isEmpty()) return project
+        if (speechIntervals.size == 1 && speechIntervals.first().first == 0L && speechIntervals.first().last == sourceSpanMs) {
+            return project
+        }
+
+        val replacementClips = speechIntervals.mapIndexed { idx, interval ->
+            val segStart = trimStart + interval.first
+            val segEnd = trimStart + interval.last
+            val segSourceSpan = (segEnd - segStart).coerceAtLeast(MIN_CLIP_DURATION_MS)
+            val segDurationMs = SpeedRampEvaluator.scaledDurationMs(
+                sourceSpanMs = segSourceSpan,
+                baseSpeed = speed,
+                preset = SpeedRampPreset.NONE,
+            )
+            clip.copy(
+                id = if (idx == 0) clip.id else idProvider(),
+                trimStartMs = segStart,
+                trimEndMs = segEnd,
+                durationMs = segDurationMs,
+                speedRamp = SpeedRampPreset.NONE,
+            )
+        }
+
+        val updatedClips = buildList(videoClips.size - 1 + replacementClips.size) {
+            addAll(videoClips.subList(0, clipIndex))
+            addAll(replacementClips)
+            addAll(videoClips.subList(clipIndex + 1, videoClips.size))
+        }
+        return updateTrack(project, trackIndex, repositionClips(updatedClips))
     }
 
     private fun resolveVideoClipAtPlayhead(
@@ -861,7 +960,12 @@ object ProjectTimeline {
                 val clipEndMs = cursorMs + clipDurMs
                 if (beatMs > cursorMs && beatMs < clipEndMs && !clip.isStillImage) {
                     val offsetTimelineMs = beatMs - cursorMs
-                    val sourceOffsetMs = (offsetTimelineMs * effectiveSpeed(clip)).roundToLong()
+                    val sourceOffsetMs = SpeedRampEvaluator.timelineOffsetToSourceOffsetMs(
+                        timelineOffsetMs = offsetTimelineMs,
+                        sourceSpanMs = effectiveSourceSpanMs(clip),
+                        baseSpeed = clip.playbackSpeed,
+                        preset = clip.speedRamp,
+                    )
                     val candidate = splitClip(
                         project = working,
                         clipId = clip.id,
@@ -1121,7 +1225,12 @@ object ProjectTimeline {
         if (offsetInClipMs <= 0L || offsetInClipMs >= clipTimelineDurationMs || currentEndMs <= currentStartMs) {
             return clip.copy(id = newClipId)
         }
-        val sourceOffsetMs = (offsetInClipMs * speed).roundToLong().coerceAtLeast(0L)
+        val sourceOffsetMs = SpeedRampEvaluator.timelineOffsetToSourceOffsetMs(
+            timelineOffsetMs = offsetInClipMs,
+            sourceSpanMs = effectiveSourceSpanMs(clip),
+            baseSpeed = clip.playbackSpeed,
+            preset = clip.speedRamp,
+        ).coerceAtLeast(0L)
         val cutSourceMs = saturatingAdd(currentStartMs, sourceOffsetMs).coerceIn(currentStartMs, currentEndMs)
         val (nextStartMs, nextEndMs) = if (fromPlayhead) {
             cutSourceMs to currentEndMs
@@ -1342,5 +1451,39 @@ object ProjectTimeline {
             .flatMap { it.clips.asSequence() }
             .maxOfOrNull { saturatingAdd(it.startTimeMs, it.durationMs) }
             ?: 0L
+    }
+
+    fun addNewsOverlay(project: Project, item: NewsOverlayItem): Project {
+        val sanitized = item.copy(
+            headline = item.headline.trim().take(180),
+            subline = item.subline.trim().take(180),
+            badgeLabel = item.badgeLabel.trim().take(48),
+            tickerText = item.tickerText.trim().take(400),
+            startTimeMs = item.startTimeMs.coerceAtLeast(0L),
+            durationMs = item.durationMs.coerceIn(NewsOverlayItem.MIN_DURATION_MS, NewsOverlayItem.MAX_DURATION_MS),
+        )
+        return project.copy(newsOverlays = project.newsOverlays + sanitized)
+    }
+
+    fun updateNewsOverlay(project: Project, item: NewsOverlayItem): Project {
+        if (project.newsOverlays.none { it.id == item.id }) return project
+        val sanitized = item.copy(
+            headline = item.headline.trim().take(180),
+            subline = item.subline.trim().take(180),
+            badgeLabel = item.badgeLabel.trim().take(48),
+            tickerText = item.tickerText.trim().take(400),
+            startTimeMs = item.startTimeMs.coerceAtLeast(0L),
+            durationMs = item.durationMs.coerceIn(NewsOverlayItem.MIN_DURATION_MS, NewsOverlayItem.MAX_DURATION_MS),
+        )
+        return project.copy(
+            newsOverlays = project.newsOverlays.map { existing ->
+                if (existing.id == sanitized.id) sanitized else existing
+            },
+        )
+    }
+
+    fun removeNewsOverlay(project: Project, overlayId: String): Project {
+        if (project.newsOverlays.none { it.id == overlayId }) return project
+        return project.copy(newsOverlays = project.newsOverlays.filterNot { it.id == overlayId })
     }
 }

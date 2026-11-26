@@ -4,7 +4,7 @@ Project Media Pro uses a clean, modular, unidirectional-data-flow (UDF) architec
 
 ## Module Structure
 
-- **`:app`** (`com.android.application`, `compileSdk = 34`, `targetSdk = 34`, `minSdk = 26`):
+- **`:app`** (`com.android.application`, `compileSdk = 36`, `targetSdk = 36`, `minSdk = 26`):
   - `AppContainer` — Manual dependency container initialized by `MediaProApplication` and passed into `AppNavHost`.
   - `home/` — Project list with cached thumbnails (`TimelineMediaCache`), metadata pills (`HomeMetadataFormatter`), search/sort, rename, duplicate, and delete.
   - `editor/` — Full non-destructive studio (`EditorViewModel`, `EditorStateHelpers`, `EditorScreen`, Media3 `PreviewPlayer`, `AudioPreviewPlayer`, `LiveAudioEnhanceProcessor`, `OfflineBeatDetector`, and focused editing dialogs).
@@ -16,7 +16,7 @@ Project Media Pro uses a clean, modular, unidirectional-data-flow (UDF) architec
 - **`:core:model`** (Pure Kotlin/JVM — zero Android imports):
   - `schemaVersion = 1` backward-compatible `@Serializable` models (`Project`, `Track`, `Clip`, `Template`, `Slot`, `TemplateTextClip`, `AudioEnhanceConfig`, `ClipVisualEffects`, `OverlayVisualStyle`, `SpeedRampPreset`).
   - Pure domain engines (`ProjectTimeline`, `UndoRedoManager`, `TemplateApplier`, `ProjectToTemplateConverter`, `TemplateStyleApplier`, `ProjectRemixEngine`, `StarterTemplates`).
-- **`:core:designsystem`** (`com.android.library`, `compileSdk = 34`, `minSdk = 26`):
+- **`:core:designsystem`** (`com.android.library`, `compileSdk = 36`, `minSdk = 26`):
   - Semantic Material 3 color, spacing, shape, and typography tokens (`ProjectMediaProTheme`, `MediaProSpacing`, `MediaProShapes`, `MediaProTopBar`, `SectionHeader`).
 
 ## Key Architectural Invariants

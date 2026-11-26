@@ -271,33 +271,34 @@ internal fun BeatSyncSheet(
                             color = chipColor.copy(alpha = 0.16f),
                             border = BorderStroke(1.dp, chipColor.copy(alpha = 0.55f)),
                             modifier = Modifier
+                                .defaultMinSize(minHeight = 40.dp)
                                 .clip(MediaProShapes.Small)
                                 .clickable { onSeekToBeat(marker.timeMs) },
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier.padding(
-                                    start = MediaProSpacing.Small,
-                                    end = MediaProSpacing.ExtraSmall,
-                                    top = MediaProSpacing.ExtraSmall,
-                                    bottom = MediaProSpacing.ExtraSmall,
+                                    horizontal = MediaProSpacing.Small,
+                                    vertical = MediaProSpacing.Small,
                                 ),
                             ) {
                                 Text(
                                     text = formatBeatChipLabel(marker),
-                                    style = MaterialTheme.typography.labelSmall,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
                                     color = chipColor,
                                     fontWeight = FontWeight.SemiBold,
                                 )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = stringResource(R.string.editor_remove_confirm),
-                                    tint = chipColor,
-                                    modifier = Modifier
-                                        .size(14.dp)
-                                        .clickable { onRemoveBeat(marker.id) },
-                                )
+                                IconButton(
+                                    onClick = { onRemoveBeat(marker.id) },
+                                    modifier = Modifier.size(40.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "${stringResource(R.string.editor_remove_confirm)} ${formatBeatChipLabel(marker)}",
+                                        tint = chipColor,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
                             }
                         }
                     }

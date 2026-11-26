@@ -37,7 +37,7 @@
     <string name="editor_menu_save_as_template">Save as custom template</string>
     <string name="editor_menu_apply_style">Apply style from template</string>
     <string name="editor_apply_style_title">Apply template style</string>
-    <string name="editor_apply_style_subtitle">Transfers LUTs, transitions, speed ramps, Audio Studio, overlay styles, and lyric style onto your current timeline. Fully undoable.</string>
+    <string name="editor_apply_style_subtitle">Transfers LUTs, transitions, speed ramps, Audio Studio, overlay styles, and lyric style onto your current timeline. Timeline edits are undoable; caption style saves separately.</string>
     <string name="editor_apply_style_empty">Save a custom template first to reuse its style on other projects.</string>
     <string name="editor_apply_style_applied">Applied style from "%1$s"</string>
     <string name="use_template_pick_all_videos">Pick all videos at once (%1$d)</string>
@@ -324,7 +324,7 @@
     <string name="editor_speed_readout">%1$s · %2$s</string>
     <string name="editor_volume_mute">Mute</string>
     <string name="editor_volume_unmute">Unmute</string>
-    <string name="editor_volume_muted">Muted (0%%)</string>
+    <string name="editor_volume_muted">Muted (0%)</string>
     <string name="editor_transform_title">Rotate &amp; flip</string>
     <string name="editor_transform_readout_rotation">%1$d°</string>
     <string name="editor_transform_readout_full">%1$d° · %2$s</string>
@@ -505,4 +505,16 @@
     <string name="editor_export_finished_in">Finished in %1$s</string>
     <string name="editor_export_finished_at">Completed at %1$s</string>
     <string name="editor_export_done_button">Done</string>
+    <string name="editor_tool_silences">Silences</string>
+    <string name="editor_silence_title">Auto-Cut Silences</string>
+    <string name="editor_silence_scanning">Scanning clip audio for pauses…</string>
+    <string name="editor_silence_none_found">No silent pauses detected at these settings</string>
+    <string name="editor_silence_summary">%1$d pauses selected • Saves %2$s</string>
+    <string name="editor_silence_close">Close silence detector</string>
+    <string name="editor_silence_threshold_label">Silence threshold</string>
+    <string name="editor_silence_db_value">%1$d dB</string>
+    <string name="editor_silence_min_pause_label">Minimum pause length</string>
+    <string name="editor_silence_ms_value">%1$d ms</string>
+    <string name="editor_silence_tap_toggle_hint">Tap any pause to keep or cut it (80 ms speech padding preserved):</string>
+    <string name="editor_silence_apply_cut">Cut Silences</string>
 </resources>

@@ -1,10 +1,26 @@
 #include <jni.h>
+#include <atomic>
 #include <cstring>
 #include <string>
 #include <vector>
 #include "whisper.h"
 
+namespace {
+std::atomic<bool> g_whisper_abort{false};
+
+bool mediapro_whisper_abort_cb(void * /* user_data */) {
+    return g_whisper_abort.load(std::memory_order_relaxed);
+}
+} // namespace
+
 extern "C" {
+
+JNIEXPORT void JNICALL
+Java_com_projectmediapro_feature_captions_WhisperNativeBridge_nativeRequestAbort(
+        JNIEnv * /* env */,
+        jobject /* thiz */) {
+    g_whisper_abort.store(true, std::memory_order_relaxed);
+}
 
 JNIEXPORT jlong JNICALL
 Java_com_projectmediapro_feature_captions_WhisperNativeBridge_nativeInitContext(
@@ -73,6 +89,9 @@ Java_com_projectmediapro_feature_captions_WhisperNativeBridge_nativeFullTranscri
     params.temperature_inc = 0.4f;
     params.suppress_blank = true;
     params.no_speech_thold = 0.6f;
+    g_whisper_abort.store(false, std::memory_order_relaxed);
+    params.abort_callback = mediapro_whisper_abort_cb;
+    params.abort_callback_user_data = nullptr;
 
     const int result = whisper_full(ctx, params, samples, static_cast<int>(length));
     env->ReleaseFloatArrayElements(audioData, samples, JNI_ABORT);

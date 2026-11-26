@@ -122,15 +122,13 @@ internal fun ExportProgressOverlay(
             .padding(MediaProSpacing.Large),
     ) {
         Surface(
-            shape = MediaProShapes.Large,
+            shape = MediaProShapes.Medium,
             color = MaterialTheme.colorScheme.surface,
             border = BorderStroke(
                 MediaProSpacing.BorderThin,
                 MaterialTheme.colorScheme.outlineVariant,
             ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .semantics { liveRegion = LiveRegionMode.Polite },
+            modifier = Modifier.fillMaxWidth(),
         ) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -251,6 +249,7 @@ internal fun ExportProgressOverlay(
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface,
                             textAlign = TextAlign.Center,
+                            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                         )
 
                         Surface(

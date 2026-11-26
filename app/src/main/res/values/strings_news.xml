@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="editor_studio_dock_news">News</string>
+    <string name="news_sheet_title">News &amp; Broadcast Templates</string>
+    <string name="cd_close_news_sheet">Close news templates</string>
+    <string name="news_section_templates">Choose Template</string>
+    <string name="news_section_quick_fill">Quick-Fill Details</string>
+    <string name="news_section_theme">Theme</string>
+    <string name="news_section_timing">Timing</string>
+    <string name="news_section_active">Active on Timeline (%1$d)</string>
+
+    <string name="news_tpl_breaking_desk">Breaking Desk 16:9</string>
+    <string name="news_tpl_breaking_shorts">Shorts Alert 9:16</string>
+    <string name="news_tpl_editorial_quote">Editorial Quote</string>
+    <string name="news_tpl_speaker_l3">Speaker Lower-Third</string>
+    <string name="news_tpl_stat_proof">3s Stat Proof</string>
+    <string name="news_tpl_data_ticker">Data Ticker Desk</string>
+
+    <string name="news_theme_broadcast_red">Broadcast Red</string>
+    <string name="news_theme_cream_paper">Cream Paper</string>
+    <string name="news_theme_dark_noir">Dark Noir</string>
+    <string name="news_theme_slate_blue">Slate Blue</string>
+
+    <string name="news_field_headline">Headline / Name / Stat</string>
+    <string name="news_field_subline">Subline / Role / Attribution</string>
+    <string name="news_field_badge">Badge / Source Pill</string>
+    <string name="news_field_ticker">Scrolling Ticker (separate items with |)</string>
+
+    <string name="news_timing_start">Starts at playhead: %1$s</string>
+    <string name="news_timing_duration">Duration: %1$s</string>
+    <string name="news_action_add">Add to Timeline</string>
+    <string name="news_action_update">Update Overlay</string>
+    <string name="news_action_new">New Overlay</string>
+    <string name="cd_edit_news_overlay">Edit overlay</string>
+    <string name="cd_delete_news_overlay">Remove overlay</string>
+</resources>

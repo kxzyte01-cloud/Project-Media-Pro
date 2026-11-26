@@ -9,6 +9,8 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import java.io.File
 import java.util.EnumMap
+import com.projectmediapro.core.model.NewsOverlayLayout
+import com.projectmediapro.core.model.OccupiedBand
 import java.util.Locale
 import kotlin.math.max
 import kotlin.math.min
@@ -70,7 +72,18 @@ object CaptionCanvasRenderer {
         }
         val boxRect = RectF()
         val iconPath = Path()
+        var cachedCodeLineId: String? = null
+        var cachedCodeMaxW: Float = -1f
+        var cachedCodeFireTwist: Boolean = false
+        var cachedCodePrevEllipsized: String = ""
+        var cachedCodeNextEllipsized: String = ""
+        var cachedCodeLineNumBase: Int = -1
+        var cachedLineNum0: String = "01"
+        var cachedLineNum1: String = "02"
+        var cachedLineNum2: String = "03"
     }
+
+    private fun formatTwoDigits(n: Int): String = if (n in 0..9) "0$n" else n.toString()
 
     private val scratchLocal = object : ThreadLocal<RenderScratch>() {
         override fun initialValue(): RenderScratch = RenderScratch()
@@ -92,11 +105,29 @@ object CaptionCanvasRenderer {
         widthPx: Float,
         heightPx: Float,
         frameState: CaptionFrameState,
+        occupiedBands: List<OccupiedBand> = emptyList(),
     ) {
         if (!frameState.hasVisibleContent || widthPx <= 1f || heightPx <= 1f) return
 
         val scratch = scratchLocal.get() ?: RenderScratch()
-        val style = frameState.style
+        val resolvedFrameState = if (occupiedBands.isNotEmpty()) {
+            val safeY = NewsOverlayLayout.resolveCaptionSafeYFraction(
+                requestedYFraction = frameState.style.position.yFraction,
+                occupiedBands = occupiedBands,
+            )
+            if (safeY != frameState.style.position.yFraction) {
+                frameState.copy(
+                    style = frameState.style.copy(
+                        position = frameState.style.position.copy(yFraction = safeY),
+                    ),
+                )
+            } else {
+                frameState
+            }
+        } else {
+            frameState
+        }
+        val style = resolvedFrameState.style
 
         if (style.templateId == CaptionTemplateId.KNOCKOUT_MASK) {
             drawKnockoutMaskFrame(
@@ -104,7 +135,7 @@ object CaptionCanvasRenderer {
                 scratch = scratch,
                 widthPx = widthPx,
                 heightPx = heightPx,
-                frameState = frameState,
+                frameState = resolvedFrameState,
             )
             return
         }
@@ -114,7 +145,7 @@ object CaptionCanvasRenderer {
                 scratch = scratch,
                 widthPx = widthPx,
                 heightPx = heightPx,
-                frameState = frameState,
+                frameState = resolvedFrameState,
             )
             return
         }
@@ -124,7 +155,7 @@ object CaptionCanvasRenderer {
                 scratch = scratch,
                 widthPx = widthPx,
                 heightPx = heightPx,
-                frameState = frameState,
+                frameState = resolvedFrameState,
             )
             return
         }
@@ -134,7 +165,7 @@ object CaptionCanvasRenderer {
                 scratch = scratch,
                 widthPx = widthPx,
                 heightPx = heightPx,
-                frameState = frameState,
+                frameState = resolvedFrameState,
             )
             return
         }
@@ -698,11 +729,19 @@ object CaptionCanvasRenderer {
     private fun ellipsizeToWidth(text: String, paint: Paint, maxWidth: Float): String {
         if (paint.measureText(text) <= maxWidth) return text
         val ellipsis = "…"
-        var end = text.length
-        while (end > 1 && paint.measureText(text.substring(0, end) + ellipsis) > maxWidth) {
-            end--
+        val ellipsisW = paint.measureText(ellipsis)
+        val avail = (maxWidth - ellipsisW).coerceAtLeast(0f)
+        var lo = 1
+        var hi = text.length
+        while (lo < hi) {
+            val mid = (lo + hi + 1) ushr 1
+            if (paint.measureText(text, 0, mid) <= avail) {
+                lo = mid
+            } else {
+                hi = mid - 1
+            }
         }
-        return text.substring(0, end) + ellipsis
+        return text.substring(0, lo) + ellipsis
     }
 
     private fun drawWord(
@@ -1042,13 +1081,16 @@ object CaptionCanvasRenderer {
             val cardBottom = cardTop + cardH
             val cornerR = minDim * 0.025f
 
-            // Detect fire-border twist ("burn", "fire", "dark", "age" or final 20% of track)
-            val joinedLower = frameState.words.joinToString(" ") { it.displayText }.lowercase(Locale.US)
-            val isFireTwist = frameState.songProgressFraction >= 0.80f ||
-                joinedLower.contains("burn") ||
-                joinedLower.contains("fire") ||
-                joinedLower.contains("dark") ||
-                joinedLower.contains("page")
+            // Detect fire-border twist ("burn", "fire", "dark", "page" or final 20% of track) — cached per line
+            val lineId = frameState.activeLineId
+            if (scratch.cachedCodeLineId != lineId) {
+                val joinedLower = frameState.words.joinToString(" ") { it.displayText }.lowercase(Locale.US)
+                scratch.cachedCodeFireTwist = joinedLower.contains("burn") ||
+                    joinedLower.contains("fire") ||
+                    joinedLower.contains("dark") ||
+                    joinedLower.contains("page")
+            }
+            val isFireTwist = frameState.songProgressFraction >= 0.80f || scratch.cachedCodeFireTwist
 
             // IDE card surface
             scratch.boxRect.set(cardLeft, cardTop, cardRight, cardBottom)
@@ -1105,19 +1147,35 @@ object CaptionCanvasRenderer {
                 clearShadowLayer()
             }
 
+            if (scratch.cachedCodeLineId != lineId || scratch.cachedCodeMaxW != maxCodeW) {
+                val prevComment = frameState.previousLineText?.takeIf { it.isNotBlank() }
+                    ?.let { "// ${it.lowercase(Locale.US)}" }
+                    ?: "// 3:12 a.m. signal active"
+                val nextCode = frameState.nextLineText?.takeIf { it.isNotBlank() }
+                    ?.let { "if (${it.lowercase(Locale.US)}) {" }
+                    ?: "return solitude;"
+                scratch.cachedCodePrevEllipsized = ellipsizeToWidth(prevComment, codePaint, maxCodeW)
+                scratch.cachedCodeNextEllipsized = ellipsizeToWidth(nextCode, codePaint, maxCodeW)
+                scratch.cachedCodeLineId = lineId
+                scratch.cachedCodeMaxW = maxCodeW
+            }
+            if (scratch.cachedCodeLineNumBase != lineNumBase) {
+                scratch.cachedCodeLineNumBase = lineNumBase
+                scratch.cachedLineNum0 = formatTwoDigits(lineNumBase)
+                scratch.cachedLineNum1 = formatTwoDigits(lineNumBase + 1)
+                scratch.cachedLineNum2 = formatTwoDigits(lineNumBase + 2)
+            }
+
             // Previous line as One Dark Pro orange comment
-            val prevComment = frameState.previousLineText?.takeIf { it.isNotBlank() }
-                ?.let { "// ${it.lowercase(Locale.US)}" }
-                ?: "// 3:12 a.m. signal active"
             codePaint.color = applyAlpha(0xFF4B5563.toInt(), alpha)
-            canvas.drawText(String.format(Locale.US, "%02d", lineNumBase), gutterX, firstLineY, codePaint)
+            canvas.drawText(scratch.cachedLineNum0, gutterX, firstLineY, codePaint)
             codePaint.color = applyAlpha(0xFFD19A66.toInt(), alpha * 0.85f)
-            canvas.drawText(ellipsizeToWidth(prevComment, codePaint, maxCodeW), codeX, firstLineY, codePaint)
+            canvas.drawText(scratch.cachedCodePrevEllipsized, codeX, firstLineY, codePaint)
 
             // Active line: syntax-highlighted words with typewriter reveal
             val activeY = firstLineY + lineStep
             codePaint.color = applyAlpha(0xFF9CA3AF.toInt(), alpha)
-            canvas.drawText(String.format(Locale.US, "%02d", lineNumBase + 1), gutterX, activeY, codePaint)
+            canvas.drawText(scratch.cachedLineNum1, gutterX, activeY, codePaint)
 
             val visibleWords = frameState.words.filter { it.alpha > 0.01f && it.visibleCharCount > 0 }
             val activeTokens = visibleWords.mapIndexed { idx, w ->
@@ -1192,12 +1250,9 @@ object CaptionCanvasRenderer {
             // Next line preview dimmed in slate
             val nextY = activeY + lineStep
             codePaint.color = applyAlpha(0xFF4B5563.toInt(), alpha * 0.7f)
-            canvas.drawText(String.format(Locale.US, "%02d", lineNumBase + 2), gutterX, nextY, codePaint)
-            val nextCode = frameState.nextLineText?.takeIf { it.isNotBlank() }
-                ?.let { "if (${it.lowercase(Locale.US)}) {" }
-                ?: "return solitude;"
+            canvas.drawText(scratch.cachedLineNum2, gutterX, nextY, codePaint)
             codePaint.color = applyAlpha(0xFF64748B.toInt(), alpha * 0.65f)
-            canvas.drawText(ellipsizeToWidth(nextCode, codePaint, maxCodeW), codeX, nextY, codePaint)
+            canvas.drawText(scratch.cachedCodeNextEllipsized, codeX, nextY, codePaint)
 
             // 4. Mirrored water reflection & glowing `you` / `me` bridge markers below the code block
             val bridgeY = cardBottom + codeFontPx * 1.65f

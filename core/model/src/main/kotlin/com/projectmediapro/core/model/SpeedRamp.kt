@@ -91,4 +91,71 @@ object SpeedRampEvaluator {
         }
         return totalMs.roundToLong().coerceAtLeast(1L)
     }
+
+    /**
+     * Exact inverse of [scaledDurationMs] over the piecewise-constant speed curve:
+     * maps a timeline offset within `[0, scaledDurationMs]` back to the exact source offset
+     * within `[0, sourceSpanMs]`.
+     */
+    fun timelineOffsetToSourceOffsetMs(
+        timelineOffsetMs: Long,
+        sourceSpanMs: Long,
+        baseSpeed: Float,
+        preset: SpeedRampPreset,
+    ): Long {
+        if (sourceSpanMs <= 0L || timelineOffsetMs <= 0L) return 0L
+        if (preset == SpeedRampPreset.NONE) {
+            val safeSpeed = ProjectTimeline.sanitizeSpeed(baseSpeed)
+            return (timelineOffsetMs.toDouble() * safeSpeed.toDouble())
+                .roundToLong()
+                .coerceIn(0L, sourceSpanMs)
+        }
+        val speeds = segmentSpeeds(preset)
+        val segSourceMs = sourceSpanMs.toDouble() / speeds.size.toDouble()
+        var remainingTimelineMs = timelineOffsetMs.toDouble()
+        var accumulatedSourceMs = 0.0
+        for (s in speeds) {
+            val clamped = s.coerceIn(Clip.MIN_PLAYBACK_SPEED, Clip.MAX_PLAYBACK_SPEED).toDouble()
+            val segTimelineMs = segSourceMs / clamped
+            if (remainingTimelineMs <= segTimelineMs) {
+                accumulatedSourceMs += remainingTimelineMs * clamped
+                return accumulatedSourceMs.roundToLong().coerceIn(0L, sourceSpanMs)
+            }
+            remainingTimelineMs -= segTimelineMs
+            accumulatedSourceMs += segSourceMs
+        }
+        return sourceSpanMs
+    }
+
+    /**
+     * Forward mapping along the piecewise-constant speed curve:
+     * maps a source offset within `[0, sourceSpanMs]` to its exact timeline offset.
+     */
+    fun sourceOffsetToTimelineOffsetMs(
+        sourceOffsetMs: Long,
+        sourceSpanMs: Long,
+        baseSpeed: Float,
+        preset: SpeedRampPreset,
+    ): Long {
+        if (sourceSpanMs <= 0L || sourceOffsetMs <= 0L) return 0L
+        val clampedSource = sourceOffsetMs.coerceIn(0L, sourceSpanMs)
+        if (preset == SpeedRampPreset.NONE) {
+            val safeSpeed = ProjectTimeline.sanitizeSpeed(baseSpeed)
+            return (clampedSource.toDouble() / safeSpeed.toDouble()).roundToLong().coerceAtLeast(0L)
+        }
+        val speeds = segmentSpeeds(preset)
+        val segSourceMs = sourceSpanMs.toDouble() / speeds.size.toDouble()
+        var remainingSourceMs = clampedSource.toDouble()
+        var accumulatedTimelineMs = 0.0
+        for (s in speeds) {
+            val clamped = s.coerceIn(Clip.MIN_PLAYBACK_SPEED, Clip.MAX_PLAYBACK_SPEED).toDouble()
+            if (remainingSourceMs <= segSourceMs) {
+                accumulatedTimelineMs += remainingSourceMs / clamped
+                return accumulatedTimelineMs.roundToLong().coerceAtLeast(0L)
+            }
+            remainingSourceMs -= segSourceMs
+            accumulatedTimelineMs += segSourceMs / clamped
+        }
+        return accumulatedTimelineMs.roundToLong().coerceAtLeast(0L)
+    }
 }

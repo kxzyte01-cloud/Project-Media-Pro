@@ -43,6 +43,7 @@ import com.projectmediapro.core.model.ProjectTimeline
 import com.projectmediapro.core.model.SpeedRampPreset
 import com.projectmediapro.core.model.ResolvedOverlayTransform
 import com.projectmediapro.feature.captions.CaptionOverlayEffectFactory
+import com.projectmediapro.feature.news.NewsOverlayEffectFactory
 import java.io.File
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -251,6 +252,8 @@ class Media3VideoExporter(
                     fadeOutMs = audioClip.audioFadeOutMs,
                     clipDurationMs = audioClip.durationMs,
                     playbackSpeed = audioClip.playbackSpeed,
+                    speedRamp = audioClip.speedRamp,
+                    sourceSpanMs = audioClip.sourceSpanMs,
                     audioEnhance = audioClip.audioEnhance,
                     duckingWindowsMs = if (audioClip.audioEnhance?.autoDuckMusicEnabled == true) {
                         plan.duckingWindowsMs
@@ -273,13 +276,19 @@ class Media3VideoExporter(
             if (!useTransmuxFastPath && plan.beatMarkers.isNotEmpty()) {
                 addAll(VideoEffectFactory.buildBeatDropEffects(plan.beatMarkers, plan.soundReactiveEnabled))
             }
-            val captionOverlay = CaptionOverlayEffectFactory.createOverlay(plan.captionDocument)
-            if (plan.overlays.isNotEmpty() || plan.textOverlays.isNotEmpty() || captionOverlay != null) {
+            val captionOverlay = CaptionOverlayEffectFactory.createOverlay(plan.captionDocument, plan.newsOverlays)
+            val newsOverlay = NewsOverlayEffectFactory.createOverlay(plan.newsOverlays)
+            if (plan.overlays.isNotEmpty() || plan.textOverlays.isNotEmpty() || captionOverlay != null || newsOverlay != null) {
                 val textureOverlays: List<TextureOverlay> = buildList(
-                    plan.overlays.size + plan.textOverlays.size + if (captionOverlay != null) 1 else 0,
+                    plan.overlays.size + plan.textOverlays.size +
+                        (if (newsOverlay != null) 1 else 0) +
+                        (if (captionOverlay != null) 1 else 0),
                 ) {
                     plan.overlays.forEach { add(TimedBitmapOverlay(it)) }
                     plan.textOverlays.forEach { add(TimedTextOverlay(it)) }
+                    if (newsOverlay != null) {
+                        add(newsOverlay)
+                    }
                     if (captionOverlay != null) {
                         add(captionOverlay)
                     }

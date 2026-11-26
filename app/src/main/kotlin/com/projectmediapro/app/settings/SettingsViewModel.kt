@@ -108,7 +108,9 @@ class SettingsViewModel(
     )
 
     init {
-        whisperModelManager?.refreshState()
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            whisperModelManager?.refreshState()
+        }
         viewModelScope.launch {
             privacyPolicyFlow.value = try {
                 privacyPolicyDataSource.loadPrivacyPolicy()

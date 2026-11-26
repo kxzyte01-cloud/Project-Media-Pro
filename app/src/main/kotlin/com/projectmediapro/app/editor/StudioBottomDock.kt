@@ -149,6 +149,13 @@ private fun MainStudioDockItems(
         onClick = { onEvent(EditorEvent.OpenCaptions) },
     )
     StudioDockTile(
+        icon = StudioToolIconKind.TEXT,
+        label = stringResource(R.string.editor_studio_dock_news),
+        enabled = editsEnabled,
+        isActive = state.project.newsOverlays.isNotEmpty(),
+        onClick = { onEvent(EditorEvent.OpenNewsTemplates) },
+    )
+    StudioDockTile(
         icon = StudioToolIconKind.BEATS,
         label = stringResource(R.string.editor_studio_dock_beats),
         enabled = editsEnabled,

@@ -6,7 +6,7 @@ Every third-party plugin and runtime library pinned in `gradle/libs.versions.tom
 
 | Name | Plugin / Artifact | Version | License | Purpose |
 | :--- | :--- | :--- | :--- | :--- |
-| Android Gradle Plugin | `com.android.application` / `com.android.library` | `8.5.2` | Apache-2.0 | Builds `:app` and `:core:designsystem` Android modules. |
+| Android Gradle Plugin | `com.android.application` / `com.android.library` | `8.9.1` | Apache-2.0 | Builds `:app` and `:core:designsystem` Android modules. |
 | Kotlin Gradle Plugin | `org.jetbrains.kotlin.android` / `jvm` | `1.9.24` | Apache-2.0 | Compiles Kotlin sources across `:app`, `:core:model`, and `:core:designsystem`. |
 | Kotlin Serialization Plugin | `org.jetbrains.kotlin.plugin.serialization` | `1.9.24` | Apache-2.0 | Generates compile-time JSON serializers for `schemaVersion = 1` models. |
 | Compose Compiler Extension | `androidx.compose.compiler` | `1.5.14` | Apache-2.0 | Jetpack Compose compiler extension paired with Kotlin `1.9.24`. |

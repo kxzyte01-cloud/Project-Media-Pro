@@ -10,11 +10,14 @@ import com.projectmediapro.core.model.ClipVisualEffects
 import com.projectmediapro.core.model.ExportBitrate
 import com.projectmediapro.core.model.ExportFrameRate
 import com.projectmediapro.core.model.ExportQuality
+import com.projectmediapro.core.model.NewsOverlayItem
 import com.projectmediapro.core.model.OverlayKeyframe
 import com.projectmediapro.core.model.OverlayVisualStyle
 import com.projectmediapro.core.model.Project
 import com.projectmediapro.core.model.RemixPreset
 import com.projectmediapro.core.model.Template
+import com.projectmediapro.core.model.SilenceDetectionConfig
+import com.projectmediapro.core.model.SilenceSegment
 import com.projectmediapro.core.model.SpeedRampPreset
 import com.projectmediapro.core.model.TextOverlayStyle
 import com.projectmediapro.core.model.TrackType
@@ -66,12 +69,23 @@ sealed interface EditorDialog {
     data class Keyframes(val clipId: String) : EditorDialog
     data object Captions : EditorDialog
     data object Beats : EditorDialog
+    data class SilenceCut(val clipId: String) : EditorDialog
+    data object NewsTemplates : EditorDialog
     data object Canvas : EditorDialog
     data object Quality : EditorDialog
     data object SaveAsTemplate : EditorDialog
     data object ApplyStyle : EditorDialog
     data object RemixDraft : EditorDialog
 }
+
+data class SilenceScanUiState(
+    val clipId: String,
+    val clipDurationMs: Long,
+    val thresholdDb: Float = SilenceDetectionConfig.DEFAULT_THRESHOLD_DB,
+    val minSilenceMs: Long = SilenceDetectionConfig.DEFAULT_MIN_SILENCE_MS,
+    val segments: List<SilenceSegment> = emptyList(),
+    val isScanning: Boolean = false,
+)
 
 data class AudioPreviewState(
     val clipId: String,
@@ -104,6 +118,7 @@ sealed interface EditorUiState {
         val captionDocument: CaptionDocument? = null,
         val isTranscribingCaptions: Boolean = false,
         val isDetectingBeats: Boolean = false,
+        val silenceScan: SilenceScanUiState? = null,
         val export: ExportUiState = ExportUiState.Idle,
         val exportStartedAtNanos: Long = 0L,
         val exportElapsedMs: Long = 0L,
@@ -156,6 +171,16 @@ sealed interface EditorEvent {
     data class RemoveBeatMarker(val markerId: String) : EditorEvent
     data object ClearBeatMarkers : EditorEvent
     data object AutoCutOnBeats : EditorEvent
+    data object OpenSilenceCut : EditorEvent
+    data class UpdateSilenceThreshold(val thresholdDb: Float) : EditorEvent
+    data class UpdateMinSilenceMs(val minSilenceMs: Long) : EditorEvent
+    data class ToggleSilenceSegment(val segmentId: String) : EditorEvent
+    data object CancelSilenceScan : EditorEvent
+    data object ApplySilenceCut : EditorEvent
+    data object OpenNewsTemplates : EditorEvent
+    data class AddNewsOverlay(val item: NewsOverlayItem) : EditorEvent
+    data class UpdateNewsOverlay(val item: NewsOverlayItem) : EditorEvent
+    data class RemoveNewsOverlay(val overlayId: String) : EditorEvent
     data class ToggleSoundReactive(val enabled: Boolean) : EditorEvent
     data object OpenCanvas : EditorEvent
     data object OpenExportQuality : EditorEvent
