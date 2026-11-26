@@ -1,30 +1,109 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="editor_studio_dock_news">News</string>
-    <string name="news_sheet_title">News &amp; Broadcast Templates</string>
-    <string name="cd_close_news_sheet">Close news templates</string>
-    <string name="news_section_templates">Choose Template</string>
+    <string name="news_sheet_title">News &amp; Broadcast Studio</string>
+    <string name="cd_close_news_sheet">Close news studio</string>
+    <string name="news_section_templates">Choose Effect (10)</string>
+    <string name="news_section_presets">Channel Brand Presets</string>
     <string name="news_section_quick_fill">Quick-Fill Details</string>
     <string name="news_section_theme">Theme</string>
     <string name="news_section_timing">Timing</string>
     <string name="news_section_active">Active on Timeline (%1$d)</string>
 
-    <string name="news_tpl_breaking_desk">Breaking Desk 16:9</string>
+    <string name="news_tab_content">Content</string>
+    <string name="news_tab_style">Style</string>
+    <string name="news_tab_motion">Motion &amp; Audio</string>
+
+    <string name="news_tpl_breaking_desk">Breaking Lower-Third</string>
     <string name="news_tpl_breaking_shorts">Shorts Alert 9:16</string>
-    <string name="news_tpl_editorial_quote">Editorial Quote</string>
+    <string name="news_tpl_data_ticker">News Crawl / Ticker</string>
+    <string name="news_tpl_live_bug">LIVE Bug &amp; Clock</string>
+    <string name="news_tpl_ots_card">OTS Topic Card</string>
+    <string name="news_tpl_stinger_wipe">Stinger Wipe</string>
+    <string name="news_tpl_editorial_quote">Marker Highlighter</string>
+    <string name="news_tpl_callout">Hand-Drawn Callout</string>
+    <string name="news_tpl_source_hud">Source &amp; Archive HUD</string>
     <string name="news_tpl_speaker_l3">Speaker Lower-Third</string>
-    <string name="news_tpl_stat_proof">3s Stat Proof</string>
-    <string name="news_tpl_data_ticker">Data Ticker Desk</string>
+    <string name="news_tpl_stat_proof">3s Stat Proof Card</string>
 
     <string name="news_theme_broadcast_red">Broadcast Red</string>
     <string name="news_theme_cream_paper">Cream Paper</string>
     <string name="news_theme_dark_noir">Dark Noir</string>
     <string name="news_theme_slate_blue">Slate Blue</string>
 
-    <string name="news_field_headline">Headline / Name / Stat</string>
-    <string name="news_field_subline">Subline / Role / Attribution</string>
-    <string name="news_field_badge">Badge / Source Pill</string>
-    <string name="news_field_ticker">Scrolling Ticker (separate items with |)</string>
+    <string name="news_field_headline">Headline / Name / Stat / Banner</string>
+    <string name="news_field_subline">Subline / Role / Caption / Source</string>
+    <string name="news_field_badge">Badge / Prefix Pill</string>
+    <string name="news_field_tab1">Tab 1 (e.g. BREAKING)</string>
+    <string name="news_field_tab2">Tab 2 (e.g. LIVE)</string>
+    <string name="news_field_location">City / Desk Location</string>
+    <string name="news_field_year">Year / Date Tag</string>
+    <string name="news_field_ticker">Ticker Items (separate with |, e.g. NIFTY +1.4% | GOLD -0.3%)</string>
+    <string name="news_field_separator">Separator</string>
+
+    <string name="news_toggle_chevrons">Pulsing Chevrons (&gt;&gt;&gt;)</string>
+    <string name="news_toggle_intro_pill">1.5s Intro Pill-to-Bar Reveal</string>
+    <string name="news_toggle_portrait_mode">9:16 Vertical Safe Layout</string>
+    <string name="news_toggle_chip_mode">Market Chip Mode (Up / Down)</string>
+    <string name="news_toggle_live_dot">Pulsing LIVE Dot</string>
+    <string name="news_toggle_wipe_rtl">Wipe Right-to-Left</string>
+    <string name="news_toggle_scanlines">Archive Scanlines Look</string>
+    <string name="news_toggle_safe_zone">Safe-Zone Lock (Auto-Suppress 9:16 Ticker w/ Captions)</string>
+
+    <string name="news_pick_image">Pick OTS Photo</string>
+    <string name="news_pick_logo">Pick Channel Logo</string>
+    <string name="news_clear_image">Clear Image</string>
+    <string name="news_clock_mode">Clock Mode</string>
+    <string name="news_clock_off">Off</string>
+    <string name="news_clock_system">System Time</string>
+    <string name="news_clock_custom">Custom HH:MM</string>
+    <string name="news_callout_mode">Callout Mode</string>
+    <string name="news_callout_circle">Circle</string>
+    <string name="news_callout_underline">Underline</string>
+    <string name="news_callout_redaction">Redaction Bar</string>
+
+    <string name="news_color_primary">Primary Brand Color</string>
+    <string name="news_color_secondary">Background / Secondary Color</string>
+    <string name="news_color_text">Text Color</string>
+    <string name="news_color_highlight">Highlight / Accent Color</string>
+    <string name="news_slider_font_scale">Font Scale: %1$d%%</string>
+    <string name="news_slider_opacity">Background Opacity: %1$d%%</string>
+    <string name="news_slider_radius">Corner Radius: %1$d dp</string>
+    <string name="news_slider_roughness">Marker Roughness: %1$d%%</string>
+    <string name="news_slider_stroke">Stroke Width: %1$d dp</string>
+
+    <string name="news_motion_style">In / Out Animation</string>
+    <string name="news_motion_slide">Slide</string>
+    <string name="news_motion_wipe">Wipe</string>
+    <string name="news_motion_pop">Pop</string>
+    <string name="news_motion_fade">Fade</string>
+    <string name="news_motion_none">None</string>
+    <string name="news_slider_anim_speed">Animation Speed: %1$.1fx</string>
+    <string name="news_slider_ticker_speed">Ticker Speed: %1$d px/s</string>
+    <string name="news_slider_stagger">Line Stagger: %1$d ms</string>
+    <string name="news_corner_label">Corner / Shoulder Placement</string>
+    <string name="news_corner_tl">Top-Left</string>
+    <string name="news_corner_tr">Top-Right</string>
+    <string name="news_corner_bl">Bottom-Left</string>
+    <string name="news_corner_br">Bottom-Right</string>
+    <string name="news_slider_anchor_x">Horizontal Anchor: %1$d%%</string>
+    <string name="news_slider_anchor_y">Vertical Anchor: %1$d%%</string>
+    <string name="news_slider_scale">Scale: %1$d%%</string>
+    <string name="news_sfx_label">Bundled SFX Cue (Offline)</string>
+    <string name="news_sfx_none">Silent</string>
+    <string name="news_sfx_hit">Newsroom Hit</string>
+    <string name="news_sfx_whoosh">Stinger Whoosh</string>
+    <string name="news_sfx_scratch">Marker Scratch</string>
+    <string name="news_sfx_teletype">Teletype Tick</string>
+    <string name="news_slider_sfx_vol">SFX Volume: %1$d%%</string>
+
+    <string name="news_preset_save">+ Save Preset</string>
+    <string name="news_preset_apply_all">Apply Brand to All</string>
+    <string name="news_preset_dialog_title">Save Channel Brand Preset</string>
+    <string name="news_preset_name_hint">Preset Name (e.g. My News Channel)</string>
+    <string name="news_preset_save_confirm">Save</string>
+    <string name="news_preset_cancel">Cancel</string>
+    <string name="news_preview_label">Live Preview</string>
 
     <string name="news_timing_start">Starts at playhead: %1$s</string>
     <string name="news_timing_duration">Duration: %1$s</string>
@@ -32,5 +111,6 @@
     <string name="news_action_update">Update Overlay</string>
     <string name="news_action_new">New Overlay</string>
     <string name="cd_edit_news_overlay">Edit overlay</string>
+    <string name="cd_duplicate_news_overlay">Duplicate overlay</string>
     <string name="cd_delete_news_overlay">Remove overlay</string>
 </resources>

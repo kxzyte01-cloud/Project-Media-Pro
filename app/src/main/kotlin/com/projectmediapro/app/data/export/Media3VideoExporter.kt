@@ -279,7 +279,11 @@ class Media3VideoExporter(
                 addAll(VideoEffectFactory.buildBeatDropEffects(plan.beatMarkers, plan.soundReactiveEnabled))
             }
             val captionOverlay = CaptionOverlayEffectFactory.createOverlay(plan.captionDocument, plan.newsOverlays)
-            val newsOverlay = NewsOverlayEffectFactory.createOverlay(plan.newsOverlays)
+            val newsOverlay = NewsOverlayEffectFactory.createOverlay(
+                overlays = plan.newsOverlays,
+                captionsActive = plan.captionDocument != null && plan.captionDocument.segments.isNotEmpty(),
+                context = context,
+            )
             if (plan.overlays.isNotEmpty() || plan.textOverlays.isNotEmpty() || captionOverlay != null || newsOverlay != null) {
                 val textureOverlays: List<TextureOverlay> = buildList(
                     plan.overlays.size + plan.textOverlays.size +

@@ -1,5 +1,6 @@
 package com.projectmediapro.feature.news
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -13,25 +14,30 @@ import com.projectmediapro.core.model.NewsOverlayItem
 import com.projectmediapro.core.model.NewsOverlayLayout
 
 /**
- * Media3 1.4.1 [BitmapOverlay] for animated news/creator broadcast overlays.
+ * Media3 1.4.1 [BitmapOverlay] for all 10 customizable animated news/creator broadcast overlays.
  *
- * Uses ping-pong double-buffering plus static-frame dirty-key caching:
- * - When all visible overlays are in their static hold phase (no scrolling ticker or live pulse),
- *   returns the cached [Bitmap] instance so Media3 skips redundant OpenGL texture uploads.
- * - When animating or scrolling, swaps cleanly between two pre-allocated buffers with zero heap churn.
+ * Uses ping-pong double-buffering plus quantized dirty-key caching:
+ * - Static hold regions and 1-second clock/pulse ticks (`LIVE_BUG_CLOCK`) return the cached
+ *   [Bitmap] instance so Media3 skips redundant OpenGL texture uploads.
+ * - Automatically suppresses 9:16 bottom tickers when Whisper captions are active (`captionsActive`).
+ * - Deterministically recycles both ping-pong buffers and loaded logo/OTS bitmaps in [release].
  */
 @OptIn(UnstableApi::class)
 class NewsBitmapOverlay(
     private val overlays: List<NewsOverlayItem>,
+    private val captionsActive: Boolean = false,
+    context: Context? = null,
 ) : BitmapOverlay() {
 
+    private val bitmapCache: NewsOverlayBitmapCache? = context?.let { NewsOverlayBitmapCache(it) }
     private var bufferA: Bitmap? = null
     private var canvasA: Canvas? = null
     private var bufferB: Bitmap? = null
     private var canvasB: Canvas? = null
     private var nextIsA: Boolean = true
     private var lastReturnedBitmap: Bitmap? = null
-    private var lastStaticKey: String? = null
+    private var lastCacheKey: String? = null
+    private var isPortraitVideo: Boolean = false
     private var overlaySettings: OverlaySettings = OverlaySettings.Builder().build()
 
     override fun configure(videoSize: Size) {
@@ -39,6 +45,7 @@ class NewsBitmapOverlay(
         recycleFrames()
         val videoWidth = videoSize.width.coerceAtLeast(1)
         val videoHeight = videoSize.height.coerceAtLeast(1)
+        isPortraitVideo = videoHeight > videoWidth
         val longSide = maxOf(videoWidth, videoHeight)
         val downscale = if (longSide > MAX_OVERLAY_LONG_SIDE_PX) {
             MAX_OVERLAY_LONG_SIDE_PX.toFloat() / longSide.toFloat()
@@ -59,7 +66,7 @@ class NewsBitmapOverlay(
         canvasA = Canvas(first)
         bufferB = second
         canvasB = Canvas(second)
-        lastStaticKey = null
+        lastCacheKey = null
         lastReturnedBitmap = null
     }
 
@@ -67,24 +74,26 @@ class NewsBitmapOverlay(
 
     override fun getBitmap(presentationTimeUs: Long): Bitmap {
         val timeMs = (presentationTimeUs / 1_000L).coerceAtLeast(0L)
-        val staticKey = computeStaticKeyOrNull(timeMs)
+        val cacheKey = computeCacheKeyOrNull(timeMs)
         val cached = lastReturnedBitmap
-        if (staticKey != null && staticKey == lastStaticKey && cached != null && !cached.isRecycled) {
+        if (cacheKey != null && cacheKey == lastCacheKey && cached != null && !cached.isRecycled) {
             return cached
         }
 
         val (targetBitmap, targetCanvas) = acquireNextBuffer()
         targetCanvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
-        if (staticKey != EMPTY_KEY) {
+        if (cacheKey != EMPTY_KEY) {
             NewsOverlayRenderer.renderAll(
                 canvas = targetCanvas,
                 widthPx = targetBitmap.width.toFloat(),
                 heightPx = targetBitmap.height.toFloat(),
                 overlays = overlays,
                 timeMs = timeMs,
+                captionsActive = captionsActive,
+                bitmapLoader = bitmapCache?.let { cache -> { uri -> cache.load(uri) } },
             )
         }
-        lastStaticKey = staticKey
+        lastCacheKey = cacheKey
         lastReturnedBitmap = targetBitmap
         return targetBitmap
     }
@@ -92,18 +101,21 @@ class NewsBitmapOverlay(
     override fun release() {
         super.release()
         recycleFrames()
+        bitmapCache?.clear()
     }
 
-    private fun computeStaticKeyOrNull(timeMs: Long): String? {
+    private fun computeCacheKeyOrNull(timeMs: Long): String? {
         var anyVisible = false
         var keyBuilder: StringBuilder? = null
         for (item in overlays) {
+            if (NewsOverlayLayout.shouldSuppressOverlay(item, isPortraitVideo, captionsActive)) continue
             val anim = NewsOverlayLayout.evaluateAnimation(item, timeMs)
             if (!anim.visible) continue
             anyVisible = true
-            if (!anim.isStaticHold) return null
+            val bucket = NewsOverlayLayout.quantizedFrameBucket(item, timeMs, anim)
+            if (bucket == NewsOverlayLayout.DYNAMIC_FRAME_BUCKET) return null
             if (keyBuilder == null) keyBuilder = StringBuilder()
-            keyBuilder.append(item.id).append('|')
+            keyBuilder.append(item.id).append(':').append(bucket).append('|')
         }
         return if (!anyVisible) EMPTY_KEY else keyBuilder.toString()
     }
@@ -132,7 +144,7 @@ class NewsBitmapOverlay(
         bufferB = null
         canvasB = null
         lastReturnedBitmap = null
-        lastStaticKey = null
+        lastCacheKey = null
     }
 
     companion object {
@@ -143,6 +155,10 @@ class NewsBitmapOverlay(
 
 object NewsOverlayEffectFactory {
     @OptIn(UnstableApi::class)
-    fun createOverlay(overlays: List<NewsOverlayItem>): NewsBitmapOverlay? =
-        if (overlays.isEmpty()) null else NewsBitmapOverlay(overlays)
+    fun createOverlay(
+        overlays: List<NewsOverlayItem>,
+        captionsActive: Boolean = false,
+        context: Context? = null,
+    ): NewsBitmapOverlay? =
+        if (overlays.isEmpty()) null else NewsBitmapOverlay(overlays, captionsActive, context)
 }

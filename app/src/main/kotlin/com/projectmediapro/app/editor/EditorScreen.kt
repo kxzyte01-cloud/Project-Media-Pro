@@ -1009,6 +1009,11 @@ private fun LoadedStudioWorkspace(
                 onAddOverlay = { onEvent(EditorEvent.AddNewsOverlay(it)) },
                 onUpdateOverlay = { onEvent(EditorEvent.UpdateNewsOverlay(it)) },
                 onRemoveOverlay = { onEvent(EditorEvent.RemoveNewsOverlay(it)) },
+                onApplyBrandPresetToAll = { preset ->
+                    state.project.newsOverlays.forEach { existing ->
+                        onEvent(EditorEvent.UpdateNewsOverlay(existing.withBrandPreset(preset)))
+                    }
+                },
                 onDismiss = { onEvent(EditorEvent.DismissDialog) },
             )
         }
@@ -1438,14 +1443,17 @@ private fun EditorPreviewStage(
                 modifier = Modifier.fillMaxSize(),
             )
             val isPortraitStage = safeAspect < 1f
+            val captionsActive = captionDocument != null && captionDocument.segments.isNotEmpty()
             val newsOccupiedBands = NewsOverlayLayout.occupiedBandsAt(
                 overlays = newsOverlays,
                 timeMs = timelinePositionMs,
                 isPortrait = isPortraitStage,
+                captionsActive = captionsActive,
             )
             NewsPreviewOverlay(
                 overlays = newsOverlays,
                 timelinePositionMs = timelinePositionMs,
+                captionsActive = captionsActive,
                 modifier = Modifier.matchParentSize(),
             )
             CaptionPreviewOverlay(
