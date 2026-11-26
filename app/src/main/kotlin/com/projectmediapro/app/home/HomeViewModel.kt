@@ -1,3 +1,4 @@
+```kotlin
 package com.projectmediapro.app.home
 
 import androidx.lifecycle.ViewModel
@@ -115,6 +116,7 @@ sealed interface HomeEffect {
 class HomeViewModel(
     private val projectRepository: ProjectRepository,
     private val mediaStorage: ProjectMediaStorage? = null,
+    private val ioDispatcher: kotlinx.coroutines.CoroutineDispatcher? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -318,7 +320,11 @@ class HomeViewModel(
     private suspend fun refreshProjects() {
         try {
             val loaded = projectRepository.listProjects()
-            val thumbs = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val thumbs = if (ioDispatcher != null) {
+                kotlinx.coroutines.withContext(ioDispatcher) {
+                    resolveThumbnailTargets(loaded)
+                }
+            } else {
                 resolveThumbnailTargets(loaded)
             }
             _uiState.update { state ->
@@ -368,8 +374,10 @@ class HomeViewModel(
                 return HomeViewModel(
                     projectRepository = projectRepository,
                     mediaStorage = mediaStorage,
+                    ioDispatcher = kotlinx.coroutines.Dispatchers.IO,
                 ) as T
             }
         }
     }
 }
+```
