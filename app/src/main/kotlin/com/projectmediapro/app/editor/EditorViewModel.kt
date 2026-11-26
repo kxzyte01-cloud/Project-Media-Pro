@@ -798,7 +798,6 @@ class EditorViewModel(
                     )
                 }
             }
-            EditorEvent.RemoveMissingMediaClips -> {
             EditorEvent.ToggleSelectedMute -> {
                 val current = _uiState.value as? EditorUiState.Loaded ?: return
                 val targetId = current.selectedClipId ?: return
@@ -878,6 +877,7 @@ class EditorViewModel(
                     ProjectTimeline.setOverlayChromaKey(project, targetId, event.config)
                 }
             }
+            EditorEvent.RemoveMissingMediaClips -> {
                 val current = _uiState.value as? EditorUiState.Loaded ?: return
                 if (current.isBusy) return
                 val missingIds = ProjectMediaHealthChecker
