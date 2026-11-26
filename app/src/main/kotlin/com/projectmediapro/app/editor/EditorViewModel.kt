@@ -23,6 +23,8 @@ import com.projectmediapro.core.model.ProjectRemixEngine
 import com.projectmediapro.core.model.RemixPreset
 import com.projectmediapro.core.model.StarterTemplates
 import com.projectmediapro.core.model.TemplateStyleApplier
+import com.projectmediapro.core.model.AudioEnhanceConfig
+import com.projectmediapro.core.model.AudioEqPreset
 import com.projectmediapro.core.model.BeatEffectKind
 import com.projectmediapro.core.model.BeatMarker
 import com.projectmediapro.core.model.Clip
@@ -797,6 +799,85 @@ class EditorViewModel(
                 }
             }
             EditorEvent.RemoveMissingMediaClips -> {
+            EditorEvent.ToggleSelectedMute -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                val targetId = current.selectedClipId ?: return
+                commitUndoableEdit(targetId) { project ->
+                    ProjectTimeline.toggleClipMute(project, targetId)
+                }
+            }
+            EditorEvent.ToggleMuteAllVideos -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                commitUndoableEdit(current.selectedClipId) { project ->
+                    ProjectTimeline.toggleMuteAllVideoClips(project)
+                }
+            }
+            is EditorEvent.SplitSelectedAudioAtPlayhead -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                val targetId = current.selectedClipId ?: return
+                val newClipId = idProvider()
+                commitUndoableEdit(newClipId) { project ->
+                    ProjectTimeline.splitAudioClipAt(
+                        project = project,
+                        clipId = targetId,
+                        splitPositionMs = event.timelinePositionMs,
+                        newClipId = newClipId,
+                    )
+                }
+            }
+            EditorEvent.OpenVoiceover -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                if (current.isBusy) return
+                _uiState.value = current.copy(
+                    activeDialog = EditorDialog.Voiceover,
+                    audioPreview = null,
+                    error = null,
+                )
+            }
+            is EditorEvent.InsertVoiceover -> {
+                val newClipId = idProvider()
+                val clip = Clip(
+                    id = newClipId,
+                    mediaUri = event.relativePath,
+                    startTimeMs = event.startTimeMs,
+                    durationMs = event.durationMs,
+                    trimStartMs = 0L,
+                    trimEndMs = event.durationMs,
+                    sourceDurationMs = event.durationMs,
+                    audioEnhance = AudioEnhanceConfig(
+                        eqPreset = AudioEqPreset.VOCAL_CLARITY,
+                        noiseGateEnabled = true,
+                    ),
+                )
+                commitUndoableEdit(newClipId) { project ->
+                    ProjectTimeline.appendClip(
+                        project = project,
+                        clip = clip,
+                        newTrackId = idProvider(),
+                        trackType = TrackType.AUDIO,
+                    )
+                }
+            }
+            EditorEvent.OpenChromaKey -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                val targetId = current.selectedClipId ?: return
+                val loc = current.project.findClipLocation(targetId) ?: return
+                if (current.isBusy || !loc.isOverlay || !loc.clip.isVideo) return
+                _uiState.value = current.copy(
+                    activeDialog = EditorDialog.ChromaKey(targetId),
+                    audioPreview = null,
+                    error = null,
+                )
+            }
+            is EditorEvent.ApplyChromaKey -> {
+                val current = _uiState.value as? EditorUiState.Loaded ?: return
+                val targetId = (current.activeDialog as? EditorDialog.ChromaKey)?.clipId
+                    ?: current.selectedClipId
+                    ?: return
+                commitUndoableEdit(targetId) { project ->
+                    ProjectTimeline.setOverlayChromaKey(project, targetId, event.config)
+                }
+            }
                 val current = _uiState.value as? EditorUiState.Loaded ?: return
                 if (current.isBusy) return
                 val missingIds = ProjectMediaHealthChecker
@@ -1083,19 +1164,19 @@ class EditorViewModel(
         )
 
         viewModelScope.launch {
-            val (relativePath, durationMs) = try {
+            val (relativePath, durationMs, isVideoOverlay) = try {
                 when (trackType) {
                     TrackType.AUDIO -> {
                         val imported = audioImporter.importAudio(projectId, sourceUri)
-                        imported.relativePath to imported.durationMs
+                        Triple(imported.relativePath, imported.durationMs, false)
                     }
                     TrackType.OVERLAY -> {
                         val imported = overlayImporter.importOverlay(projectId, sourceUri)
-                        imported.relativePath to 0L
+                        Triple(imported.relativePath, imported.durationMs, imported.isVideo)
                     }
                     else -> {
                         val imported = videoImporter.importVideo(projectId, sourceUri)
-                        imported.relativePath to imported.durationMs
+                        Triple(imported.relativePath, imported.durationMs, false)
                     }
                 }
             } catch (cancelled: CancellationException) {
@@ -1115,12 +1196,22 @@ class EditorViewModel(
                     val previousProject = beforeSave.project
                     val newClipId = idProvider()
                     val updatedProject = if (trackType == TrackType.OVERLAY) {
-                        ProjectTimeline.addOverlayClip(
-                            project = previousProject,
-                            clipId = newClipId,
-                            mediaUri = relativePath,
-                            newTrackId = idProvider(),
-                        )
+                        if (isVideoOverlay) {
+                            ProjectTimeline.addVideoOverlayClip(
+                                project = previousProject,
+                                clipId = newClipId,
+                                mediaUri = relativePath,
+                                newTrackId = idProvider(),
+                                sourceDurationMs = durationMs,
+                            )
+                        } else {
+                            ProjectTimeline.addOverlayClip(
+                                project = previousProject,
+                                clipId = newClipId,
+                                mediaUri = relativePath,
+                                newTrackId = idProvider(),
+                            )
+                        }
                     } else {
                         val clip = Clip(
                             id = newClipId,

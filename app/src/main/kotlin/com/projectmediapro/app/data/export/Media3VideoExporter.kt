@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.net.Uri
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import androidx.media3.common.Effect
@@ -34,6 +35,7 @@ import com.google.common.collect.ImmutableList
 import com.projectmediapro.app.data.export.VideoExportException.Reason
 import com.projectmediapro.core.model.CanvasAspect
 import com.projectmediapro.core.model.AudioEnhanceConfig
+import com.projectmediapro.core.model.ChromaKeyMath
 import com.projectmediapro.core.model.SpeechWindowMs
 import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.ExportFrameRate
@@ -284,7 +286,7 @@ class Media3VideoExporter(
                         (if (newsOverlay != null) 1 else 0) +
                         (if (captionOverlay != null) 1 else 0),
                 ) {
-                    plan.overlays.forEach { add(TimedBitmapOverlay(it)) }
+                    plan.overlays.forEach { overlay -> if (overlay.isVideo) add(TimedVideoOverlay(overlay)) else add(TimedBitmapOverlay(overlay)) }
                     plan.textOverlays.forEach { add(TimedTextOverlay(it)) }
                     if (newsOverlay != null) {
                         add(newsOverlay)
@@ -649,4 +651,135 @@ private fun decodeScaledOverlayBitmap(path: String, targetWidthPx: Int): Bitmap?
         decoded.recycle()
     }
     return scaled
+}
+
+
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+private class TimedVideoOverlay(
+    private val overlay: ExportOverlay,
+) : BitmapOverlay() {
+    private val startTimeUs = overlay.startTimeMs * 1_000L
+    private val endTimeUs = overlay.endTimeMs * 1_000L
+    private val animationDurationMs = overlay.animationDurationMs.coerceAtLeast(1L)
+    private val hiddenSettings = OverlaySettings.Builder().setAlphaScale(0f).build()
+    private var retriever: MediaMetadataRetriever? = null
+    private var frameW = 1
+    private var frameH = 1
+    private val cache = object : LinkedHashMap<Long, Bitmap>(32, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, Bitmap>?): Boolean {
+            if (size > MAX_CACHED_FRAMES) {
+                eldest?.value?.let { if (!it.isRecycled) it.recycle() }
+                return true
+            }
+            return false
+        }
+    }
+    private var blank: Bitmap? = null
+
+    override fun configure(videoSize: Size) {
+        super.configure(videoSize)
+        release()
+        frameW = (videoSize.width * overlay.widthFraction).roundToInt().coerceAtLeast(2)
+        val r = MediaMetadataRetriever()
+        runCatching { r.setDataSource(overlay.path) }
+        retriever = r
+        val vw = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: frameW
+        val vh = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: frameW
+        frameH = if (vw > 0) (frameW * vh / vw).coerceAtLeast(2) else frameW
+        blank = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+    }
+
+    override fun getOverlaySettings(presentationTimeUs: Long): OverlaySettings {
+        if (presentationTimeUs !in startTimeUs until endTimeUs) return hiddenSettings
+        val elapsedMs = ((presentationTimeUs - startTimeUs) / 1_000L).coerceAtLeast(0L)
+        val resolved = KeyframeInterpolator.evaluateAtTime(
+            baseCenterX = overlay.centerX,
+            baseCenterY = overlay.centerY,
+            keyframes = overlay.keyframes,
+            elapsedTime = elapsedMs,
+            totalDuration = animationDurationMs,
+        )
+        val styleAlpha = overlay.style?.sanitized()?.opacity ?: 1f
+        return OverlaySettings.Builder()
+            .setBackgroundFrameAnchor(resolved.centerX * 2f - 1f, 1f - resolved.centerY * 2f)
+            .setOverlayFrameAnchor(0f, 0f)
+            .setScale(resolved.scale, resolved.scale)
+            .setRotationDegrees(-resolved.rotationDegrees)
+            .setAlphaScale((resolved.opacity * styleAlpha).coerceIn(0f, 1f))
+            .build()
+    }
+
+    override fun getBitmap(presentationTimeUs: Long): Bitmap {
+        if (presentationTimeUs !in startTimeUs until endTimeUs) return blank ?: fallback()
+        val localMs = (presentationTimeUs - startTimeUs) / 1_000L
+        val bucket = (localMs / FRAME_INTERVAL_MS) * FRAME_INTERVAL_MS
+        cache[bucket]?.let { if (!it.isRecycled) return it }
+        val r = retriever ?: return blank ?: fallback()
+        val sourceMs = overlay.trimStartMs + bucket
+        val frame = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            runCatching {
+                r.getScaledFrameAtTime(
+                    sourceMs * 1_000L,
+                    MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                    frameW,
+                    frameH,
+                )
+            }.getOrNull()
+        } else {
+            null
+        }
+        val bitmap = frame
+            ?: runCatching {
+                r.getFrameAtTime(sourceMs * 1_000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+            }.getOrNull()
+            ?: return blank ?: fallback()
+        val scaled = if (bitmap.width != frameW || bitmap.height != frameH) {
+            Bitmap.createScaledBitmap(bitmap, frameW, frameH, true).also {
+                if (it !== bitmap && !bitmap.isRecycled) bitmap.recycle()
+            }
+        } else {
+            bitmap
+        }
+        val mutable = if (scaled.isMutable) {
+            scaled
+        } else {
+            scaled.copy(Bitmap.Config.ARGB_8888, true).also {
+                if (it !== scaled && !scaled.isRecycled) scaled.recycle()
+            }
+        }
+        if (overlay.chromaKey.enabled) {
+            val pixels = IntArray(mutable.width * mutable.height)
+            mutable.getPixels(pixels, 0, mutable.width, 0, 0, mutable.width, mutable.height)
+            val (cb, cr) = overlay.chromaKey.keyChroma()
+            ChromaKeyMath.applyToPixels(
+                pixels = pixels,
+                keyCb = cb,
+                keyCr = cr,
+                similarity = overlay.chromaKey.similarity,
+                smoothness = overlay.chromaKey.smoothness,
+                spill = overlay.chromaKey.spillSuppression,
+            )
+            mutable.setPixels(pixels, 0, mutable.width, 0, 0, mutable.width, mutable.height)
+        }
+        cache[bucket] = mutable
+        return mutable
+    }
+
+    override fun release() {
+        super.release()
+        cache.values.forEach { if (!it.isRecycled) it.recycle() }
+        cache.clear()
+        runCatching { retriever?.release() }
+        retriever = null
+        blank?.let { if (!it.isRecycled) it.recycle() }
+        blank = null
+    }
+
+    private fun fallback(): Bitmap =
+        Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888).also { blank = it }
+
+    companion object {
+        const val FRAME_INTERVAL_MS = 83L
+        const val MAX_CACHED_FRAMES = 24
+    }
 }

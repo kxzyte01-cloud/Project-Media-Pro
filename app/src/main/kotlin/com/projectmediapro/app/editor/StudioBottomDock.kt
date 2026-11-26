@@ -129,6 +129,12 @@ private fun MainStudioDockItems(
         onClick = onPickAudio,
     )
     StudioDockTile(
+        icon = StudioToolIconKind.AUDIO,
+        label = stringResource(R.string.editor_studio_dock_voiceover),
+        enabled = editsEnabled,
+        onClick = { onEvent(EditorEvent.OpenVoiceover) },
+    )
+    StudioDockTile(
         icon = StudioToolIconKind.OVERLAY,
         label = stringResource(R.string.editor_studio_dock_overlay),
         enabled = editsEnabled,
@@ -271,9 +277,39 @@ private fun SelectedClipDockItems(
                 isActive = clip.hasKeyframes,
                 onClick = { onEvent(EditorEvent.OpenKeyframes) },
             )
+            if (clip.isVideo) {
+                StudioDockTile(
+                    icon = StudioToolIconKind.EFFECTS,
+                    label = stringResource(R.string.editor_tool_chroma_key),
+                    enabled = editsEnabled,
+                    isActive = clip.hasActiveChromaKey,
+                    onClick = { onEvent(EditorEvent.OpenChromaKey) },
+                )
+                StudioDockTile(
+                    icon = StudioToolIconKind.VOLUME,
+                    label = stringResource(if (clip.muted) R.string.editor_tool_unmute else R.string.editor_tool_mute),
+                    enabled = editsEnabled,
+                    isActive = clip.muted,
+                    onClick = { onEvent(EditorEvent.ToggleSelectedMute) },
+                )
+            }
         }
         location.isAudio -> {
             val isAudioPlaying = state.audioPreview?.clipId == clip.id
+            val audioCanSplitHere = ProjectTimeline.canSplitAudioClipAt(state.project, clip.id, timelinePositionMs)
+            StudioDockTile(
+                icon = StudioToolIconKind.SPLIT,
+                label = stringResource(R.string.editor_split_audio),
+                enabled = editsEnabled && audioCanSplitHere,
+                onClick = { onEvent(EditorEvent.SplitSelectedAudioAtPlayhead(timelinePositionMs)) },
+            )
+            StudioDockTile(
+                icon = StudioToolIconKind.VOLUME,
+                label = stringResource(if (clip.muted) R.string.editor_tool_unmute else R.string.editor_tool_mute),
+                enabled = editsEnabled,
+                isActive = clip.muted,
+                onClick = { onEvent(EditorEvent.ToggleSelectedMute) },
+            )
             StudioDockTile(
                 icon = if (isAudioPlaying) StudioToolIconKind.PAUSE else StudioToolIconKind.PLAY,
                 label = stringResource(
@@ -366,6 +402,13 @@ private fun SelectedClipDockItems(
                 enabled = editsEnabled && !clip.isStillImage,
                 isActive = clip.hasCustomAudioMix,
                 onClick = { onEvent(EditorEvent.OpenVolume) },
+            )
+            StudioDockTile(
+                icon = StudioToolIconKind.VOLUME,
+                label = stringResource(if (clip.muted) R.string.editor_tool_unmute else R.string.editor_tool_mute),
+                enabled = editsEnabled && !clip.isStillImage,
+                isActive = clip.muted,
+                onClick = { onEvent(EditorEvent.ToggleSelectedMute) },
             )
             StudioDockTile(
                 icon = StudioToolIconKind.EXTRACT_AUDIO,

@@ -238,6 +238,7 @@ fun AppNavHost(
             EditorScreen(
                 uiState = uiState,
                 onEvent = viewModel::onEvent,
+                mediaStorage = container.mediaStorage,
                 onNavigateBack = { if (navController.previousBackStackEntry != null) navController.popBackStack() },
                 onOpenProject = { nextProjectId ->
                     navController.navigate(AppRoutes.editorRoute(nextProjectId)) {

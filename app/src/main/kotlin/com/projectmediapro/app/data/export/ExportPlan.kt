@@ -6,6 +6,7 @@ import com.projectmediapro.core.model.SpeechWindowMs
 import com.projectmediapro.core.model.BeatEffectKind
 import com.projectmediapro.core.model.BeatMarker
 import com.projectmediapro.core.model.CanvasAspect
+import com.projectmediapro.core.model.ChromaKeyConfig
 import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.ClipCrop
 import com.projectmediapro.core.model.ClipVisualEffects
@@ -53,6 +54,7 @@ data class ExportClip(
     val flipVertical: Boolean = false,
     val crop: ClipCrop? = null,
     val isStillImage: Boolean = false,
+    val muted: Boolean = false,
 )
 
 /**
@@ -87,6 +89,13 @@ data class ExportOverlay(
     val keyframes: List<OverlayKeyframe> = emptyList(),
     val animationDurationMs: Long = (endTimeMs - startTimeMs).coerceAtLeast(0L),
     val style: OverlayVisualStyle? = null,
+    val isVideo: Boolean = false,
+    val trimStartMs: Long = 0L,
+    val trimEndMs: Long = 0L,
+    val sourceSpanMs: Long = 0L,
+    val muted: Boolean = true,
+    val volume: Float = 1.0f,
+    val chromaKey: ChromaKeyConfig = ChromaKeyConfig(),
 )
 
 /**
@@ -157,7 +166,7 @@ object ExportPlanner {
                     trimEndMs = trimEndMs,
                     durationMs = clipDurationMs,
                     visualEffects = sanitizedEffects,
-                    volume = ProjectTimeline.sanitizeVolume(clip.volume),
+                    volume = if (clip.muted) 0f else ProjectTimeline.sanitizeVolume(clip.volume),
                     audioBoost = ProjectTimeline.sanitizeAudioBoost(clip.audioBoost),
                     audioFadeInMs = ProjectTimeline.sanitizeAudioFadeMs(clip.audioFadeInMs, clipDurationMs),
                     audioFadeOutMs = ProjectTimeline.sanitizeAudioFadeMs(clip.audioFadeOutMs, clipDurationMs),
@@ -170,6 +179,7 @@ object ExportPlanner {
                     flipVertical = clip.flipVertical,
                     crop = clip.crop?.sanitized()?.takeUnless { it.isIdentity },
                     isStillImage = clip.isStillImage,
+                    muted = clip.muted,
                 ),
             )
             totalDurationMs += clipDurationMs
@@ -262,7 +272,7 @@ object ExportPlanner {
                     trimEndMs = if (shouldSpecifyBounds) clipStartMs + exportedSourceMs else 0L,
                     durationMs = exportedTimelineMs,
                     timelineStartMs = timelineMs,
-                    volume = ProjectTimeline.sanitizeVolume(clip.volume),
+                    volume = if (clip.muted) 0f else ProjectTimeline.sanitizeVolume(clip.volume),
                     audioBoost = ProjectTimeline.sanitizeAudioBoost(clip.audioBoost),
                     audioFadeInMs = ProjectTimeline.sanitizeAudioFadeMs(clip.audioFadeInMs, exportedTimelineMs),
                     audioFadeOutMs = ProjectTimeline.sanitizeAudioFadeMs(clip.audioFadeOutMs, exportedTimelineMs),
@@ -308,6 +318,13 @@ object ExportPlanner {
                     keyframes = KeyframeInterpolator.sanitizeList(clip.keyframes, centerX, centerY),
                     animationDurationMs = clip.durationMs.coerceAtLeast(endMs - startMs),
                     style = clip.overlayStyle?.sanitized()?.takeUnless { it.isIdentity },
+                    isVideo = clip.isVideo,
+                    trimStartMs = ProjectTimeline.effectiveTrimStartMs(clip),
+                    trimEndMs = ProjectTimeline.effectiveTrimEndMs(clip),
+                    sourceSpanMs = ProjectTimeline.effectiveSourceSpanMs(clip),
+                    muted = clip.muted,
+                    volume = clip.effectiveVolume,
+                    chromaKey = clip.chromaKey.sanitized(),
                 ),
             )
         }

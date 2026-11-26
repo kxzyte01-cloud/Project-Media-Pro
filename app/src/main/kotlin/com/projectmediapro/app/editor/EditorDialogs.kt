@@ -287,6 +287,9 @@ internal fun editorErrorStringRes(error: EditorError): Int = when (error) {
     EditorError.EXTRACT_AUDIO_FAILED -> R.string.error_extract_audio_failed
     EditorError.BEATS_DETECT_FAILED -> R.string.error_beats_detect_failed
     EditorError.SNAPSHOT_FAILED -> R.string.error_snapshot_failed
+    EditorError.VOICEOVER_PERMISSION_DENIED -> R.string.editor_error_voiceover_permission
+    EditorError.VOICEOVER_FAILED -> R.string.editor_error_voiceover_failed
+    EditorError.IMPORT_NOT_MEDIA -> R.string.editor_error_import_not_media
 }
 
 @Composable

@@ -807,6 +807,24 @@ private fun TimelineRichClipBlock(
                 }
             }
 
+            if (clip.muted) {
+                val mutedLabel = stringResource(R.string.cd_muted_clip)
+                Surface(
+                    shape = MediaProShapes.Small,
+                    color = MaterialTheme.colorScheme.error.copy(alpha = 0.88f),
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(4.dp)
+                        .semantics { contentDescription = mutedLabel },
+                ) {
+                    Text(
+                        text = mutedLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onError,
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                    )
+                }
+            }
             val badgeTextColor = if (!isAudioLane && filmstrip.isNotEmpty()) Color.White else contentColor
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,

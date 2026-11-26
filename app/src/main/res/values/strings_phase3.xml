@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Feature A: mute -->
+    <string name="editor_tool_mute">Mute</string>
+    <string name="editor_tool_unmute">Unmute</string>
+    <string name="editor_mute_all">Mute all</string>
+    <string name="editor_unmute_all">Unmute all</string>
+    <string name="cd_muted_clip">Muted</string>
+    <string name="cd_toggle_mute">Toggle mute for selected clip</string>
+
+    <!-- Feature B: audio split -->
+    <string name="editor_split_audio">Split audio</string>
+    <string name="editor_split_audio_invalid">Move the playhead inside the audio clip to split</string>
+
+    <!-- Feature C: voiceover -->
+    <string name="editor_studio_dock_voiceover">Voiceover</string>
+    <string name="voiceover_title">Record voiceover</string>
+    <string name="voiceover_permission_rationale">Microphone access is needed to record a voiceover. Audio stays on this device.</string>
+    <string name="voiceover_denied">Microphone permission was denied. Enable it in system settings to record.</string>
+    <string name="voiceover_grant">Grant microphone access</string>
+    <string name="voiceover_countdown">3-2-1 countdown</string>
+    <string name="voiceover_record">Record</string>
+    <string name="voiceover_stop">Stop &amp; insert</string>
+    <string name="voiceover_cancel">Cancel</string>
+    <string name="voiceover_error">Recording failed: %1$s</string>
+    <string name="editor_error_voiceover_permission">Microphone permission is required</string>
+    <string name="editor_error_voiceover_failed">Could not record voiceover</string>
+
+    <!-- Feature D: PiP + chroma key -->
+    <string name="editor_tool_chroma_key">Chroma key</string>
+    <string name="chroma_title">Chroma key (green screen)</string>
+    <string name="chroma_enable">Enable chroma key</string>
+    <string name="chroma_key_color">Key color</string>
+    <string name="chroma_swatch_green">Green screen key</string>
+    <string name="chroma_swatch_blue">Blue screen key</string>
+    <string name="chroma_swatch_magenta">Magenta screen key</string>
+    <string name="chroma_custom_hex">Custom hex (#RRGGBB)</string>
+    <string name="chroma_similarity">Similarity %1$d%%</string>
+    <string name="chroma_smoothness">Edge smoothness %1$d%%</string>
+    <string name="chroma_spill">Spill suppression %1$d%%</string>
+    <string name="chroma_reset">Reset</string>
+    <string name="chroma_apply">Apply</string>
+    <string name="editor_error_import_not_media">Unsupported overlay file</string>
+</resources>

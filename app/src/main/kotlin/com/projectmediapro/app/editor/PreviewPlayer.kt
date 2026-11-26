@@ -60,6 +60,7 @@ data class PreviewClip(
     val flipVertical: Boolean = false,
     val crop: ClipCrop? = null,
     val isStillImage: Boolean = false,
+    val muted: Boolean = false,
 )
 
 data class PreviewSeekRequest(
@@ -83,11 +84,13 @@ fun PreviewPlayer(
     backgroundColor: Color = Color.Black,
     seekRequest: PreviewSeekRequest? = null,
     onTimelinePositionChanged: (Long) -> Unit = {},
+    onIsPlayingChanged: (Boolean) -> Unit = {},
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val backgroundArgb = backgroundColor.toArgb()
     val latestOnPosition by rememberUpdatedState(onTimelinePositionChanged)
+    val latestOnIsPlayingChanged by rememberUpdatedState(onIsPlayingChanged)
 
     val videoAudioProcessor = remember(context) { LiveAudioEnhanceProcessor() }
     val trackAudioProcessor = remember(context) { LiveAudioEnhanceProcessor() }
@@ -119,11 +122,12 @@ fun PreviewPlayer(
         activeAudioClips.map { it.durationMs.coerceAtLeast(0L) }
     }
     var isPlaying by remember { mutableStateOf(false) }
+    LaunchedEffect(isPlaying) { latestOnIsPlayingChanged(isPlaying) }
     var currentVideoIndex by remember(activeVideoClips) { mutableIntStateOf(0) }
 
     fun applyActiveVideoParams(index: Int) {
         val clip = activeVideoClips.getOrNull(index) ?: return
-        val targetVolume = if (clip.isStillImage) 0f else ProjectTimeline.sanitizeVolume(clip.volume)
+        val targetVolume = if (clip.isStillImage || clip.muted) 0f else ProjectTimeline.sanitizeVolume(clip.volume)
         if (player.volume != targetVolume) {
             player.volume = targetVolume
         }
@@ -173,7 +177,7 @@ fun PreviewPlayer(
 
     fun applyActiveAudioParams(index: Int, timelineMs: Long): Float {
         val clip = activeAudioClips.getOrNull(index)
-        val baseVol = clip?.let { ProjectTimeline.sanitizeVolume(it.volume) } ?: 1f
+        val baseVol = clip?.let { if (it.muted) 0f else ProjectTimeline.sanitizeVolume(it.volume) } ?: 1f
         val duckMult = if (clip?.audioEnhance?.autoDuckMusicEnabled == true && speechWindowsMs.isNotEmpty()) {
             AudioDuckingEnvelope.gainAt(timelineMs, speechWindowsMs).toFloat()
         } else {

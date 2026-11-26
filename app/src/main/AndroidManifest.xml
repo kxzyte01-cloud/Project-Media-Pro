@@ -4,6 +4,8 @@
 
     <!-- Used exclusively for optional, user-initiated HTTPS download of the offline Open Whisper model in Settings. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Phase 3: in-app voiceover recording (user-initiated, runtime-requested). -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Strip auto-merged library network-state permission to keep offline-first posture strict. -->
     <uses-permission
         android:name="android.permission.ACCESS_NETWORK_STATE"
@@ -26,6 +28,7 @@
             android:theme="@style/Theme.ProjectMediaPro">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
+
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>

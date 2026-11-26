@@ -62,6 +62,7 @@ import com.projectmediapro.app.data.export.ExportGeometry
 import com.projectmediapro.app.data.export.ExportPlanner
 import com.projectmediapro.app.data.export.sanitizeExportName
 import com.projectmediapro.app.data.media.CustomFontStorage
+import com.projectmediapro.app.data.media.ProjectMediaStorage
 import java.io.File
 import com.projectmediapro.app.data.media.SubtitleFileIo
 import com.projectmediapro.core.designsystem.theme.MediaProShapes
@@ -100,6 +101,7 @@ fun EditorScreen(
     onEvent: (EditorEvent) -> Unit,
     onNavigateBack: () -> Unit,
     onOpenProject: (String) -> Unit = {},
+    mediaStorage: ProjectMediaStorage? = null,
     modifier: Modifier = Modifier,
 ) {
     val videoPickerLauncher = rememberLauncherForActivityResult(
@@ -209,7 +211,7 @@ fun EditorScreen(
                             },
                             onPickOverlay = {
                                 overlayPickerLauncher.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo),
                                 )
                             },
                             onReplaceVideo = {
@@ -243,6 +245,7 @@ fun EditorScreen(
                                 }
                             },
                             onOpenProject = onOpenProject,
+                            mediaStorage = mediaStorage,
                             onEvent = onEvent,
                         )
                     }
@@ -403,6 +406,7 @@ private fun LoadedStudioWorkspace(
     onReplaceAudio: () -> Unit,
     onConfirmExportQuality: (ExportQuality, ExportFrameRate, ExportBitrate, Boolean) -> Unit,
     onOpenProject: (String) -> Unit,
+    mediaStorage: ProjectMediaStorage? = null,
     onEvent: (EditorEvent) -> Unit,
 ) {
     val context = LocalContext.current
@@ -976,6 +980,28 @@ private fun LoadedStudioWorkspace(
                 )
             }
         }
+        EditorDialog.Voiceover -> {
+            val storage = mediaStorage ?: ProjectMediaStorage(File(context.filesDir, "media"))
+            VoiceoverSheet(
+                projectId = state.project.id,
+                storage = storage,
+                playheadMs = timelinePositionMs,
+                onInsert = { recorded, startMs ->
+                    onEvent(EditorEvent.InsertVoiceover(recorded.relativePath, recorded.durationMs, startMs))
+                },
+                onDismiss = { onEvent(EditorEvent.DismissDialog) },
+            )
+        }
+        is EditorDialog.ChromaKey -> {
+            val clip = state.project.overlayClips().firstOrNull { it.id == dialog.clipId }
+            if (clip != null) {
+                ChromaKeySheet(
+                    initial = clip.chromaKey,
+                    onApply = { config -> onEvent(EditorEvent.ApplyChromaKey(config)) },
+                    onDismiss = { onEvent(EditorEvent.DismissDialog) },
+                )
+            }
+        }
         EditorDialog.NewsTemplates -> {
             NewsTemplateSheet(
                 overlays = state.project.newsOverlays,
@@ -1372,6 +1398,7 @@ private fun EditorPreviewStage(
                 val speechWindowsMs = remember(captionDocument) {
                     ExportPlanner.extractSpeechWindows(captionDocument)
                 }
+                var isPreviewPlaying by remember { mutableStateOf(false) }
                 PreviewPlayer(
                     previewClips = previewClips,
                     audioClips = previewAudioClips,
@@ -1379,6 +1406,7 @@ private fun EditorPreviewStage(
                     backgroundColor = previewBackground,
                     seekRequest = seekRequest,
                     onTimelinePositionChanged = onTimelinePositionChanged,
+                    onIsPlayingChanged = { isPreviewPlaying = it },
                     modifier = Modifier.fillMaxSize(),
                 )
                 PreviewEffectsOverlay(
@@ -1394,6 +1422,7 @@ private fun EditorPreviewStage(
                     timelinePositionMs = timelinePositionMs,
                     selectedClipId = selectedClipId,
                     isInteractive = isInteractive,
+                    isPlaying = isPreviewPlaying,
                     onSelectOverlay = onSelectClip,
                     onCommitOverlayTransform = onCommitOverlayTransform,
                     modifier = Modifier.fillMaxSize(),

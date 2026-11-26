@@ -19,6 +19,7 @@ fun Project.textClips(): List<Clip> =
 object ProjectTimeline {
 
     const val MIN_CLIP_DURATION_MS: Long = 500L
+    const val AUDIO_SPLIT_MIN_HALF_MS: Long = 100L
     const val DEFAULT_OVERLAY_DURATION_MS: Long = 5_000L
     const val DEFAULT_TEXT_DURATION_MS: Long = 4_000L
     const val DEFAULT_FREEZE_DURATION_MS: Long = 3_000L
@@ -769,7 +770,9 @@ object ProjectTimeline {
                         val cleanIn = sanitizeAudioFadeMs(fadeInMs, durMs)
                         val cleanOut = sanitizeAudioFadeMs(fadeOutMs, durMs)
                         val resolvedEnhance = if (audioEnhance != null) normalizedEnhance else clip.audioEnhance
+                        val nextMuted = if (clampedVolume > 0f) false else clip.muted
                         if (clip.volume == clampedVolume &&
+                            clip.muted == nextMuted &&
                             clip.audioBoost == clampedBoost &&
                             clip.audioFadeInMs == cleanIn &&
                             clip.audioFadeOutMs == cleanOut &&
@@ -780,6 +783,8 @@ object ProjectTimeline {
                             changed = true
                             clip.copy(
                                 volume = clampedVolume,
+                                muted = nextMuted,
+                                volumeBeforeMute = if (clampedVolume > 0f) clampedVolume else clip.volumeBeforeMute,
                                 audioBoost = clampedBoost,
                                 audioFadeInMs = cleanIn,
                                 audioFadeOutMs = cleanOut,
@@ -802,12 +807,198 @@ object ProjectTimeline {
         val clampedVolume = sanitizeVolume(volume)
         return modifyClipTrack(project, clipId) { clips, clipIndex ->
             val clip = clips[clipIndex]
-            if (clip.isStillImage || clip.volume == clampedVolume) return@modifyClipTrack null
+            val nextMuted = if (clampedVolume > 0f) false else clip.muted
+            if (clip.isStillImage || (clip.volume == clampedVolume && clip.muted == nextMuted)) {
+                return@modifyClipTrack null
+            }
             clips.toMutableList().apply {
-                set(clipIndex, clip.copy(volume = clampedVolume))
+                set(
+                    clipIndex,
+                    clip.copy(
+                        volume = clampedVolume,
+                        muted = nextMuted,
+                        volumeBeforeMute = if (clampedVolume > 0f) clampedVolume else clip.volumeBeforeMute,
+                    ),
+                )
             }
         }
     }
+
+    fun toggleClipMute(project: Project, clipId: String): Project =
+        toggleMuteOnTrack(project, clipId) { trackType ->
+            trackType == TrackType.VIDEO || trackType == TrackType.AUDIO || trackType == TrackType.OVERLAY
+        }
+
+    fun toggleVideoClipMute(project: Project, clipId: String): Project =
+        toggleMuteOnTrack(project, clipId) { it == TrackType.VIDEO }
+
+    fun toggleOverlayVideoMute(project: Project, clipId: String): Project =
+        toggleMuteOnTrack(project, clipId) { it == TrackType.OVERLAY }
+
+    fun toggleMuteAllVideoClips(project: Project): Project {
+        val trackIndex = project.tracks.indexOfFirst { it.type == TrackType.VIDEO }
+        if (trackIndex < 0) return project
+        val clips = project.tracks[trackIndex].clips
+        val eligible = clips.filter { !it.isStillImage }
+        if (eligible.isEmpty()) return project
+        val shouldMute = eligible.any { !it.muted }
+        val updated = clips.map { clip ->
+            if (clip.isStillImage) {
+                clip
+            } else if (shouldMute) {
+                if (clip.muted) {
+                    clip
+                } else {
+                    clip.copy(
+                        muted = true,
+                        volumeBeforeMute = sanitizeVolume(clip.volume),
+                        volume = 0f,
+                    )
+                }
+            } else {
+                if (!clip.muted) {
+                    clip
+                } else {
+                    clip.copy(
+                        muted = false,
+                        volume = restoreVolume(clip.volumeBeforeMute),
+                    )
+                }
+            }
+        }
+        if (updated == clips) return project
+        return updateTrack(project, trackIndex, updated)
+    }
+
+    private fun toggleMuteOnTrack(
+        project: Project,
+        clipId: String,
+        trackFilter: (TrackType) -> Boolean,
+    ): Project = modifyClipTrack(project, clipId, trackFilter = trackFilter) { clips, index ->
+        val clip = clips[index]
+        if (clip.isStillImage) return@modifyClipTrack null
+        val next = if (!clip.muted) {
+            clip.copy(
+                muted = true,
+                volumeBeforeMute = sanitizeVolume(clip.volume),
+                volume = 0f,
+            )
+        } else {
+            clip.copy(
+                muted = false,
+                volume = restoreVolume(clip.volumeBeforeMute),
+            )
+        }
+        if (next == clip) null else clips.toMutableList().apply { set(index, next) }
+    }
+
+    private fun restoreVolume(stored: Float): Float {
+        val clean = sanitizeVolume(stored)
+        return if (clean <= 0f) 1.0f else clean
+    }
+
+    fun canSplitAudioClipAt(project: Project, clipId: String, splitPositionMs: Long): Boolean {
+        val clip = project.audioClips().firstOrNull { it.id == clipId } ?: return false
+        if (clip.isStillImage) return false
+        val durationMs = effectiveDurationMs(clip)
+        val offsetMs = splitPositionMs - clip.startTimeMs
+        return offsetMs >= AUDIO_SPLIT_MIN_HALF_MS &&
+            (durationMs - offsetMs) >= AUDIO_SPLIT_MIN_HALF_MS
+    }
+
+    fun splitAudioClipAt(
+        project: Project,
+        clipId: String,
+        splitPositionMs: Long,
+        newClipId: String,
+    ): Project {
+        if (newClipId.isBlank() || newClipId == clipId) return project
+        if (project.tracks.any { track -> track.clips.any { it.id == newClipId } }) return project
+        if (!canSplitAudioClipAt(project, clipId, splitPositionMs)) return project
+        return modifyClipTrack(project, clipId, requiredTrackType = TrackType.AUDIO) { clips, index ->
+            val clip = clips[index]
+            val offsetTimelineMs = splitPositionMs - clip.startTimeMs
+            val sourceSpanMs = effectiveSourceSpanMs(clip)
+            val sourceOffsetMs = SpeedRampEvaluator.timelineOffsetToSourceOffsetMs(
+                timelineOffsetMs = offsetTimelineMs,
+                sourceSpanMs = sourceSpanMs,
+                baseSpeed = clip.playbackSpeed,
+                preset = clip.speedRamp,
+            )
+            val currentStart = effectiveTrimStartMs(clip)
+            val currentEnd = effectiveTrimEndMs(clip)
+            val splitSourceMs = currentStart + sourceOffsetMs
+            val leftSpanMs = sourceOffsetMs
+            val rightSpanMs = (currentEnd - splitSourceMs).coerceAtLeast(0L)
+            if (leftSpanMs < AUDIO_SPLIT_MIN_HALF_MS || rightSpanMs < AUDIO_SPLIT_MIN_HALF_MS) {
+                return@modifyClipTrack null
+            }
+            val leftDurationMs = SpeedRampEvaluator.scaledDurationMs(leftSpanMs, clip.playbackSpeed, clip.speedRamp)
+            val rightDurationMs = SpeedRampEvaluator.scaledDurationMs(rightSpanMs, clip.playbackSpeed, clip.speedRamp)
+            val left = clip.copy(
+                durationMs = leftDurationMs,
+                trimStartMs = currentStart,
+                trimEndMs = splitSourceMs,
+                audioFadeOutMs = 0L,
+            )
+            val right = clip.copy(
+                id = newClipId,
+                durationMs = rightDurationMs,
+                trimStartMs = splitSourceMs,
+                trimEndMs = currentEnd,
+                audioFadeInMs = 0L,
+            )
+            buildList(clips.size + 1) {
+                clips.forEachIndexed { i, existing ->
+                    if (i == index) {
+                        add(left)
+                        add(right)
+                    } else {
+                        add(existing)
+                    }
+                }
+            }
+        }
+    }
+
+    fun addVideoOverlayClip(
+        project: Project,
+        clipId: String,
+        mediaUri: String,
+        newTrackId: String,
+        sourceDurationMs: Long,
+    ): Project {
+        if (mediaUri.isBlank() || sourceDurationMs <= 0L) return project
+        val totalVideoMs = videoDurationMs(project)
+        val initialDurationMs = if (totalVideoMs > 0L) {
+            minOf(DEFAULT_OVERLAY_DURATION_MS, totalVideoMs, sourceDurationMs)
+        } else {
+            minOf(DEFAULT_OVERLAY_DURATION_MS, sourceDurationMs)
+        }.coerceAtLeast(MIN_CLIP_DURATION_MS)
+        val overlayClip = Clip(
+            id = clipId,
+            mediaUri = mediaUri,
+            startTimeMs = 0L,
+            durationMs = initialDurationMs,
+            trimStartMs = 0L,
+            trimEndMs = initialDurationMs,
+            sourceDurationMs = sourceDurationMs,
+            isVideo = true,
+            muted = true,
+            volumeBeforeMute = 1.0f,
+            volume = 0f,
+        )
+        return appendClip(project, overlayClip, newTrackId, trackType = TrackType.OVERLAY)
+    }
+
+    fun setOverlayChromaKey(project: Project, clipId: String, config: ChromaKeyConfig): Project =
+        modifyClipTrack(project, clipId, requiredTrackType = TrackType.OVERLAY) { clips, index ->
+            val clip = clips[index]
+            if (!clip.isVideo) return@modifyClipTrack null
+            val clean = config.sanitized()
+            if (clip.chromaKey == clean) return@modifyClipTrack null
+            clips.toMutableList().apply { set(index, clip.copy(chromaKey = clean)) }
+        }
 
     fun setClipSpeed(
         project: Project,

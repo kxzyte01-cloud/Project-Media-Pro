@@ -20,6 +20,7 @@ import com.projectmediapro.app.data.media.VideoAudioExtractor
 import com.projectmediapro.app.data.media.OverlayImporter
 import com.projectmediapro.app.data.media.ProjectMediaStorage
 import com.projectmediapro.app.data.media.VideoImporter
+import com.projectmediapro.app.data.media.VoiceoverRecorder
 import com.projectmediapro.app.data.project.FileProjectRepository
 import com.projectmediapro.app.data.project.ProjectRepository
 import com.projectmediapro.app.data.template.FileTemplateRepository
@@ -42,6 +43,7 @@ import com.projectmediapro.feature.captions.WhisperTranscriptionEngine
 import java.io.File
 
 class AppContainer(appContext: Context) {
+    private val context: Context = appContext.applicationContext
     val themePreferencesStore: ThemePreferencesStore = DataStoreThemePreferencesStore(appContext)
     val privacyPolicyDataSource: PrivacyPolicyDataSource = RawResourcePrivacyPolicyDataSource(appContext)
     val mediaStorage: ProjectMediaStorage = ProjectMediaStorage(
@@ -132,4 +134,7 @@ class AppContainer(appContext: Context) {
         exportCacheDir = exportTempDirectory,
     )
     val appVersionName: String = BuildConfig.VERSION_NAME
+
+    fun newVoiceoverRecorder(projectId: String): VoiceoverRecorder =
+        VoiceoverRecorder(context = context, storage = mediaStorage, projectId = projectId)
 }

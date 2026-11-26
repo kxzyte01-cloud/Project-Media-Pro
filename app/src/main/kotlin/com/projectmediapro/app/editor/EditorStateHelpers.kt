@@ -92,6 +92,7 @@ internal fun resolvePreviewClips(
             flipVertical = clip.flipVertical,
             crop = clip.crop?.sanitized()?.takeUnless { it.isIdentity },
             isStillImage = clip.isStillImage,
+            muted = clip.muted,
         )
     }
 
@@ -114,6 +115,7 @@ internal fun resolvePreviewAudioClips(
             playbackSpeed = ProjectTimeline.effectiveSpeed(clip),
             speedRamp = clip.speedRamp,
             sourceSpanMs = ProjectTimeline.effectiveSourceSpanMs(clip),
+            muted = clip.muted,
         )
     }
 

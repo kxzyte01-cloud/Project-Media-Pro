@@ -3,6 +3,7 @@ package com.projectmediapro.app.editor
 import com.projectmediapro.core.model.AudioEnhanceConfig
 import com.projectmediapro.core.model.BeatEffectKind
 import com.projectmediapro.core.model.CanvasAspect
+import com.projectmediapro.core.model.ChromaKeyConfig
 import com.projectmediapro.core.model.Clip
 import com.projectmediapro.core.model.CanvasBackground
 import com.projectmediapro.core.model.ClipCrop
@@ -44,6 +45,9 @@ enum class EditorError {
     EXTRACT_AUDIO_FAILED,
     BEATS_DETECT_FAILED,
     SNAPSHOT_FAILED,
+    VOICEOVER_PERMISSION_DENIED,
+    VOICEOVER_FAILED,
+    IMPORT_NOT_MEDIA,
 }
 
 sealed interface ExportUiState {
@@ -76,6 +80,8 @@ sealed interface EditorDialog {
     data object SaveAsTemplate : EditorDialog
     data object ApplyStyle : EditorDialog
     data object RemixDraft : EditorDialog
+    data object Voiceover : EditorDialog
+    data class ChromaKey(val clipId: String) : EditorDialog
 }
 
 data class SilenceScanUiState(
@@ -303,4 +309,11 @@ sealed interface EditorEvent {
     data class CreateRemixDraft(val preset: RemixPreset) : EditorEvent
     data object DismissRemixCreatedBanner : EditorEvent
     data object RemoveMissingMediaClips : EditorEvent
+    data object ToggleSelectedMute : EditorEvent
+    data object ToggleMuteAllVideos : EditorEvent
+    data class SplitSelectedAudioAtPlayhead(val timelinePositionMs: Long) : EditorEvent
+    data object OpenVoiceover : EditorEvent
+    data class InsertVoiceover(val relativePath: String, val durationMs: Long, val startTimeMs: Long) : EditorEvent
+    data object OpenChromaKey : EditorEvent
+    data class ApplyChromaKey(val config: ChromaKeyConfig) : EditorEvent
 }
