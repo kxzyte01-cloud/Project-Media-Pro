@@ -3,9 +3,19 @@ name: CI
 on:
   push:
     branches: ["**"]
+    paths-ignore:
+      - "*.zip"
+      - "patches/*.zip"
   pull_request:
     branches: [main]
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Optional git ref or commit SHA to build"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -22,6 +32,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
 
       - name: Guard against forbidden secret files
         shell: bash

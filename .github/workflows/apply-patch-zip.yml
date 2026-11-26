@@ -1,0 +1,105 @@
+name: Auto-Unpack Patch ZIP
+
+on:
+  push:
+    branches-ignore:
+      - main
+    paths:
+      - "*.zip"
+      - "patches/*.zip"
+
+concurrency:
+  group: auto-unpack-zip-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  unpack:
+    name: Unpack uploaded ZIP and commit files
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      changed: ${{ steps.commit.outputs.changed }}
+      commit_sha: ${{ steps.commit.outputs.commit_sha }}
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Safely unpack root and patches/*.zip archives
+        shell: bash
+        run: |
+          python3 - << 'PYEOF'
+          import glob, os, posixpath, zipfile
+
+          zips = sorted(set(glob.glob("*.zip") + glob.glob("patches/*.zip")))
+          if not zips:
+              print("No patch ZIP files found.")
+              raise SystemExit(0)
+
+          extracted_files = []
+          for zp in zips:
+              print(f"Processing {zp} ...")
+              with zipfile.ZipFile(zp, "r") as zf:
+                  for info in zf.infolist():
+                      if info.is_dir():
+                          continue
+                      raw_name = info.filename.replace("\\", "/")
+                      norm = posixpath.normpath(raw_name).lstrip("/")
+                      if (
+                          not norm
+                          or norm == "."
+                          or norm.startswith("../")
+                          or "/../" in norm
+                          or norm.startswith("__MACOSX/")
+                          or norm.endswith("/.DS_Store")
+                          or norm == ".DS_Store"
+                      ):
+                          print(f"Skipping unsafe or metadata entry: {raw_name}")
+                          continue
+                      if norm.startswith(".git/") or norm.startswith(".github/workflows/"):
+                          print(f"Skipping protected path (must be updated manually): {norm}")
+                          continue
+                      parent = os.path.dirname(norm)
+                      if parent:
+                          os.makedirs(parent, exist_ok=True)
+                      with zf.open(info, "r") as src, open(norm, "wb") as dst:
+                          dst.write(src.read())
+                      extracted_files.append(norm)
+                      print(f"  -> {norm}")
+              os.remove(zp)
+              print(f"Removed processed archive: {zp}")
+
+          print(f"Total files unpacked: {len(extracted_files)}")
+          PYEOF
+
+      - name: Commit and push unpacked files
+        id: commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Patch Unpacker Bot"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          COUNT=$(git diff --cached --name-only | wc -l | tr -d ' ')
+          git commit -m "Apply patch ZIP ($COUNT files updated)"
+          git push origin "HEAD:${{ github.ref_name }}"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  verify_and_build:
+    name: Build APK from unpacked files
+    needs: unpack
+    if: needs.unpack.outputs.changed == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.unpack.outputs.commit_sha }}
