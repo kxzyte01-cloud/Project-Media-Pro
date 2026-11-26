@@ -45,7 +45,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.projectmediapro.app.R
-import com.projectmediapro.core.designsystem.components.SectionHeader
+import com.projectmediapro.core.designsystem.component.SectionHeader
 import com.projectmediapro.core.designsystem.theme.MediaProShapes
 import com.projectmediapro.core.designsystem.theme.MediaProSpacing
 import com.projectmediapro.core.model.NewsOverlayItem
