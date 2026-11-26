@@ -1,4 +1,4 @@
-```kotlin
+kotlin
 package com.projectmediapro.app.home
 
 import androidx.lifecycle.ViewModel
@@ -380,4 +380,4 @@ class HomeViewModel(
         }
     }
 }
-```
+
