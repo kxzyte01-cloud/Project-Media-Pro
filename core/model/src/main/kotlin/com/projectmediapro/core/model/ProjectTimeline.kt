@@ -1677,4 +1677,11 @@ object ProjectTimeline {
         if (project.newsOverlays.none { it.id == overlayId }) return project
         return project.copy(newsOverlays = project.newsOverlays.filterNot { it.id == overlayId })
     }
+
+    fun applyNewsBrandPresetToAll(project: Project, preset: NewsBrandPreset): Project {
+        if (project.newsOverlays.isEmpty()) return project
+        return project.copy(
+            newsOverlays = project.newsOverlays.map { it.withBrandPreset(preset) },
+        )
+    }
 }
