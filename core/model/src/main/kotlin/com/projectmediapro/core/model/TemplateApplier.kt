@@ -137,7 +137,8 @@ object TemplateApplier {
                 sourceMs
             }
             val targetTrimEndMs = minOf(sourceMs, desiredSourceMs)
-            val effectiveDurationMs = (targetTrimEndMs / safeSpeed).toLong()
+            val effectiveDurationMs = SpeedRampEvaluator
+                .scaledDurationMs(targetTrimEndMs, safeSpeed, slot.speedRamp)
                 .coerceAtLeast(ProjectTimeline.MIN_CLIP_DURATION_MS)
 
             val clip = Clip(

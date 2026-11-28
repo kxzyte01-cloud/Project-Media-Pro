@@ -606,13 +606,16 @@ object ProjectTimeline {
     ): Project = modifyClipTrack(
         project = project,
         clipId = clipId,
-        trackFilter = { it == TrackType.OVERLAY || it == TrackType.TEXT },
+        trackFilter = { it == TrackType.VIDEO || it == TrackType.OVERLAY || it == TrackType.TEXT },
     ) { clips, clipIndex ->
         val clip = clips[clipIndex]
+        val isMainVideo = project.tracks.any { track ->
+            track.type == TrackType.VIDEO && track.clips.any { it.id == clipId }
+        }
         val sanitized = KeyframeInterpolator.sanitizeList(
             keyframes = keyframes,
-            defaultCenterX = clip.overlayCenterX,
-            defaultCenterY = clip.overlayCenterY,
+            defaultCenterX = if (isMainVideo) 0.5f else clip.overlayCenterX,
+            defaultCenterY = if (isMainVideo) 0.5f else clip.overlayCenterY,
         )
         if (clip.keyframes == sanitized) return@modifyClipTrack null
         clips.toMutableList().apply {
@@ -1616,7 +1619,7 @@ object ProjectTimeline {
         var nextStartMs = 0L
         return clips.map { clip ->
             val positioned = clip.copy(startTimeMs = nextStartMs)
-            nextStartMs = saturatingAdd(nextStartMs, clip.durationMs.coerceAtLeast(0L))
+            nextStartMs = saturatingAdd(nextStartMs, effectiveDurationMs(clip))
             positioned
         }
     }
@@ -1640,7 +1643,7 @@ object ProjectTimeline {
         return tracks
             .asSequence()
             .flatMap { it.clips.asSequence() }
-            .maxOfOrNull { saturatingAdd(it.startTimeMs, it.durationMs) }
+            .maxOfOrNull { saturatingAdd(it.startTimeMs, effectiveDurationMs(it)) }
             ?: 0L
     }
 

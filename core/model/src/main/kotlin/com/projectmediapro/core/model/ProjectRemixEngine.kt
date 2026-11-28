@@ -109,7 +109,7 @@ object ProjectRemixEngine {
                                 )
                             }
                         }
-                        cursorMs += updated.durationMs.coerceAtLeast(0L)
+                        cursorMs += ProjectTimeline.effectiveDurationMs(updated)
                         updated
                     }
                     track.copy(clips = updatedClips)
@@ -151,7 +151,7 @@ object ProjectRemixEngine {
         val recomputedDurationMs = passOneTracks
             .filter { it.type == TrackType.VIDEO }
             .flatMap { it.clips }
-            .sumOf { it.durationMs.coerceAtLeast(0L) }
+            .sumOf { ProjectTimeline.effectiveDurationMs(it) }
 
         // Keep overlay and text tracks strictly inside the remixed video timeline when Rhythm Cut shortens it.
         val finalTracks = if (recomputedDurationMs > 0L) {

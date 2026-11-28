@@ -255,8 +255,8 @@ object KeyframePresets {
             KeyframePresetId.SLIDE_UP -> slideUp(safeX, safeY)
             KeyframePresetId.POP_SPIN -> popSpin(safeX, safeY)
             KeyframePresetId.KEN_BURNS_ZOOM_IN -> kenBurnsZoomIn(safeX, safeY)
-            KeyframePresetId.KEN_BURNS_PAN_LEFT -> kenBurnsPanLeft(safeX, safeY)
-            KeyframePresetId.KEN_BURNS_PAN_RIGHT -> kenBurnsPanRight(safeX, safeY)
+            KeyframePresetId.KEN_BURNS_PAN_LEFT -> kenBurnsPanLeft(safeY)
+            KeyframePresetId.KEN_BURNS_PAN_RIGHT -> kenBurnsPanRight(safeY)
         }
     }
 
@@ -340,59 +340,17 @@ object KeyframePresets {
     )
 
     fun kenBurnsZoomIn(centerX: Float, centerY: Float): List<OverlayKeyframe> = listOf(
-        OverlayKeyframe(
-            timeFraction = 0f,
-            centerX = centerX,
-            centerY = centerY,
-            scale = 1.0f,
-            opacity = 1f,
-            easing = KeyframeEasing.EASE_IN_OUT,
-        ),
-        OverlayKeyframe(
-            timeFraction = 1f,
-            centerX = centerX,
-            centerY = centerY,
-            scale = 1.22f,
-            opacity = 1f,
-            easing = KeyframeEasing.EASE_IN_OUT,
-        ),
+        OverlayKeyframe(timeFraction = 0f, centerX = centerX, centerY = centerY, scale = 1.0f, easing = KeyframeEasing.EASE_IN_OUT),
+        OverlayKeyframe(timeFraction = 1f, centerX = centerX, centerY = centerY, scale = 1.22f, easing = KeyframeEasing.EASE_IN_OUT),
     )
 
-    fun kenBurnsPanLeft(centerX: Float, centerY: Float): List<OverlayKeyframe> = listOf(
-        OverlayKeyframe(
-            timeFraction = 0f,
-            centerX = (centerX + 0.06f).coerceIn(0f, 1f),
-            centerY = centerY,
-            scale = 1.18f,
-            opacity = 1f,
-            easing = KeyframeEasing.EASE_IN_OUT,
-        ),
-        OverlayKeyframe(
-            timeFraction = 1f,
-            centerX = (centerX - 0.06f).coerceIn(0f, 1f),
-            centerY = centerY,
-            scale = 1.18f,
-            opacity = 1f,
-            easing = KeyframeEasing.EASE_IN_OUT,
-        ),
+    fun kenBurnsPanLeft(centerY: Float): List<OverlayKeyframe> = listOf(
+        OverlayKeyframe(timeFraction = 0f, centerX = 0.57f, centerY = centerY, scale = 1.16f, easing = KeyframeEasing.EASE_IN_OUT),
+        OverlayKeyframe(timeFraction = 1f, centerX = 0.43f, centerY = centerY, scale = 1.16f, easing = KeyframeEasing.EASE_IN_OUT),
     )
 
-    fun kenBurnsPanRight(centerX: Float, centerY: Float): List<OverlayKeyframe> = listOf(
-        OverlayKeyframe(
-            timeFraction = 0f,
-            centerX = (centerX - 0.06f).coerceIn(0f, 1f),
-            centerY = centerY,
-            scale = 1.18f,
-            opacity = 1f,
-            easing = KeyframeEasing.EASE_IN_OUT,
-        ),
-        OverlayKeyframe(
-            timeFraction = 1f,
-            centerX = (centerX + 0.06f).coerceIn(0f, 1f),
-            centerY = centerY,
-            scale = 1.18f,
-            opacity = 1f,
-            easing = KeyframeEasing.EASE_IN_OUT,
-        ),
+    fun kenBurnsPanRight(centerY: Float): List<OverlayKeyframe> = listOf(
+        OverlayKeyframe(timeFraction = 0f, centerX = 0.43f, centerY = centerY, scale = 1.16f, easing = KeyframeEasing.EASE_IN_OUT),
+        OverlayKeyframe(timeFraction = 1f, centerX = 0.57f, centerY = centerY, scale = 1.16f, easing = KeyframeEasing.EASE_IN_OUT),
     )
 }

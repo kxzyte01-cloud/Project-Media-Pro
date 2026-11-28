@@ -69,6 +69,9 @@ import com.projectmediapro.core.designsystem.theme.MediaProShapes
 import com.projectmediapro.core.designsystem.theme.MediaProSpacing
 import com.projectmediapro.core.model.CanvasBackground
 import androidx.compose.ui.graphics.graphicsLayer
+import com.projectmediapro.core.model.VideoKeyframeCoverage
+import com.projectmediapro.core.model.KeyframeInterpolator
+import androidx.compose.ui.graphics.TransformOrigin
 import com.projectmediapro.core.model.BeatEffectEvaluator
 import com.projectmediapro.core.model.BeatMarker
 import com.projectmediapro.core.model.Clip
@@ -1366,9 +1369,33 @@ private fun EditorPreviewStage(
             positionInClipMs = activeClipAtTime.positionInClipMs,
             clipDurationMs = activeClipAtTime.clipDurationMs,
         )
-        val combinedScale = beatSample.scale * (clipTransitionTransform?.scale ?: 1f)
+        val activeKeyframes = activeClipAtTime?.clip?.keyframes.orEmpty()
+        val keyframeResolved = if (activeClipAtTime != null && activeKeyframes.isNotEmpty()) {
+            val sanitizedKf = KeyframeInterpolator.sanitizeList(activeKeyframes, 0.5f, 0.5f)
+            KeyframeInterpolator.evaluateSanitizedAtTime(
+                baseCenterX = 0.5f,
+                baseCenterY = 0.5f,
+                sanitizedKeyframes = sanitizedKf,
+                elapsedTime = activeClipAtTime.positionInClipMs,
+                totalDuration = activeClipAtTime.clipDurationMs,
+            )
+        } else {
+            null
+        }
+        val keyframeClamped = keyframeResolved?.let { kf ->
+            VideoKeyframeCoverage.clamp(
+                scale = kf.scale,
+                rotationDegrees = kf.rotationDegrees,
+                translationX = (kf.centerX - 0.5f) * 2f,
+                translationY = (0.5f - kf.centerY) * 2f,
+            )
+        }
+        val combinedScale = (keyframeClamped?.scale ?: 1f) * beatSample.scale * (clipTransitionTransform?.scale ?: 1f)
+        val combinedRotation = keyframeResolved?.rotationDegrees ?: 0f
         val combinedTx = beatSample.translationXFraction + (clipTransitionTransform?.translationXFraction ?: 0f)
         val combinedTy = beatSample.translationYFraction + (clipTransitionTransform?.translationYFraction ?: 0f)
+        val kfTxNdc = keyframeClamped?.translationX ?: 0f
+        val kfTyNdc = keyframeClamped?.translationY ?: 0f
         Box(
             contentAlignment = Alignment.Center,
             modifier = stageModifier
@@ -1380,94 +1407,98 @@ private fun EditorPreviewStage(
                     shape = MediaProShapes.Medium,
                 ),
         ) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    scaleX = combinedScale
-                    scaleY = combinedScale
-                    translationX = size.width * combinedTx
-                    translationY = size.height * combinedTy
-                },
-        ) {
-        if (!hasVideoClips && textClips.isEmpty()) {
-            Text(
-                text = stringResource(R.string.editor_empty),
-                style = MaterialTheme.typography.bodyMedium,
-                color = emptyPreviewTextColor,
-            )
-        } else {
-            if (hasVideoClips) {
-                val speechWindowsMs = remember(captionDocument) {
-                    ExportPlanner.extractSpeechWindows(captionDocument)
-                }
+            if (!hasVideoClips && textClips.isEmpty()) {
+                Text(
+                    text = stringResource(R.string.editor_empty),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = emptyPreviewTextColor,
+                )
+            } else {
                 var isPreviewPlaying by remember { mutableStateOf(false) }
-                PreviewPlayer(
-                    previewClips = previewClips,
-                    audioClips = previewAudioClips,
-                    speechWindowsMs = speechWindowsMs,
-                    backgroundColor = previewBackground,
-                    seekRequest = seekRequest,
-                    onTimelinePositionChanged = onTimelinePositionChanged,
-                    onIsPlayingChanged = { isPreviewPlaying = it },
-                    modifier = Modifier.fillMaxSize(),
-                )
-                PreviewEffectsOverlay(
-                    videoClips = videoClips,
-                    timelinePositionMs = timelinePositionMs,
-                    beatMarkers = beatMarkers,
-                    soundReactiveEnabled = soundReactiveEnabled,
-                    modifier = Modifier.fillMaxSize(),
-                )
-                OverlayPreviewLayer(
-                    overlays = overlayClips,
-                    overlayFilePaths = overlayFilePaths,
+                if (hasVideoClips) {
+                    val speechWindowsMs = remember(captionDocument) {
+                        ExportPlanner.extractSpeechWindows(captionDocument)
+                    }
+                    // Video-only transform box (matches export: keyframes + beat + transition apply before overlays)
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                scaleX = combinedScale
+                                scaleY = combinedScale
+                                rotationZ = combinedRotation
+                                translationX = size.width * combinedTx + kfTxNdc * size.width * 0.5f
+                                translationY = size.height * combinedTy - kfTyNdc * size.height * 0.5f
+                                transformOrigin = TransformOrigin.Center
+                                clip = true
+                            },
+                    ) {
+                        PreviewPlayer(
+                            previewClips = previewClips,
+                            audioClips = previewAudioClips,
+                            speechWindowsMs = speechWindowsMs,
+                            backgroundColor = previewBackground,
+                            seekRequest = seekRequest,
+                            onTimelinePositionChanged = onTimelinePositionChanged,
+                            onIsPlayingChanged = { isPreviewPlaying = it },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                        PreviewEffectsOverlay(
+                            videoClips = videoClips,
+                            timelinePositionMs = timelinePositionMs,
+                            beatMarkers = beatMarkers,
+                            soundReactiveEnabled = soundReactiveEnabled,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                    OverlayPreviewLayer(
+                        overlays = overlayClips,
+                        overlayFilePaths = overlayFilePaths,
+                        timelinePositionMs = timelinePositionMs,
+                        selectedClipId = selectedClipId,
+                        isInteractive = isInteractive,
+                        isPlaying = isPreviewPlaying,
+                        onSelectOverlay = onSelectClip,
+                        onCommitOverlayTransform = onCommitOverlayTransform,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+                TextPreviewLayer(
+                    textClips = textClips,
                     timelinePositionMs = timelinePositionMs,
                     selectedClipId = selectedClipId,
                     isInteractive = isInteractive,
-                    isPlaying = isPreviewPlaying,
-                    onSelectOverlay = onSelectClip,
-                    onCommitOverlayTransform = onCommitOverlayTransform,
+                    onSelectText = onSelectClip,
+                    onCommitTextTransform = onCommitTextTransform,
                     modifier = Modifier.fillMaxSize(),
                 )
-            }
-            TextPreviewLayer(
-                textClips = textClips,
-                timelinePositionMs = timelinePositionMs,
-                selectedClipId = selectedClipId,
-                isInteractive = isInteractive,
-                onSelectText = onSelectClip,
-                onCommitTextTransform = onCommitTextTransform,
-                modifier = Modifier.fillMaxSize(),
-            )
-            val isPortraitStage = safeAspect < 1f
-            val captionsActive = captionDocument != null && captionDocument.lines.isNotEmpty()
-            val newsOccupiedBands = NewsOverlayLayout.occupiedBandsAt(
-                overlays = newsOverlays,
-                timeMs = timelinePositionMs,
-                isPortrait = isPortraitStage,
-                captionsActive = captionsActive,
-            )
-            NewsPreviewOverlay(
-                overlays = newsOverlays,
-                timelinePositionMs = timelinePositionMs,
-                captionsActive = captionsActive,
-                modifier = Modifier.matchParentSize(),
-            )
-            if (!NewsOverlayLayout.isStingerActiveAt(newsOverlays, timelinePositionMs)) {
-                CaptionPreviewOverlay(
-                    document = captionDocument,
-                    currentPositionUs = timelinePositionMs * CaptionTime.MICROS_PER_MS,
-                    videoWidth = 0,
-                    videoHeight = 0,
-                    occupiedBands = newsOccupiedBands,
+                val isPortraitStage = safeAspect < 1f
+                val captionsActive = captionDocument != null && captionDocument.lines.isNotEmpty()
+                val newsOccupiedBands = NewsOverlayLayout.occupiedBandsAt(
+                    overlays = newsOverlays,
+                    timeMs = timelinePositionMs,
+                    isPortrait = isPortraitStage,
+                    captionsActive = captionsActive,
+                )
+                NewsPreviewOverlay(
+                    overlays = newsOverlays,
+                    timelinePositionMs = timelinePositionMs,
+                    captionsActive = captionsActive,
                     modifier = Modifier.matchParentSize(),
                 )
+                if (!NewsOverlayLayout.isStingerActiveAt(newsOverlays, timelinePositionMs)) {
+                    CaptionPreviewOverlay(
+                        document = captionDocument,
+                        currentPositionUs = timelinePositionMs * CaptionTime.MICROS_PER_MS,
+                        videoWidth = 0,
+                        videoHeight = 0,
+                        occupiedBands = newsOccupiedBands,
+                        modifier = Modifier.matchParentSize(),
+                    )
+                }
             }
         }
-    
-        }}
     }
 }
 

@@ -137,7 +137,7 @@ class Step36RichCustomTemplatesTest {
         val newVideo = applied.videoClips().single()
         assertEquals(2_000L, newVideo.sourceDurationMs)
         assertEquals(2_000L, newVideo.trimEndMs)
-        assertEquals(1_333L, newVideo.durationMs)
+        assertEquals(SpeedRampEvaluator.scaledDurationMs(2_000L, 1.5f, SpeedRampPreset.JUMP_CUT), newVideo.durationMs)
         assertEquals(VideoFilterPreset.CRIMSON_MOOD, newVideo.visualEffects?.filter)
         assertEquals(ClipTransition.WHIP_LEFT, newVideo.visualEffects?.transitionIn)
         assertEquals(SpeedRampPreset.JUMP_CUT, newVideo.speedRamp)

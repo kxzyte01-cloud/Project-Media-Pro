@@ -487,10 +487,7 @@ class EditorViewModelTest {
         assertEquals(ExportUiState.Idle, (vm.uiState.value as EditorUiState.Loaded).export)
 
         vm.onEvent(EditorEvent.StartExport(destinationUri = "content://saf/video.mp4"))
-        assertEquals(
-            ExportUiState.Done(savedToGallery = false, shareUri = "content://saf/video.mp4"),
-            (vm.uiState.value as EditorUiState.Loaded).export,
-        )
+        assertEquals(ExportUiState.Done(savedToGallery = false, shareUri = "content://saf/video.mp4"), (vm.uiState.value as EditorUiState.Loaded).export)
         assertEquals("content://saf/video.mp4", saver.lastSavedUri)
     }
 

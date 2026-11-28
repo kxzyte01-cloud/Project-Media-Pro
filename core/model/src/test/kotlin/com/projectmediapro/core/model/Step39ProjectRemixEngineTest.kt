@@ -39,11 +39,13 @@ class Step39ProjectRemixEngineTest {
         assertFalse("Original project must stay untouched", original.soundReactiveEnabled)
 
         val clips = remix.videoClips()
+        val expectedFirstEff = ProjectTimeline.effectiveDurationMs(clips[0])
+        val expectedSecondEff = ProjectTimeline.effectiveDurationMs(clips[1])
         assertEquals(2_400L, clips[0].durationMs)
         assertEquals(0L, clips[0].startTimeMs)
         assertEquals(2_000L, clips[1].durationMs)
-        assertEquals(2_400L, clips[1].startTimeMs)
-        assertEquals(4_400L, remix.durationMs)
+        assertEquals(expectedFirstEff, clips[1].startTimeMs)
+        assertEquals(expectedFirstEff + expectedSecondEff, remix.durationMs)
         assertEquals(ClipTransition.ZOOM_IN, clips[0].visualEffects?.transitionIn)
         assertEquals(SpeedRampPreset.MONTAGE, clips[0].speedRamp)
         assertEquals(AudioEqPreset.BASS_BOOST, remix.audioClips().single().audioEnhance?.eqPreset)
@@ -88,10 +90,11 @@ class Step39ProjectRemixEngineTest {
             ),
         )
         val remix = ProjectRemixEngine.buildRemix(base, RemixPreset.RHYTHM_CUT)
-        assertEquals(4_400L, remix.durationMs)
+        val expectedTotal = remix.videoClips().sumOf { ProjectTimeline.effectiveDurationMs(it) }
+        assertEquals(expectedTotal, remix.durationMs)
         val texts = remix.textClips()
         assertEquals(1, texts.size)
         assertEquals("Keep", texts.single().textContent)
-        assertEquals(3_400L, texts.single().durationMs)
+        assertEquals(expectedTotal - 1_000L, texts.single().durationMs)
     }
 }

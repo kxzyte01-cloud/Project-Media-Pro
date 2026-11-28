@@ -36,8 +36,8 @@ fun KeyframeEditorDialog(
     onConfirm: (keyframes: List<OverlayKeyframe>) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val baseCenterX = OverlayKeyframe.sanitizeCoordinate(clip.overlayCenterX, 0.5f)
-    val baseCenterY = OverlayKeyframe.sanitizeCoordinate(clip.overlayCenterY, 0.5f)
+    val baseCenterX = if (isMainTrackVideo) 0.5f else OverlayKeyframe.sanitizeCoordinate(clip.overlayCenterX, 0.5f)
+    val baseCenterY = if (isMainTrackVideo) 0.5f else OverlayKeyframe.sanitizeCoordinate(clip.overlayCenterY, 0.5f)
     var keyframes by remember(clip.id) {
         mutableStateOf(
             KeyframeInterpolator.sanitizeList(clip.keyframes, baseCenterX, baseCenterY),
