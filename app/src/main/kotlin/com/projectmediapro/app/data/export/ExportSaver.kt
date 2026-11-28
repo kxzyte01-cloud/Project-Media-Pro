@@ -24,7 +24,7 @@ import kotlinx.coroutines.withContext
 /**
  * Where a finished export ended up, as a short human-readable hint.
  */
-data class SavedExport(val locationHint: String)
+data class SavedExport(val locationHint: String, val contentUri: String? = null)
 
 /**
  * Copies a finished export file to a place the user can reach.
@@ -80,7 +80,7 @@ internal suspend fun <T : Any> savePendingMediaStoreItem(
         if (updatedRows <= 0) {
             throw IOException("MediaStore failed to publish the exported video (updatedRows=$updatedRows)")
         }
-        return SavedExport(locationHint)
+        return SavedExport(locationHint, contentUri = item.toString())
     } catch (cancelled: CancellationException) {
         runCatching { deleteItem(item) }
         throw cancelled

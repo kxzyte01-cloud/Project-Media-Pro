@@ -54,7 +54,7 @@ enum class EditorError {
 sealed interface ExportUiState {
     data object Idle : ExportUiState
     data class Running(val percent: Int) : ExportUiState
-    data class Done(val savedToGallery: Boolean) : ExportUiState
+    data class Done(val savedToGallery: Boolean, val shareUri: String? = null) : ExportUiState
 }
 
 sealed interface EditorDialog {

@@ -321,30 +321,20 @@ object NewsEffectDrawers {
             scratch.sheenWidth = sheenWidth
             scratch.sheenTop = cardTop
             scratch.sheenBottom = bodyBottom
-        val sheenKey = (sheenWidth.roundToInt().toLong() shl 32) xor
-            (palette.primary.toLong() and 0xFFFFFFL) xor
-            (((alpha * 20f).roundToInt().toLong()) shl 24)
-        val sheenShader = if (scratch.cachedSheenShader != null && scratch.cachedSheenKey == sheenKey) {
-            scratch.cachedSheenShader
-        } else {
-            LinearGradient(
+            scratch.sheenShader = LinearGradient(
                 0f,
                 cardTop,
                 sheenWidth,
                 bodyBottom,
                 intArrayOf(
                     Color.TRANSPARENT,
-                    withAlpha(palette.primary, alpha * 0.34f),
-                    withAlpha(Color.WHITE, alpha * 0.22f),
+                    withAlpha(palette.primary, 0.34f),
+                    withAlpha(Color.WHITE, 0.22f),
                     Color.TRANSPARENT,
                 ),
                 floatArrayOf(0f, 0.42f, 0.56f, 1f),
                 Shader.TileMode.CLAMP,
-            ).also {
-                scratch.cachedSheenShader = it
-                scratch.cachedSheenKey = sheenKey
-            }
-        }
+            )
         }
         val sheenCycle = (anim.elapsedSec * item.motion.animationSpeed.coerceIn(0.4f, 2.5f) * 0.55f) % 1.6f
         val sheenX = cardLeft - sheenWidth + sheenCycle * (fullWidth + sheenWidth * 1.4f)

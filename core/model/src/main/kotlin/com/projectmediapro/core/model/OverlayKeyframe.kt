@@ -16,6 +16,9 @@ enum class KeyframePresetId {
     ZOOM_IN,
     SLIDE_UP,
     POP_SPIN,
+    KEN_BURNS_ZOOM_IN,
+    KEN_BURNS_PAN_LEFT,
+    KEN_BURNS_PAN_RIGHT,
 }
 
 /**
@@ -251,6 +254,9 @@ object KeyframePresets {
             KeyframePresetId.ZOOM_IN -> zoomIn(safeX, safeY)
             KeyframePresetId.SLIDE_UP -> slideUp(safeX, safeY)
             KeyframePresetId.POP_SPIN -> popSpin(safeX, safeY)
+            KeyframePresetId.KEN_BURNS_ZOOM_IN -> kenBurnsZoomIn(safeX, safeY)
+            KeyframePresetId.KEN_BURNS_PAN_LEFT -> kenBurnsPanLeft(safeY)
+            KeyframePresetId.KEN_BURNS_PAN_RIGHT -> kenBurnsPanRight(safeY)
         }
     }
 
@@ -331,5 +337,20 @@ object KeyframePresets {
             opacity = 1f,
             easing = KeyframeEasing.EASE_IN_OUT,
         ),
+    )
+
+    fun kenBurnsZoomIn(centerX: Float, centerY: Float): List<OverlayKeyframe> = listOf(
+        OverlayKeyframe(timeFraction = 0f, centerX = centerX, centerY = centerY, scale = 1.0f, easing = KeyframeEasing.EASE_IN_OUT),
+        OverlayKeyframe(timeFraction = 1f, centerX = centerX, centerY = centerY, scale = 1.22f, easing = KeyframeEasing.EASE_IN_OUT),
+    )
+
+    fun kenBurnsPanLeft(centerY: Float): List<OverlayKeyframe> = listOf(
+        OverlayKeyframe(timeFraction = 0f, centerX = 0.57f, centerY = centerY, scale = 1.16f, easing = KeyframeEasing.EASE_IN_OUT),
+        OverlayKeyframe(timeFraction = 1f, centerX = 0.43f, centerY = centerY, scale = 1.16f, easing = KeyframeEasing.EASE_IN_OUT),
+    )
+
+    fun kenBurnsPanRight(centerY: Float): List<OverlayKeyframe> = listOf(
+        OverlayKeyframe(timeFraction = 0f, centerX = 0.43f, centerY = centerY, scale = 1.16f, easing = KeyframeEasing.EASE_IN_OUT),
+        OverlayKeyframe(timeFraction = 1f, centerX = 0.57f, centerY = centerY, scale = 1.16f, easing = KeyframeEasing.EASE_IN_OUT),
     )
 }
