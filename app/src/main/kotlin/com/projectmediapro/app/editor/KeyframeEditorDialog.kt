@@ -32,6 +32,7 @@ import kotlin.math.roundToInt
 @Composable
 fun KeyframeEditorDialog(
     clip: Clip,
+    isMainTrackVideo: Boolean = false,
     onConfirm: (keyframes: List<OverlayKeyframe>) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -83,7 +84,17 @@ fun KeyframeEditorDialog(
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState()),
             ) {
-                KeyframePresetId.entries.forEach { preset ->
+                val visiblePresets = if (isMainTrackVideo) {
+                    listOf(
+                        KeyframePresetId.NONE,
+                        KeyframePresetId.KEN_BURNS_ZOOM_IN,
+                        KeyframePresetId.KEN_BURNS_PAN_LEFT,
+                        KeyframePresetId.KEN_BURNS_PAN_RIGHT,
+                    )
+                } else {
+                    KeyframePresetId.entries
+                }
+                visiblePresets.forEach { preset ->
                     PresetChip(
                         label = stringResource(presetLabelRes(preset)),
                         isSelected = matchedPreset == preset,
@@ -200,7 +211,7 @@ fun KeyframeEditorDialog(
                         (activeKeyframe.scale * 100f).roundToInt(),
                     ),
                     value = activeKeyframe.scale,
-                    valueRange = OverlayKeyframe.MIN_SCALE..OverlayKeyframe.MAX_SCALE,
+                    valueRange = (if (isMainTrackVideo) 1f else OverlayKeyframe.MIN_SCALE)..OverlayKeyframe.MAX_SCALE,
                     onValueChange = { v -> updateSelected { it.copy(scale = v) } },
                 )
                 EditorDialogSliderRow(
@@ -212,15 +223,17 @@ fun KeyframeEditorDialog(
                     valueRange = OverlayKeyframe.MIN_ROTATION_DEG..OverlayKeyframe.MAX_ROTATION_DEG,
                     onValueChange = { v -> updateSelected { it.copy(rotationDegrees = v) } },
                 )
-                EditorDialogSliderRow(
-                    label = stringResource(
-                        R.string.editor_keyframes_opacity_value,
-                        (activeKeyframe.opacity * 100f).roundToInt(),
-                    ),
-                    value = activeKeyframe.opacity,
-                    valueRange = 0f..1f,
-                    onValueChange = { v -> updateSelected { it.copy(opacity = v) } },
-                )
+                if (!isMainTrackVideo) {
+                    EditorDialogSliderRow(
+                        label = stringResource(
+                            R.string.editor_keyframes_opacity_value,
+                            (activeKeyframe.opacity * 100f).roundToInt(),
+                        ),
+                        value = activeKeyframe.opacity,
+                        valueRange = 0f..1f,
+                        onValueChange = { v -> updateSelected { it.copy(opacity = v) } },
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(MediaProSpacing.ExtraSmall))
                 EditorDialogSectionLabel(text = stringResource(R.string.editor_keyframes_easing_label))
@@ -272,6 +285,9 @@ private fun presetLabelRes(preset: KeyframePresetId): Int = when (preset) {
     KeyframePresetId.ZOOM_IN -> R.string.editor_keyframes_preset_zoom
     KeyframePresetId.SLIDE_UP -> R.string.editor_keyframes_preset_slide
     KeyframePresetId.POP_SPIN -> R.string.editor_keyframes_preset_pop
+    KeyframePresetId.KEN_BURNS_ZOOM_IN -> R.string.editor_keyframes_preset_ken_burns_zoom
+    KeyframePresetId.KEN_BURNS_PAN_LEFT -> R.string.editor_keyframes_preset_ken_burns_pan_left
+    KeyframePresetId.KEN_BURNS_PAN_RIGHT -> R.string.editor_keyframes_preset_ken_burns_pan_right
 }
 
 private fun easingLabelRes(easing: KeyframeEasing): Int = when (easing) {

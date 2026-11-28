@@ -9,11 +9,9 @@
     <string name="news_section_theme">Theme</string>
     <string name="news_section_timing">Timing</string>
     <string name="news_section_active">Active on Timeline (%1$d)</string>
-
     <string name="news_tab_content">Content</string>
     <string name="news_tab_style">Style</string>
     <string name="news_tab_motion">Motion &amp; Audio</string>
-
     <string name="news_tpl_breaking_desk">Breaking Lower-Third</string>
     <string name="news_tpl_breaking_shorts">Shorts Alert 9:16</string>
     <string name="news_tpl_data_ticker">News Crawl / Ticker</string>
@@ -25,12 +23,10 @@
     <string name="news_tpl_source_hud">Source &amp; Archive HUD</string>
     <string name="news_tpl_speaker_l3">Speaker Lower-Third</string>
     <string name="news_tpl_stat_proof">3s Stat Proof Card</string>
-
     <string name="news_theme_broadcast_red">Broadcast Red</string>
     <string name="news_theme_cream_paper">Cream Paper</string>
     <string name="news_theme_dark_noir">Dark Noir</string>
     <string name="news_theme_slate_blue">Slate Blue</string>
-
     <string name="news_field_headline">Headline / Name / Stat / Banner</string>
     <string name="news_field_subline">Subline / Role / Caption / Source</string>
     <string name="news_field_badge">Badge / Prefix Pill</string>
@@ -40,7 +36,6 @@
     <string name="news_field_year">Year / Date Tag</string>
     <string name="news_field_ticker">Ticker Items (separate with |, e.g. NIFTY +1.4% | GOLD -0.3%)</string>
     <string name="news_field_separator">Separator</string>
-
     <string name="news_toggle_chevrons">Pulsing Chevrons (&gt;&gt;&gt;)</string>
     <string name="news_toggle_intro_pill">1.5s Intro Pill-to-Bar Reveal</string>
     <string name="news_toggle_portrait_mode">9:16 Vertical Safe Layout</string>
@@ -49,7 +44,6 @@
     <string name="news_toggle_wipe_rtl">Wipe Right-to-Left</string>
     <string name="news_toggle_scanlines">Archive Scanlines Look</string>
     <string name="news_toggle_safe_zone">Safe-Zone Lock (Auto-Suppress 9:16 Ticker w/ Captions)</string>
-
     <string name="news_pick_image">Pick OTS Photo</string>
     <string name="news_pick_logo">Pick Channel Logo</string>
     <string name="news_clear_image">Clear Image</string>
@@ -61,7 +55,6 @@
     <string name="news_callout_circle">Circle</string>
     <string name="news_callout_underline">Underline</string>
     <string name="news_callout_redaction">Redaction Bar</string>
-
     <string name="news_color_primary">Primary Brand Color</string>
     <string name="news_color_secondary">Background / Secondary Color</string>
     <string name="news_color_text">Text Color</string>
@@ -71,7 +64,6 @@
     <string name="news_slider_radius">Corner Radius: %1$d dp</string>
     <string name="news_slider_roughness">Marker Roughness: %1$d%%</string>
     <string name="news_slider_stroke">Stroke Width: %1$d dp</string>
-
     <string name="news_motion_style">In / Out Animation</string>
     <string name="news_motion_slide">Slide</string>
     <string name="news_motion_wipe">Wipe</string>
@@ -96,7 +88,6 @@
     <string name="news_sfx_scratch">Marker Scratch</string>
     <string name="news_sfx_teletype">Teletype Tick</string>
     <string name="news_slider_sfx_vol">SFX Volume: %1$d%%</string>
-
     <string name="news_preset_save">+ Save Preset</string>
     <string name="news_preset_apply_all">Apply Brand to All</string>
     <string name="news_preset_dialog_title">Save Channel Brand Preset</string>
@@ -104,7 +95,6 @@
     <string name="news_preset_save_confirm">Save</string>
     <string name="news_preset_cancel">Cancel</string>
     <string name="news_preview_label">Live Preview</string>
-
     <string name="news_timing_start">Starts at playhead: %1$s</string>
     <string name="news_timing_duration">Duration: %1$s</string>
     <string name="news_action_add">Add to Timeline</string>
@@ -113,4 +103,16 @@
     <string name="cd_edit_news_overlay">Edit overlay</string>
     <string name="cd_duplicate_news_overlay">Duplicate overlay</string>
     <string name="cd_delete_news_overlay">Remove overlay</string>
+    <string name="news_time_seconds">%1$.1fs</string>
+    <string name="news_preset_active_name">Active Brand</string>
+    <string name="news_preset_default_name">Channel Preset</string>
+    <string name="cd_delete_news_preset">Delete brand preset</string>
+    <string name="cd_color_swatch">%1$s color swatch</string>
+    <string name="news_color_hex_hint">Hex (e.g. #D91E2A)</string>
+    <string name="news_color_hex_apply">Apply</string>
+    <string name="news_color_hex_invalid">Enter 6 or 8 hex digits</string>
+    <string name="news_drag_hint">Drag on the preview to place the callout</string>
+    <string name="cd_news_preview">Animated preview of %1$s</string>
+    <string name="news_custom_clock_label">Start Clock: %1$s</string>
+    <string name="cd_news_color_swatch">Select color %1$s</string>
 </resources>

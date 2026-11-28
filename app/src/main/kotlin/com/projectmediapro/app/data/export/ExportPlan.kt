@@ -55,6 +55,7 @@ data class ExportClip(
     val crop: ClipCrop? = null,
     val isStillImage: Boolean = false,
     val muted: Boolean = false,
+    val keyframes: List<OverlayKeyframe> = emptyList(),
 )
 
 /**
@@ -180,6 +181,7 @@ object ExportPlanner {
                     crop = clip.crop?.sanitized()?.takeUnless { it.isIdentity },
                     isStillImage = clip.isStillImage,
                     muted = clip.muted,
+                    keyframes = KeyframeInterpolator.sanitizeList(clip.keyframes, 0.5f, 0.5f),
                 ),
             )
             totalDurationMs += clipDurationMs
@@ -438,6 +440,7 @@ object ExportPlanner {
         if (longSide <= 0 || longSide > ExportGeometry.longSideCapFor(plan.exportQuality)) return false
         val clip = plan.clips.single()
         return !clip.isStillImage &&
+            clip.keyframes.isEmpty() &&
             clip.visualEffects == null &&
             clip.crop == null &&
             clip.rotationDegrees == 0 &&

@@ -94,6 +94,7 @@ class EditorViewModel(
     private val changeMutex = Mutex()
     private val exportMutex = Mutex()
     private var exportJob: Job? = null
+    private var activeExportTempFile: File? = null
     private var silenceScanJob: Job? = null
     private var captionRevision: Long = 0L
     private var cachedSilencePcm: Pair<String, ShortArray>? = null
@@ -225,7 +226,7 @@ class EditorViewModel(
                 )
             }
             EditorEvent.OpenKeyframes -> openSelectedClipDialog(
-                predicate = { it.isOverlay || it.isText },
+                predicate = { it.isVideo || it.isOverlay || it.isText },
                 dialogFactory = EditorDialog::Keyframes,
             )
             EditorEvent.OpenBeats -> {
@@ -663,7 +664,7 @@ class EditorViewModel(
                     ?: current.selectedClipId
                     ?: return
                 val location = current.project.findClipLocation(targetId) ?: return
-                if (!location.isOverlay && !location.isText) return
+                if (!location.isVideo && !location.isOverlay && !location.isText) return
                 commitUndoableEdit(targetId) { project ->
                     ProjectTimeline.updateClipKeyframes(project, targetId, event.keyframes)
                 }
@@ -1385,7 +1386,8 @@ class EditorViewModel(
             error = null,
         )
         val projectTitle = effectiveProject.title
-        val tempFile = exportTempFile()
+        val tempFile = File(tempDirectory, "export_${idProvider()}.mp4")
+        activeExportTempFile = tempFile
         exportJob = viewModelScope.launch {
             if (effectiveProject != initial.project) {
                 changeMutex.withLock {
@@ -1403,11 +1405,12 @@ class EditorViewModel(
                     tempDirectory.mkdirs()
                     if (tempFile.exists()) tempFile.delete()
                     exporter.export(plan, tempFile) { percent -> updateExportProgress(percent) }
-                    try {
+                    val savedShareUri = try {
                         if (destinationUri != null) {
                             saver.saveToUri(tempFile, destinationUri)
+                            destinationUri
                         } else {
-                            saver.saveToGallery(tempFile, projectTitle)
+                            saver.saveToGallery(tempFile, projectTitle).contentUri
                         }
                     } catch (cancelled: CancellationException) {
                         throw cancelled
@@ -1415,7 +1418,7 @@ class EditorViewModel(
                         finishExport(ExportUiState.Idle, EditorError.EXPORT_SAVE_FAILED)
                         return@withLock
                     }
-                    finishExport(ExportUiState.Done(savedToGallery = destinationUri == null), null)
+                    finishExport(ExportUiState.Done(savedToGallery = destinationUri == null, shareUri = savedShareUri), null)
                 } catch (cancelled: CancellationException) {
                     finishExport(ExportUiState.Idle, null)
                     throw cancelled
@@ -1425,6 +1428,7 @@ class EditorViewModel(
                     finishExport(ExportUiState.Idle, EditorError.EXPORT_FAILED)
                 } finally {
                     tempFile.delete()
+                    activeExportTempFile = null
                 }
             }
         }
@@ -1433,7 +1437,7 @@ class EditorViewModel(
     private fun handleCancelExport() {
         exportJob?.cancel()
         exportJob = null
-        exportTempFile().delete()
+        activeExportTempFile?.delete()
         val current = _uiState.value as? EditorUiState.Loaded ?: return
         if (current.export is ExportUiState.Running) {
             _uiState.value = current.copy(export = ExportUiState.Idle, error = null)
@@ -2340,11 +2344,9 @@ class EditorViewModel(
         captionJob?.cancel()
         com.projectmediapro.feature.captions.WhisperNativeBridge.requestAbort()
         exportJob?.cancel()
-        exportTempFile().delete()
+        activeExportTempFile?.delete()
         super.onCleared()
     }
-
-    private fun exportTempFile(): File = File(tempDirectory, "$projectId.mp4")
 
     companion object {
         fun provideFactory(

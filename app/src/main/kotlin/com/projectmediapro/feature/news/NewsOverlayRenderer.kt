@@ -13,13 +13,13 @@ import java.io.File
 
 /**
  * Bounded LRU bitmap loader for optional Channel Logo & OTS Topic Card images.
- * Decodes scaled bitmaps safely without OOM and recycles cleanly on [clear].
+ * Decodes scaled bitmaps safely without OOM and recycles cleanly on eviction AND [clear].
  */
 class NewsOverlayBitmapCache(private val appContext: Context) {
 
     private val cache = object : LruCache<String, Bitmap>(MAX_CACHED_BITMAPS) {
         override fun entryRemoved(evicted: Boolean, key: String?, oldValue: Bitmap?, newValue: Bitmap?) {
-            if (evicted && oldValue != null && !oldValue.isRecycled) {
+            if (oldValue != null && newValue == null && !oldValue.isRecycled) {
                 oldValue.recycle()
             }
         }
@@ -27,7 +27,11 @@ class NewsOverlayBitmapCache(private val appContext: Context) {
 
     fun load(uriOrPath: String): Bitmap? {
         if (uriOrPath.isBlank()) return null
-        cache.get(uriOrPath)?.takeIf { !it.isRecycled }?.let { return it }
+        val hit = cache.get(uriOrPath)
+        if (hit != null) {
+            if (!hit.isRecycled) return hit
+            cache.remove(uriOrPath)
+        }
         val decoded = decodeScaled(uriOrPath) ?: return null
         cache.put(uriOrPath, decoded)
         return decoded

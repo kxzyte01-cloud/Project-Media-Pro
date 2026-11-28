@@ -22,9 +22,12 @@ import com.projectmediapro.core.model.ClipCrop
 import com.projectmediapro.core.model.ClipTransition
 import com.projectmediapro.core.model.ClipVisualEffects
 import com.projectmediapro.core.model.FilterGradeSpec
+import com.projectmediapro.core.model.KeyframeInterpolator
+import com.projectmediapro.core.model.OverlayKeyframe
 import com.projectmediapro.core.model.ProjectTimeline
 import com.projectmediapro.core.model.SpeedRampEvaluator
 import com.projectmediapro.core.model.SpeedRampPreset
+import com.projectmediapro.core.model.VideoKeyframeCoverage
 import com.projectmediapro.core.model.gradeSpec
 
 /**
@@ -59,6 +62,49 @@ object VideoEffectFactory {
         val ndcTop = 1f - safe.top * 2f
         val ndcBottom = 1f - safe.bottom * 2f
         return listOf(Crop(ndcLeft, ndcRight, ndcBottom, ndcTop))
+    }
+
+    fun buildVideoKeyframeEffects(
+        keyframes: List<OverlayKeyframe>,
+        durationMs: Long,
+    ): List<Effect> {
+        if (keyframes.isEmpty() || durationMs <= 0L) return emptyList()
+        val sanitized = KeyframeInterpolator.sanitizeList(keyframes, 0.5f, 0.5f)
+        if (sanitized.isEmpty()) return emptyList()
+        return listOf(VideoKeyframeMatrixTransformation(sanitized, durationMs * 1_000L))
+    }
+
+    private class VideoKeyframeMatrixTransformation(
+        private val sanitizedKeyframes: List<OverlayKeyframe>,
+        private val durationUs: Long,
+    ) : MatrixTransformation {
+        private val matrixLocal = object : ThreadLocal<Matrix>() {
+            override fun initialValue(): Matrix = Matrix()
+        }
+
+        override fun getMatrix(presentationTimeUs: Long): Matrix {
+            val matrix = matrixLocal.get() ?: Matrix()
+            val resolved = KeyframeInterpolator.evaluateSanitizedAtTime(
+                baseCenterX = 0.5f,
+                baseCenterY = 0.5f,
+                sanitizedKeyframes = sanitizedKeyframes,
+                elapsedTime = presentationTimeUs.coerceAtLeast(0L),
+                totalDuration = durationUs.coerceAtLeast(1L),
+            )
+            val clamped = VideoKeyframeCoverage.clamp(
+                scale = resolved.scale,
+                rotationDegrees = resolved.rotationDegrees,
+                translationX = (resolved.centerX - 0.5f) * 2f,
+                translationY = (0.5f - resolved.centerY) * 2f,
+            )
+            matrix.reset()
+            if (clamped.scale != 1f) matrix.postScale(clamped.scale, clamped.scale)
+            if (resolved.rotationDegrees != 0f) matrix.postRotate(-resolved.rotationDegrees)
+            if (clamped.translationX != 0f || clamped.translationY != 0f) {
+                matrix.postTranslate(clamped.translationX, clamped.translationY)
+            }
+            return matrix
+        }
     }
 
     fun buildTransformEffects(

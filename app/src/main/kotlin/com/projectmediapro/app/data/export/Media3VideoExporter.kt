@@ -197,13 +197,14 @@ class Media3VideoExporter(
                 flipHorizontal = clip.flipHorizontal,
                 flipVertical = clip.flipVertical,
             )
+            val keyframeEffects = VideoEffectFactory.buildVideoKeyframeEffects(clip.keyframes, clip.durationMs)
             val clipEffects = VideoEffectFactory.buildClipEffects(clip.visualEffects, clip.durationMs)
             if (clip.isStillImage) {
                 val mediaItem = MediaItem.Builder()
                     .setUri(Uri.fromFile(File(clip.path)))
                     .setImageDurationMs(clip.durationMs.coerceAtLeast(1L))
                     .build()
-                val allVideoEffects = cropEffects + transformEffects + presentationEffects + clipEffects
+                val allVideoEffects = cropEffects + transformEffects + presentationEffects + keyframeEffects + clipEffects
                 EditedMediaItem.Builder(mediaItem)
                     .setDurationUs(clip.durationMs.coerceAtLeast(1L) * 1_000L)
                     .setFrameRate(FREEZE_FRAME_RATE_FPS)
@@ -221,7 +222,7 @@ class Media3VideoExporter(
                 } else {
                     emptyList()
                 }
-                val allVideoEffects = cropEffects + transformEffects + presentationEffects + speedVideoEffects + clipEffects + frameRateEffects + opticalFlowEffects
+                val allVideoEffects = cropEffects + transformEffects + presentationEffects + speedVideoEffects + keyframeEffects + clipEffects + frameRateEffects + opticalFlowEffects
                 val audioProcessors = buildAudioProcessors(
                     volume = clip.volume,
                     audioBoost = clip.audioBoost,
@@ -459,7 +460,14 @@ class Media3VideoExporter(
                     built.start(composition, outputFile.absolutePath)
                     mainHandler.postDelayed(poller, POLL_INTERVAL_MS)
                 } catch (failure: Exception) {
-                    if (failure is CancellationException) throw failure
+                    if (failure is CancellationException) {
+                        mainHandler.removeCallbacks(poller)
+                        outputFile.delete()
+                        if (continuation.isActive) {
+                            continuation.resumeWithException(failure)
+                        }
+                        return@post
+                    }
                     mainHandler.removeCallbacks(poller)
                     outputFile.delete()
                     if (continuation.isActive) {

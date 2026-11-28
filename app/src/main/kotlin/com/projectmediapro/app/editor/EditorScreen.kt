@@ -956,9 +956,10 @@ private fun LoadedStudioWorkspace(
         }
         is EditorDialog.Keyframes -> {
             val location = state.project.findClipLocation(dialog.clipId)
-            if (location != null && (location.isOverlay || location.isText)) {
+            if (location != null && (location.isVideo || location.isOverlay || location.isText)) {
                 KeyframeEditorDialog(
                     clip = location.clip,
+                    isMainTrackVideo = location.isVideo,
                     onConfirm = { keyframes ->
                         onEvent(EditorEvent.ApplyKeyframes(keyframes = keyframes))
                     },

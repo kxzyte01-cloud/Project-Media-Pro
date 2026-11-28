@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="editor_keyframes_preset_ken_burns_zoom">Ken Burns Zoom</string>
+    <string name="editor_keyframes_preset_ken_burns_pan_left">Ken Burns Pan L</string>
+    <string name="editor_keyframes_preset_ken_burns_pan_right">Ken Burns Pan R</string>
+    <string name="editor_export_share_video">Share Video</string>
+    <string name="editor_export_share_chooser_title">Share exported video</string>
+    <string name="editor_export_share_failed">Couldn\'t open the share sheet.</string>
+    <string name="editor_batch_export_title">Batch Export Queue</string>
+    <string name="editor_batch_export_start">Start Batch Export</string>
+    <string name="editor_batch_export_cancel">Cancel Queue</string>
+    <string name="editor_batch_export_status_pending">Pending</string>
+    <string name="editor_batch_export_status_running">Exporting %1$d%%</string>
+    <string name="editor_batch_export_status_done">Saved</string>
+    <string name="editor_batch_export_status_failed">Failed</string>
+</resources>

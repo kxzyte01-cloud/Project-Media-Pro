@@ -16,11 +16,7 @@ import com.projectmediapro.core.model.NewsOverlayLayout
 /**
  * Media3 1.4.1 [BitmapOverlay] for all 10 customizable animated news/creator broadcast overlays.
  *
- * Uses ping-pong double-buffering plus quantized dirty-key caching:
- * - Static hold regions and 1-second clock/pulse ticks (`LIVE_BUG_CLOCK`) return the cached
- *   [Bitmap] instance so Media3 skips redundant OpenGL texture uploads.
- * - Automatically suppresses 9:16 bottom tickers when Whisper captions are active (`captionsActive`).
- * - Deterministically recycles both ping-pong buffers and loaded logo/OTS bitmaps in [release].
+ * Ping-pong double-buffering + quantized dirty-state caching (zero per-frame allocations, zero non-null assertions).
  */
 @OptIn(UnstableApi::class)
 class NewsBitmapOverlay(
@@ -30,15 +26,25 @@ class NewsBitmapOverlay(
 ) : BitmapOverlay() {
 
     private val bitmapCache: NewsOverlayBitmapCache? = context?.let { NewsOverlayBitmapCache(it) }
+    private val loader: ((String) -> Bitmap?)? = bitmapCache?.let { cache -> { uri -> cache.load(uri) } }
+
     private var bufferA: Bitmap? = null
     private var canvasA: Canvas? = null
     private var bufferB: Bitmap? = null
     private var canvasB: Canvas? = null
     private var nextIsA: Boolean = true
+    private var acquiredCanvas: Canvas? = null
     private var lastReturnedBitmap: Bitmap? = null
-    private var lastCacheKey: String? = null
     private var isPortraitVideo: Boolean = false
     private var overlaySettings: OverlaySettings = OverlaySettings.Builder().build()
+
+    // Dirty-state tracking (fixed-size, zero per-frame allocation).
+    private val slotIdxCur = IntArray(overlays.size.coerceAtLeast(1))
+    private val slotBucketCur = IntArray(overlays.size.coerceAtLeast(1))
+    private val slotIdxLast = IntArray(overlays.size.coerceAtLeast(1))
+    private val slotBucketLast = IntArray(overlays.size.coerceAtLeast(1))
+    private var lastSlotCount: Int = -1
+    private var curAnyVisible: Boolean = false
 
     override fun configure(videoSize: Size) {
         super.configure(videoSize)
@@ -66,23 +72,21 @@ class NewsBitmapOverlay(
         canvasA = Canvas(first)
         bufferB = second
         canvasB = Canvas(second)
-        lastCacheKey = null
-        lastReturnedBitmap = null
     }
 
     override fun getOverlaySettings(presentationTimeUs: Long): OverlaySettings = overlaySettings
 
     override fun getBitmap(presentationTimeUs: Long): Bitmap {
         val timeMs = (presentationTimeUs / 1_000L).coerceAtLeast(0L)
-        val cacheKey = computeCacheKeyOrNull(timeMs)
+        val mustRender = computeDirty(timeMs)
         val cached = lastReturnedBitmap
-        if (cacheKey != null && cacheKey == lastCacheKey && cached != null && !cached.isRecycled) {
+        if (!mustRender && cached != null && !cached.isRecycled) {
             return cached
         }
-
-        val (targetBitmap, targetCanvas) = acquireNextBuffer()
+        val targetBitmap = acquireNextBuffer()
+        val targetCanvas = acquiredCanvas ?: Canvas(targetBitmap)
         targetCanvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
-        if (cacheKey != EMPTY_KEY) {
+        if (curAnyVisible) {
             NewsOverlayRenderer.renderAll(
                 canvas = targetCanvas,
                 widthPx = targetBitmap.width.toFloat(),
@@ -90,10 +94,9 @@ class NewsBitmapOverlay(
                 overlays = overlays,
                 timeMs = timeMs,
                 captionsActive = captionsActive,
-                bitmapLoader = bitmapCache?.let { cache -> { uri -> cache.load(uri) } },
+                bitmapLoader = loader,
             )
         }
-        lastCacheKey = cacheKey
         lastReturnedBitmap = targetBitmap
         return targetBitmap
     }
@@ -104,36 +107,65 @@ class NewsBitmapOverlay(
         bitmapCache?.clear()
     }
 
-    private fun computeCacheKeyOrNull(timeMs: Long): String? {
-        var anyVisible = false
-        var keyBuilder: StringBuilder? = null
-        for (item in overlays) {
-            if (NewsOverlayLayout.shouldSuppressOverlay(item, isPortraitVideo, captionsActive)) continue
-            val anim = NewsOverlayLayout.evaluateAnimation(item, timeMs)
-            if (!anim.visible) continue
-            anyVisible = true
-            val bucket = NewsOverlayLayout.quantizedFrameBucket(item, timeMs, anim)
-            if (bucket == NewsOverlayLayout.DYNAMIC_FRAME_BUCKET) return null
-            if (keyBuilder == null) keyBuilder = StringBuilder()
-            keyBuilder.append(item.id).append(':').append(bucket).append('|')
+    private fun computeDirty(timeMs: Long): Boolean {
+        var count = 0
+        var i = 0
+        while (i < overlays.size) {
+            val item = overlays[i]
+            if (!NewsOverlayLayout.shouldSuppressOverlay(item, isPortraitVideo, captionsActive)) {
+                val anim = NewsOverlayLayout.evaluateAnimation(item, timeMs)
+                if (anim.visible) {
+                    val bucket = NewsOverlayLayout.quantizedFrameBucket(item, timeMs, anim)
+                    if (bucket == NewsOverlayLayout.DYNAMIC_FRAME_BUCKET) {
+                        curAnyVisible = true
+                        lastSlotCount = -1
+                        return true
+                    }
+                    slotIdxCur[count] = i
+                    slotBucketCur[count] = bucket
+                    count++
+                }
+            }
+            i++
         }
-        return if (!anyVisible) EMPTY_KEY else keyBuilder.toString()
+        curAnyVisible = count > 0
+        if (count == lastSlotCount) {
+            var same = true
+            var j = 0
+            while (j < count) {
+                if (slotIdxCur[j] != slotIdxLast[j] || slotBucketCur[j] != slotBucketLast[j]) {
+                    same = false
+                    break
+                }
+                j++
+            }
+            if (same) return false
+        }
+        System.arraycopy(slotIdxCur, 0, slotIdxLast, 0, count)
+        System.arraycopy(slotBucketCur, 0, slotBucketLast, 0, count)
+        lastSlotCount = count
+        return true
     }
 
-    private fun acquireNextBuffer(): Pair<Bitmap, Canvas> {
-        val a = bufferA
-        val ca = canvasA
-        val b = bufferB
-        val cb = canvasB
+    private fun acquireNextBuffer(): Bitmap {
+        var a = bufferA
+        var ca = canvasA
+        var b = bufferB
+        var cb = canvasB
         if (a == null || ca == null || b == null || cb == null) {
-            val fallback = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
-            bufferA = fallback
-            canvasA = Canvas(fallback)
-            return fallback to (canvasA ?: Canvas(fallback))
+            a = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+            ca = Canvas(a)
+            b = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+            cb = Canvas(b)
+            bufferA = a
+            canvasA = ca
+            bufferB = b
+            canvasB = cb
         }
-        val result = if (nextIsA) a to ca else b to cb
+        val useA = nextIsA
         nextIsA = !nextIsA
-        return result
+        acquiredCanvas = if (useA) ca else cb
+        return if (useA) a else b
     }
 
     private fun recycleFrames() {
@@ -143,13 +175,15 @@ class NewsBitmapOverlay(
         canvasA = null
         bufferB = null
         canvasB = null
+        acquiredCanvas = null
         lastReturnedBitmap = null
-        lastCacheKey = null
+        lastSlotCount = -1
+        curAnyVisible = false
+        nextIsA = true
     }
 
     companion object {
         private const val MAX_OVERLAY_LONG_SIDE_PX = 1080
-        private const val EMPTY_KEY = "__EMPTY__"
     }
 }
 

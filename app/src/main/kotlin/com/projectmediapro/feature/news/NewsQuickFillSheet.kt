@@ -1,5 +1,6 @@
 package com.projectmediapro.feature.news
 
+import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -8,6 +9,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,12 +20,16 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -57,15 +63,22 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -85,22 +98,24 @@ import com.projectmediapro.core.model.NewsSfxCue
 import com.projectmediapro.core.model.NewsStyleConfig
 import com.projectmediapro.core.model.NewsTemplateId
 import com.projectmediapro.core.model.NewsThemeVariant
-import kotlinx.coroutines.delay
+import java.util.Calendar
 import java.util.Locale
 import kotlin.math.roundToInt
 
-private val BRAND_SWATCHES: List<Long> = listOf(
-    0xFFD91E2AL, // Broadcast Crimson
-    0xFF1D4ED8L, // Global Cobalt
-    0xFFF59E0BL, // Amber Gold
-    0xFF16A34AL, // Emerald Green
-    0xFF7C3AEDL, // Studio Violet
-    0xFF22D3EEL, // Broadcast Cyan
-    0xFF121620L, // Dark Noir
-    0xFFF5EFE0L, // Cream Paper
-    0xFFFFFFFFL, // Pure White
-    0xFF0A0A0CL, // Ink Black
+private val BRAND_SWATCHES: List<Pair<Long, String>> = listOf(
+    0xFFD91E2AL to "Crimson",
+    0xFF1D4ED8L to "Cobalt",
+    0xFFF59E0BL to "Amber",
+    0xFF16A34AL to "Emerald",
+    0xFF7C3AEDL to "Violet",
+    0xFF22D3EEL to "Cyan",
+    0xFF121620L to "Noir",
+    0xFFF5EFE0L to "Cream",
+    0xFFFFFFFFL to "White",
+    0xFF0A0A0CL to "Black",
 )
+
+private val HEX_COLOR_REGEX = Regex("^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$")
 
 private val SHEET_EFFECT_LIST: List<NewsTemplateId> = listOf(
     NewsTemplateId.BREAKING_DESK_16_9,
@@ -117,7 +132,8 @@ private val SHEET_EFFECT_LIST: List<NewsTemplateId> = listOf(
 
 /**
  * Dark-studio 3-tab Quick-Fill Inspector Bottom Sheet (Content | Style | Motion & Audio)
- * with live animated Canvas preview and 1-tap Channel Brand Presets.
+ * with live animated Canvas preview, drag-to-place callouts, custom hex color input,
+ * persistable OpenDocument pickers, TalkBack accessibility, and 1-tap Channel Brand Presets.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -153,27 +169,43 @@ fun NewsQuickFillSheet(
         )
     }
 
-    // Live animated preview clock (runs ~25 fps while sheet is open)
+    // Drift-free live preview clock driven by real frame nanos
     var previewTickMs by remember { mutableLongStateOf(0L) }
     LaunchedEffect(draft.templateId, draft.durationMs) {
-        previewTickMs = 0L
+        val cycleMs = draft.durationMs.coerceIn(NewsOverlayItem.MIN_DURATION_MS, 5_000L)
+        val startNanos = withFrameNanos { it }
         while (true) {
-            delay(40L)
-            val cycleMs = draft.durationMs.coerceIn(NewsOverlayItem.MIN_DURATION_MS, 5_000L)
-            previewTickMs = (previewTickMs + 40L) % cycleMs
+            val now = withFrameNanos { it }
+            previewTickMs = ((now - startNanos) / 1_000_000L) % cycleMs
         }
     }
 
-    val otsImagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+    // Persistable OpenDocument pickers so URIs survive process restart before export (P1-10)
+    val otsImagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            }
             draft = draft.copy(content = draft.content.copy(imageUri = uri.toString()))
         }
     }
-    val logoImagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+    val logoImagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+            }
             draft = draft.copy(content = draft.content.copy(logoUri = uri.toString()))
         }
     }
+
+    val activeBrandLabel = stringResource(R.string.news_preset_active_name)
+    val defaultPresetLabel = stringResource(R.string.news_preset_default_name)
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -184,7 +216,10 @@ fun NewsQuickFillSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .imePadding()
                 .verticalScroll(rememberScrollState())
+                .navigationBarsPadding()
+                .imePadding()
                 .padding(horizontal = MediaProSpacing.Medium)
                 .padding(bottom = MediaProSpacing.Large),
             verticalArrangement = Arrangement.spacedBy(MediaProSpacing.Small),
@@ -208,45 +243,87 @@ fun NewsQuickFillSheet(
                 }
             }
 
-            // Live Scaled Canvas Preview Box
-            Surface(
-                shape = MediaProShapes.Medium,
-                color = Color(0xFF0D1119),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(if (draft.content.aspectModePortrait) 9f / 11f else 16f / 9f),
+            // Live Scaled Canvas Preview Box (true 9:16 portrait inside height-capped box + drag-to-place callout)
+            val previewItem = remember(draft) { draft.copy(startTimeMs = 0L) }
+            val previewList = remember(previewItem) { listOf(previewItem) }
+            val latestDraft by rememberUpdatedState(draft)
+            val previewCd = stringResource(R.string.cd_news_preview, stringResource(labelForTemplate(draft.templateId)))
+            val isPortraitPreview = draft.content.aspectModePortrait ||
+                draft.templateId == NewsTemplateId.BREAKING_SHORTS_9_16
+
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center,
             ) {
-                Box(modifier = Modifier.fillMaxSize()) {
-                    val previewItem = draft.copy(startTimeMs = 0L)
-                    Canvas(modifier = Modifier.fillMaxSize()) {
-                        drawIntoCanvas { canvas ->
-                            NewsOverlayRenderer.renderAll(
-                                canvas = canvas.nativeCanvas,
-                                widthPx = size.width,
-                                heightPx = size.height,
-                                overlays = listOf(previewItem),
-                                timeMs = previewTickMs,
-                                captionsActive = false,
-                                bitmapLoader = { uri -> bitmapCache.load(uri) },
+                Surface(
+                    shape = MediaProShapes.Medium,
+                    color = MaterialTheme.colorScheme.background,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    modifier = if (isPortraitPreview) {
+                        Modifier
+                            .height(280.dp)
+                            .aspectRatio(9f / 16f)
+                    } else {
+                        Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(16f / 9f)
+                    },
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .semantics { contentDescription = previewCd }
+                            .pointerInput(draft.templateId) {
+                                detectDragGestures { change, _ ->
+                                    if (latestDraft.templateId == NewsTemplateId.CALLOUT_ANNOTATOR &&
+                                        size.width > 0 && size.height > 0
+                                    ) {
+                                        change.consume()
+                                        val ax = (change.position.x / size.width.toFloat()).coerceIn(0.10f, 0.90f)
+                                        val ay = (change.position.y / size.height.toFloat()).coerceIn(0.10f, 0.90f)
+                                        draft = latestDraft.copy(
+                                            motion = latestDraft.motion.copy(anchorX = ax, anchorY = ay),
+                                        )
+                                    }
+                                }
+                            },
+                    ) {
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            drawIntoCanvas { canvas ->
+                                NewsOverlayRenderer.renderAll(
+                                    canvas = canvas.nativeCanvas,
+                                    widthPx = size.width,
+                                    heightPx = size.height,
+                                    overlays = previewList,
+                                    timeMs = previewTickMs,
+                                    captionsActive = false,
+                                    bitmapLoader = { uri -> bitmapCache.load(uri) },
+                                )
+                            }
+                        }
+                        Surface(
+                            color = Color.Black.copy(alpha = 0.55f),
+                            shape = MediaProShapes.Small,
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(6.dp),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.news_preview_label),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White.copy(alpha = 0.85f),
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                             )
                         }
                     }
-                    Surface(
-                        color = Color.Black.copy(alpha = 0.55f),
-                        shape = MediaProShapes.Small,
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(6.dp),
-                    ) {
-                        Text(
-                            text = stringResource(R.string.news_preview_label),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color.White.copy(alpha = 0.85f),
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                        )
-                    }
                 }
+            }
+            if (draft.templateId == NewsTemplateId.CALLOUT_ANNOTATOR) {
+                Text(
+                    text = stringResource(R.string.news_drag_hint),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
             }
 
             // Channel Brand Presets Bar
@@ -262,7 +339,7 @@ fun NewsQuickFillSheet(
                             onClick = {
                                 val currentBrand = NewsBrandPreset(
                                     id = "active_brand",
-                                    name = "Active Brand",
+                                    name = activeBrandLabel,
                                     logoUri = draft.content.logoUri,
                                     primaryColorArgb = draft.style.primaryColorArgb,
                                     secondaryColorArgb = draft.style.secondaryColorArgb,
@@ -309,7 +386,7 @@ fun NewsQuickFillSheet(
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier.padding(start = 10.dp, end = if (preset.builtIn) 10.dp else 2.dp, top = 4.dp, bottom = 4.dp),
                         ) {
                             Box(
                                 modifier = Modifier
@@ -324,15 +401,16 @@ fun NewsQuickFillSheet(
                                 overflow = TextOverflow.Ellipsis,
                             )
                             if (!preset.builtIn) {
-                                Icon(
-                                    imageVector = Icons.Filled.Close,
-                                    contentDescription = stringResource(R.string.cd_delete_news_overlay),
-                                    modifier = Modifier
-                                        .size(14.dp)
-                                        .clickable {
-                                            presets = presetStore.deleteCustom(preset.id)
-                                        },
-                                )
+                                IconButton(
+                                    onClick = { presets = presetStore.deleteCustom(preset.id) },
+                                    modifier = Modifier.size(36.dp),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Close,
+                                        contentDescription = stringResource(R.string.cd_delete_news_preset),
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
                             }
                         }
                     }
@@ -354,17 +432,18 @@ fun NewsQuickFillSheet(
                                     preserveStyle = if (draft.style.useCustomColors) draft.style else null,
                                 )
                             } else {
+                                val nextDur = if (template == NewsTemplateId.STINGER_WIPE) {
+                                    draft.durationMs.coerceIn(
+                                        NewsOverlayItem.STINGER_MIN_DURATION_MS,
+                                        NewsOverlayItem.STINGER_MAX_DURATION_MS,
+                                    )
+                                } else {
+                                    maxOf(draft.durationMs, NewsOverlayItem.defaultDurationMsFor(template))
+                                }
                                 draft = draft.copy(
                                     templateId = template,
                                     badgeLabel = NewsOverlayItem.defaultBadgeFor(template),
-                                    durationMs = if (template == NewsTemplateId.STINGER_WIPE) {
-                                        draft.durationMs.coerceIn(
-                                            NewsOverlayItem.STINGER_MIN_DURATION_MS,
-                                            NewsOverlayItem.STINGER_MAX_DURATION_MS,
-                                        )
-                                    } else {
-                                        draft.durationMs
-                                    },
+                                    durationMs = nextDur,
                                 )
                             }
                         },
@@ -402,8 +481,8 @@ fun NewsQuickFillSheet(
                 0 -> ContentTabSection(
                     draft = draft,
                     onDraftChange = { draft = it },
-                    onPickOtsImage = { otsImagePicker.launch("image/*") },
-                    onPickLogo = { logoImagePicker.launch("image/*") },
+                    onPickOtsImage = { otsImagePicker.launch(arrayOf("image/*")) },
+                    onPickLogo = { logoImagePicker.launch(arrayOf("image/*")) },
                 )
                 1 -> StyleTabSection(
                     draft = draft,
@@ -492,8 +571,10 @@ fun NewsQuickFillSheet(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                     )
+                                    val startStr = stringResource(R.string.news_time_seconds, item.startTimeMs.coerceAtLeast(0L) / 1_000f)
+                                    val endStr = stringResource(R.string.news_time_seconds, item.endTimeMs.coerceAtLeast(0L) / 1_000f)
                                     Text(
-                                        text = "${stringResource(labelForTemplate(item.templateId))} · ${formatSec(item.startTimeMs)}–${formatSec(item.endTimeMs)}",
+                                        text = "${stringResource(labelForTemplate(item.templateId))} · $startStr–$endStr",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         maxLines = 1,
@@ -566,7 +647,7 @@ fun NewsQuickFillSheet(
                     onClick = {
                         val custom = NewsBrandPreset(
                             id = "custom_${System.currentTimeMillis()}",
-                            name = newPresetName.trim().ifBlank { "Channel Preset" },
+                            name = newPresetName.trim().ifBlank { defaultPresetLabel },
                             logoUri = draft.content.logoUri,
                             primaryColorArgb = draft.style.primaryColorArgb,
                             secondaryColorArgb = draft.style.secondaryColorArgb,
@@ -636,7 +717,6 @@ private fun ContentTabSection(
             modifier = Modifier.fillMaxWidth(),
         )
 
-        // Breaking Lower-Third dual tabs & toggles
         if (draft.templateId == NewsTemplateId.BREAKING_DESK_16_9) {
             Row(horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small)) {
                 OutlinedTextField(
@@ -671,7 +751,6 @@ private fun ContentTabSection(
             )
         }
 
-        // Ticker fields
         if (draft.templateId == NewsTemplateId.BREAKING_DESK_16_9 || draft.templateId == NewsTemplateId.DATA_TICKER_DESK) {
             OutlinedTextField(
                 value = draft.tickerText,
@@ -705,7 +784,6 @@ private fun ContentTabSection(
             }
         }
 
-        // LIVE Bug & Clock fields
         if (draft.templateId == NewsTemplateId.LIVE_BUG_CLOCK) {
             OutlinedTextField(
                 value = draft.content.locationLabel,
@@ -745,7 +823,6 @@ private fun ContentTabSection(
             }
         }
 
-        // OTS Topic Card image picker
         if (draft.templateId == NewsTemplateId.OTS_TOPIC_CARD) {
             Row(horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small)) {
                 OutlinedButton(onClick = onPickOtsImage) {
@@ -759,7 +836,6 @@ private fun ContentTabSection(
             }
         }
 
-        // Stinger Wipe direction
         if (draft.templateId == NewsTemplateId.STINGER_WIPE) {
             ToggleRow(
                 label = stringResource(R.string.news_toggle_wipe_rtl),
@@ -768,7 +844,6 @@ private fun ContentTabSection(
             )
         }
 
-        // Callout Annotator mode
         if (draft.templateId == NewsTemplateId.CALLOUT_ANNOTATOR) {
             Text(text = stringResource(R.string.news_callout_mode), style = MaterialTheme.typography.labelMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small)) {
@@ -786,7 +861,6 @@ private fun ContentTabSection(
             }
         }
 
-        // Source & Archive HUD
         if (draft.templateId == NewsTemplateId.SOURCE_ARCHIVE_HUD) {
             OutlinedTextField(
                 value = draft.content.yearTag,
@@ -810,7 +884,6 @@ private fun StyleTabSection(
     onDraftChange: (NewsOverlayItem) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(MediaProSpacing.Small)) {
-        // Quick Theme Variants (Cream Paper / Dark Noir / Broadcast Red / Slate Blue)
         Text(text = stringResource(R.string.news_section_theme), style = MaterialTheme.typography.labelMedium)
         LazyRow(horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small)) {
             items(items = NewsThemeVariant.values().toList(), key = { it.name }) { variant ->
@@ -903,14 +976,14 @@ private fun MotionAudioTabSection(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(MediaProSpacing.Small)) {
         Text(text = stringResource(R.string.news_motion_style), style = MaterialTheme.typography.labelMedium)
+        val styles = listOf(
+            NewsMotionStyle.SLIDE to R.string.news_motion_slide,
+            NewsMotionStyle.WIPE to R.string.news_motion_wipe,
+            NewsMotionStyle.POP to R.string.news_motion_pop,
+            NewsMotionStyle.FADE to R.string.news_motion_fade,
+            NewsMotionStyle.NONE to R.string.news_motion_none,
+        )
         LazyRow(horizontalArrangement = Arrangement.spacedBy(MediaProSpacing.Small)) {
-            val styles = listOf(
-                NewsMotionStyle.SLIDE to R.string.news_motion_slide,
-                NewsMotionStyle.WIPE to R.string.news_motion_wipe,
-                NewsMotionStyle.POP to R.string.news_motion_pop,
-                NewsMotionStyle.FADE to R.string.news_motion_fade,
-                NewsMotionStyle.NONE to R.string.news_motion_none,
-            )
             items(items = styles, key = { it.first.name }) { (style, labelId) ->
                 FilterChip(
                     selected = draft.motion.inOutStyle == style,
@@ -945,9 +1018,9 @@ private fun MotionAudioTabSection(
             )
         }
 
-        // Start & Duration
+        val startSecText = stringResource(R.string.news_time_seconds, timelinePositionMs.coerceAtLeast(0L) / 1_000f)
         Text(
-            text = stringResource(R.string.news_timing_start, formatSec(timelinePositionMs)),
+            text = stringResource(R.string.news_timing_start, startSecText),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -955,10 +1028,11 @@ private fun MotionAudioTabSection(
         val durRange = if (isStinger) {
             NewsOverlayItem.STINGER_MIN_DURATION_MS.toFloat()..NewsOverlayItem.STINGER_MAX_DURATION_MS.toFloat()
         } else {
-            1_000f..30_000f
+            1_000f..NewsOverlayItem.MAX_DURATION_MS.toFloat()
         }
+        val durSecText = stringResource(R.string.news_time_seconds, draft.durationMs.coerceAtLeast(0L) / 1_000f)
         SliderRow(
-            label = stringResource(R.string.news_timing_duration, formatSec(draft.durationMs)),
+            label = stringResource(R.string.news_timing_duration, durSecText),
             value = draft.durationMs.toFloat().coerceIn(durRange.start, durRange.endInclusive),
             range = durRange,
             onValueChange = { raw ->
@@ -967,7 +1041,6 @@ private fun MotionAudioTabSection(
             },
         )
 
-        // Corner placement for LIVE Bug, OTS Card, Source HUD
         if (draft.templateId in setOf(
                 NewsTemplateId.LIVE_BUG_CLOCK,
                 NewsTemplateId.OTS_TOPIC_CARD,
@@ -996,7 +1069,6 @@ private fun MotionAudioTabSection(
             }
         }
 
-        // Normalized X/Y anchor + scale for Callout & OTS
         if (draft.templateId == NewsTemplateId.CALLOUT_ANNOTATOR) {
             SliderRow(
                 label = stringResource(R.string.news_slider_anchor_x, (draft.motion.anchorX * 100f).roundToInt()),
@@ -1026,7 +1098,6 @@ private fun MotionAudioTabSection(
             onCheckedChange = { onDraftChange(draft.copy(motion = draft.motion.copy(safeZoneLock = it))) },
         )
 
-        // Bundled Offline SFX Cue + Volume
         Text(text = stringResource(R.string.news_sfx_label), style = MaterialTheme.typography.labelMedium)
         val cues = listOf(
             NewsSfxCue.NONE to R.string.news_sfx_none,
@@ -1061,26 +1132,84 @@ private fun ColorSwatchRow(
     selectedArgb: Long,
     onSelect: (Long) -> Unit,
 ) {
+    var hexInput by remember(selectedArgb) {
+        mutableStateOf(String.format(Locale.US, "#%06X", selectedArgb.toInt() and 0xFFFFFF))
+    }
+    var hexError by remember(selectedArgb) { mutableStateOf(false) }
+
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(text = title, style = MaterialTheme.typography.labelMedium)
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(items = BRAND_SWATCHES, key = { it }) { argb ->
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            items(items = BRAND_SWATCHES, key = { it.first }) { (argb, name) ->
                 val isSelected = selectedArgb == argb
+                val swatchCd = stringResource(R.string.cd_color_swatch, name)
                 Box(
+                    contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .size(28.dp)
-                        .clip(CircleShape)
-                        .background(Color(argb))
-                        .border(
-                            width = if (isSelected) 2.5.dp else 1.dp,
-                            color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.35f),
-                            shape = CircleShape,
-                        )
-                        .clickable { onSelect(argb) },
-                )
+                        .size(40.dp)
+                        .semantics {
+                            contentDescription = swatchCd
+                            selected = isSelected
+                        }
+                        .clickable(role = Role.RadioButton) { onSelect(argb) },
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(26.dp)
+                            .clip(CircleShape)
+                            .background(Color(argb))
+                            .border(
+                                width = if (isSelected) 2.5.dp else 1.dp,
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.35f),
+                                shape = CircleShape,
+                            ),
+                    )
+                }
+            }
+        }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            OutlinedTextField(
+                value = hexInput,
+                onValueChange = { raw ->
+                    hexInput = raw
+                    hexError = false
+                },
+                label = { Text(stringResource(R.string.news_color_hex_hint)) },
+                isError = hexError,
+                supportingText = if (hexError) {
+                    { Text(stringResource(R.string.news_color_hex_invalid)) }
+                } else {
+                    null
+                },
+                singleLine = true,
+                modifier = Modifier.weight(1f),
+            )
+            OutlinedButton(
+                onClick = {
+                    val parsed = parseHexArgb(hexInput)
+                    if (parsed != null) {
+                        hexError = false
+                        onSelect(parsed)
+                    } else {
+                        hexError = true
+                    }
+                },
+            ) {
+                Text(stringResource(R.string.news_color_hex_apply))
             }
         }
     }
+}
+
+private fun parseHexArgb(raw: String): Long? {
+    val trimmed = raw.trim()
+    if (!HEX_COLOR_REGEX.matches(trimmed)) return null
+    val digits = trimmed.removePrefix("#")
+    val full = if (digits.length == 6) "FF$digits" else digits
+    return full.toLongOrNull(16)
 }
 
 @Composable
@@ -1090,7 +1219,14 @@ private fun ToggleRow(
     onCheckedChange: (Boolean) -> Unit,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .toggleable(
+                value = checked,
+                role = Role.Switch,
+                onValueChange = onCheckedChange,
+            )
+            .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
@@ -1099,7 +1235,7 @@ private fun ToggleRow(
             style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.weight(1f),
         )
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Switch(checked = checked, onCheckedChange = null)
     }
 }
 
@@ -1111,11 +1247,12 @@ private fun SliderRow(
     onValueChange: (Float) -> Unit,
 ) {
     Column {
-        Text(text = label, style = MaterialTheme.typography.labelMedium)
+        Text(text = label, style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"))
         Slider(
             value = value.coerceIn(range.start, range.endInclusive),
             onValueChange = onValueChange,
             valueRange = range,
+            modifier = Modifier.semantics { contentDescription = label },
         )
     }
 }
@@ -1151,6 +1288,8 @@ private fun createDefaultDraft(
     } else {
         ""
     }
+    val nowCal = Calendar.getInstance()
+    val clockAnchorMinutes = nowCal.get(Calendar.HOUR_OF_DAY) * 60 + nowCal.get(Calendar.MINUTE)
     return NewsOverlayItem(
         id = "",
         templateId = templateId,
@@ -1163,6 +1302,7 @@ private fun createDefaultDraft(
         durationMs = NewsOverlayItem.defaultDurationMsFor(templateId),
         content = NewsContentConfig(
             tickerChipMode = templateId == NewsTemplateId.DATA_TICKER_DESK,
+            systemClockStartMinutes = clockAnchorMinutes,
         ),
         style = preserveStyle ?: NewsStyleConfig(),
         motion = NewsMotionConfig(
@@ -1191,5 +1331,3 @@ private fun labelForTheme(variant: NewsThemeVariant): Int = when (variant) {
     NewsThemeVariant.DARK_NOIR -> R.string.news_theme_dark_noir
     NewsThemeVariant.SLATE_BLUE -> R.string.news_theme_slate_blue
 }
-
-private fun formatSec(ms: Long): String = String.format(Locale.US, "%.1fs", ms.coerceAtLeast(0L) / 1_000f)

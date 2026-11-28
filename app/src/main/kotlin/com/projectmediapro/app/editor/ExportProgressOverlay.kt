@@ -18,6 +18,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.ui.platform.LocalContext
+import com.projectmediapro.app.data.export.ShareExportHelper
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -297,6 +300,34 @@ internal fun ExportProgressOverlay(
                         )
 
                         Spacer(modifier = Modifier.height(MediaProSpacing.ExtraSmall))
+
+                        val shareContext = LocalContext.current
+                        if (!exportState.shareUri.isNullOrBlank()) {
+                            OutlinedButton(
+                                onClick = {
+                                    val opened = ShareExportHelper.shareVideo(shareContext, exportState.shareUri)
+                                    if (!opened) {
+                                        android.widget.Toast.makeText(
+                                            shareContext,
+                                            R.string.editor_export_share_failed,
+                                            android.widget.Toast.LENGTH_SHORT,
+                                        ).show()
+                                    }
+                                },
+                                shape = MediaProShapes.Small,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .defaultMinSize(minHeight = MediaProSpacing.MinTouchTarget),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Share,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(modifier = Modifier.size(8.dp))
+                                Text(text = stringResource(R.string.editor_export_share_video))
+                            }
+                        }
 
                         Button(
                             onClick = onDismissDone,
